@@ -9,6 +9,21 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  supabase_flutter: ^2.5.8
+  flutter_dotenv: ^5.1.0
+  bloc: ^8.1.4
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.5
+  flutter_svg: ^2.0.10+1
+  flutter_animate: ^4.5.0
+  logging: ^1.2.0
+  google_generative_ai: ^0.4.6
+  shared_preferences: ^2.3.3
+  animated_text_kit: ^4.2.2
+  rive: ^0.13.20
+  path_provider: ^2.0.5
+  path_provider_android: ^2.2.15
+
 
 dev_dependencies:
   flutter_test:
@@ -17,3 +32,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+      - assets/images/
+      - assets/icons/
+      - .env
