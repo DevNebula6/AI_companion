@@ -27,7 +27,7 @@ class MessageBubble extends StatelessWidget {
               decoration: BoxDecoration(
                 color: message.isBot 
                     ? Colors.grey[200] 
-                    : Theme.of(context).primaryColor.withOpacity(0.9),
+                    : const Color(0xFF007AFF),
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(message.isBot ? 4 : 20),
                   topRight: Radius.circular(message.isBot ? 20 : 4),

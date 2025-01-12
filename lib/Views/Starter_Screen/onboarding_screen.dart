@@ -21,28 +21,18 @@ class _OnboardingScreenViewState extends State<OnboardingScreenView> {
       quote: "Meet Your Perfect AI Companion",
       info: "Experience meaningful conversations with an AI that truly understands you",
       image: "assets/images/companion_welcome.jpg",
-      gradientColors: [
-        Colors.purple.withOpacity(0.7),
-        Colors.blue.withOpacity(0.5),
-      ],
+      
     ),
     OnboardingPage(
       quote: "Grow Together",
       info: "Build a genuine connection that evolves with your journey",
       image: "assets/images/emotional_connection.jpg",
-      gradientColors: [
-        Colors.indigo.withOpacity(0.7),
-        Colors.teal.withOpacity(0.5),
-      ],
+      
     ),
     OnboardingPage(
       quote: "Your Safe Space",
       info: "Share your thoughts freely with an understanding and supportive companion",
       image: "assets/images/safe_space.jpg",
-      gradientColors: [
-        Colors.deepPurple.withOpacity(0.7),
-        Colors.cyan.withOpacity(0.5),
-      ],
       isLast: true,
     ),
   ];
@@ -150,7 +140,7 @@ Widget _buildPage(OnboardingPage page, {required BuildContext context}) {
         image: AssetImage(page.image),
         fit: BoxFit.cover,
         colorFilter: ColorFilter.mode(
-          Colors.black.withOpacity(0.3),
+          Colors.black.withOpacity(0),
           BlendMode.darken,
         ),
       ),
@@ -181,7 +171,7 @@ Widget _buildPage(OnboardingPage page, {required BuildContext context}) {
                     Shadow(
                       offset: const Offset(0, 2),
                       blurRadius: 4,
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withOpacity(0.9),
                     ),
                   ],
                 ),

@@ -50,18 +50,13 @@ class _EmailVerificationState extends State<EmailVerification> {
                         const SizedBox(height: 24),
                         Text(
                           'Verify Your Email',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            color: Colors.deepOrange[800],
-                            fontWeight: FontWeight.bold,
-                          ),
+                          
                         ),
                         const SizedBox(height: 16),
                         Text(
                           'We\'ve sent a verification email. Please check your inbox and click the link to verify your account.',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: Colors.brown[700],
-                          ),
+                          
                         ),
                         const SizedBox(height: 32),
                         ElevatedButton(
