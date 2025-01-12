@@ -185,7 +185,8 @@ Future<CustomAuthUser> signInWithGoogle() async {
   try {
     final response = await _supabase.auth.signInWithOAuth(
       OAuthProvider.google,
-      redirectTo: 'io.supabase.flutterquickstart://login-callback/',
+       redirectTo: 'io.supabase.flutterquickstart://login-callback/',
+      authScreenLaunchMode: LaunchMode.inAppWebView,
     );
     if (!response) {
       throw GoogleLoginFailureException();
@@ -206,7 +207,7 @@ Future<CustomAuthUser> signInWithGoogle() async {
     );
 
     final authState = await completer.future.timeout(
-      const Duration(seconds: 30),
+      const Duration(seconds: 20),
       onTimeout: () {
         subscription.cancel();
         throw LoginTimeoutException();
