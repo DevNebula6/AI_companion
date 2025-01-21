@@ -1,7 +1,10 @@
 import 'dart:ui';
 
+import 'package:ai_companion/ErrorHandling/error_translator.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
+import 'package:ai_companion/auth/Bloc/auth_state.dart';
+import 'package:ai_companion/utilities/Dialogs/show_message.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -60,11 +63,11 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
           _random.nextDouble() * size.height,
         ),
         velocity: Offset(
-          (_random.nextDouble() - 0.5) * 7,
-          (_random.nextDouble() - 0.5) * 7,
+          (_random.nextDouble() ) * 5,
+          (_random.nextDouble()) * 5,
         ),
         scale: baseParticleSize + _random.nextDouble() * 1,
-        maxSpeed: 1.5 + _random.nextDouble(),
+        maxSpeed: 2 + _random.nextDouble(),
         rotationSpeed: (_random.nextBool() ? 1 : -1) * _random.nextDouble() * 0.05,
 
       ));
@@ -92,7 +95,26 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    String message = '';
+    return BlocListener<AuthBloc, AuthState>(
+      listener: (context, state) {
+        
+        if (state is AuthStateLoggedOut && state.exception != null) {
+        setState(() {
+          _isLoading = false; // Reset loading state on any state change
+        });
+        message = ErrorTranslator.translate(state.exception!);        
+        }
+        if (message.isNotEmpty) {
+          showMessage(
+            message: message,
+            context: context,
+            icon: Icons.error,
+            backgroundColor: Colors.red.withOpacity(0.8),
+          );
+        }
+      },
+      child: Scaffold(
       body: Stack(
         children: [
           _buildAnimatedBackground(),
@@ -104,6 +126,7 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
           
         ],
       ),
+    )
     );
   }
 
@@ -172,11 +195,11 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
               width: size.width * 0.85,
               padding: const EdgeInsets.all(32),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(.1),
+                color: Colors.black.withOpacity(.8),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
                   color: Colors.black,
-                  width: 0,
+                  width: 2.5,
                 ),
             
               ),
@@ -271,7 +294,7 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
                 foregroundColor: backgroundColor == Colors.white ? 
                     Colors.black87 : Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 elevation: 1,

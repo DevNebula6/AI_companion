@@ -1,13 +1,11 @@
 import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/sign_page.dart';
+import 'package:ai_companion/Views/user_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:logging/logging.dart';
 import 'package:ai_companion/Views/Home/home_page.dart';
-import 'package:ai_companion/Views/Starter_Screen/email_verification.dart';
-import 'package:ai_companion/Views/Starter_Screen/forgot_password_view.dart';
-import 'package:ai_companion/Views/Starter_Screen/register_page.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
@@ -93,21 +91,19 @@ class MainApp extends StatelessWidget {
   }
 
   Widget _buildHomeContent(BuildContext context, AuthState state) {
-    if (state is AuthStateRegistering) {
-      return const RegisterView();
-    } else if (state is AuthStateLoggedIn) {
-      return state.user.isEmailVerified 
-          ? const ChatScreen() 
-          : const EmailVerification();
-    } else if (state is AuthStateNeedsVerification) {
-      return const EmailVerification();
-    } else if (state is AuthStateForgotPassword) {
-      return const ForgotPasswordView();
+    if (state is AuthStateLoggedIn) {
+      if (state is AuthStateUserProfile || !state.user.hasCompletedProfile) {
+        return const UserProfilePage() ;
+      } else {
+        return const ChatScreen();
+      }
     } else if (state is AuthStateLoggedOut) {
       return _buildLoggedOutView(state.intendedView);
+    } else if (state is AuthStateUserProfile) {
+      return const UserProfilePage();
     } else {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        body: Center(child: Text("$state")),
       );
     }
   }
@@ -116,8 +112,6 @@ class MainApp extends StatelessWidget {
     switch (view) {
       case AuthView.signIn:
         return const SignInView();
-      case AuthView.register:
-        return const RegisterView();
       case AuthView.onboarding:
       default:
         return const OnboardingScreenView();

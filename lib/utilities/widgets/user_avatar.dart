@@ -18,15 +18,8 @@ class UserAvatar extends StatelessWidget {
     if (user.avatarUrl != null) {
       return user.avatarUrl; // From CustomAuthUser
     }
-    
-    // Get from Google auth
-    if (user.providerType == 'google.com') {
-      return user.metadata['picture'] as String?;
-    }
-    
-    // Get from Facebook auth
-    if (user.providerType == 'facebook.com') {
-      return user.metadata['picture']?['data']?['url'] as String?;
+    if (user.metadata['avatar_url'] != null) {
+      return user.metadata['avatar_url'] as String; // From Supabase User
     }
 
     // Get from email (Gravatar fallback)
