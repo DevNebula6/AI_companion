@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 @immutable
@@ -10,7 +12,8 @@ class CustomAuthUser {
   final String? dob;
   final String? gender;
   final String? avatarUrl;
-  final String? preferences;
+  final String? interests;
+  final String? personalityTraits;
   final String? aiModel;
   final String? chatLanguage;
   final Map<String, dynamic> metadata;
@@ -24,7 +27,8 @@ class CustomAuthUser {
     this.dob,
     this.gender,
     this.avatarUrl,
-    this.preferences,
+    this.interests,
+    this.personalityTraits,
     this.chatLanguage,
     this.metadata = const {},
     this.deviceToken,
@@ -33,15 +37,18 @@ class CustomAuthUser {
 
   static Future<CustomAuthUser?> getCurrentUser() async {
     try {
+      // First try to get from shared preferences
+      final prefs = await SharedPreferences.getInstance();
+      final userData = prefs.getString('user_data');
+      
+      if (userData != null) {
+        return CustomAuthUser.fromJson(jsonDecode(userData));
+      }
+    // If not found locally, get from Supabase
       final supabase = SupabaseClientManager().client;
       final currentUser = supabase.auth.currentUser;
-      if (currentUser != null) {
-        // Refresh the session to get the most up-to-date user data
-        await supabase.auth.refreshSession();
-        final refreshedUser = supabase.auth.currentUser;
-        if (refreshedUser != null && refreshedUser.email != null) {
-          return CustomAuthUser.fromSupabase(refreshedUser);
-        }
+      if (currentUser != null && currentUser.email != null) {
+        return CustomAuthUser.fromSupabase(currentUser);
       }
       return null;
     } catch (e) {
@@ -49,6 +56,7 @@ class CustomAuthUser {
       return null;
     }
   }
+
   // Create from Supabase User
   factory CustomAuthUser.fromSupabase(User user) {
     return CustomAuthUser(
@@ -63,18 +71,28 @@ class CustomAuthUser {
   
   // Create from database record
   factory CustomAuthUser.fromJson(Map<String, dynamic> json) {
-    return CustomAuthUser(
-      id: json['uid'] ?? '',
-      email: json['email'] ?? '',
-      fullName: json['full_name'],
-      avatarUrl: json['img_url'],
-      metadata: json['metadata'] ?? {},
+  return CustomAuthUser(
+    id: json['uid'] ?? '',
+    email: json['email'] ?? '',
+    fullName: json['full_name'],
+    avatarUrl: json['img_url'],
+    metadata: json['metadata'] ?? {},
+    dob: json['dob'],
+    interests: json['interests'],
+    aiModel: json['ai_model'],
+    personalityTraits: json['personality_traits'],
+    deviceToken: json['device_token'],
+    chatLanguage: json['chat_language'],
+    gender: json['gender'], 
+  );
+}
+  // Add getters for lists
+  List<String> get interestsList => 
+      interests?.split(',').map((e) => e.trim()).toList() ?? [];
 
-      deviceToken: json['device_token'],
-    );
-  }
+  List<String> get personalityTraitsList => 
+      personalityTraits?.split(',').map((e) => e.trim()).toList() ?? [];
 
-  // Convert to JSON for database storage
   Map<String, dynamic> toJson() {
     return {
       'uid': id,
@@ -84,34 +102,74 @@ class CustomAuthUser {
       'metadata': metadata,
       'device_token': deviceToken,
       'dob': dob,
+      'interests': interests,
+      'ai_model': aiModel,
+      'personality_traits': personalityTraits,
+      'chat_language': chatLanguage,
+      'gender': gender,
+    };
+    }
+
+  // Add method to get AI-ready format
+  Map<String, dynamic> toAIFormat() {
+    return {
+      'name': fullName ?? '',
+      'interests': interestsList,
+      'personality_traits': personalityTraitsList,
+      'age': dob != null ? _calculateAge(DateTime.parse(dob!)) : null,
+      'gender': gender ?? '',
+      'chat_language': chatLanguage ?? 'English',
     };
   }
+
+  int _calculateAge(DateTime birthDate) {
+    final now = DateTime.now();
+    int age = now.year - birthDate.year;
+    if (now.month < birthDate.month || 
+       (now.month == birthDate.month && now.day < birthDate.day)) {
+      age--;
+    }
+    return age;
+  }
+
 
   // Create copy with modifications
   CustomAuthUser copyWith({
     String? fullName,
     String? dob,
     String? avatarUrl,
-    String? preferences,
+    String? interests,
     String? aiModel,
+    String? gender,
     String? deviceToken,
-
+    String? chatLanguage,
+    String? personalityTraits,
+    Map<String, dynamic>? metadata,
   }) {
     return CustomAuthUser(
       id: id,
       email: email,
       dob: dob ?? this.dob,
-      preferences: preferences ?? this.preferences, 
+      interests: interests ?? this.interests, 
       aiModel: aiModel ?? this.aiModel, 
+      gender: gender ?? this.gender,
       fullName: fullName ?? this.fullName,
       avatarUrl: avatarUrl ?? this.avatarUrl,
-      metadata: metadata,
+      metadata: metadata ?? this.metadata,
       deviceToken: deviceToken ?? this.deviceToken,
+      chatLanguage: chatLanguage ?? this.chatLanguage,
+      personalityTraits: personalityTraits ?? this.personalityTraits,
+      
     );
   }
 
    // Utility methods
   bool get hasCompletedProfile => 
-      preferences != null && fullName != null ;
+      fullName != null && 
+      fullName!.isNotEmpty &&
+      dob != null &&
+      gender != null &&
+      interestsList.isNotEmpty &&
+      personalityTraitsList.isNotEmpty;
 
 }

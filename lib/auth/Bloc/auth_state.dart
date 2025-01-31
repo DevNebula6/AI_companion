@@ -42,6 +42,16 @@ class AuthStateUserProfile extends AuthState {
   });
 }
 
+class AuthStateSelectCompanion extends AuthState {
+  final CustomAuthUser user;
+  final Exception? exception;
+  const AuthStateSelectCompanion({
+    required this.user,
+    required super.isLoading,
+    this.exception,
+  });
+}
+
 class AuthStateLoggedOut extends AuthState with EquatableMixin {
   final Exception? exception;
   @override
