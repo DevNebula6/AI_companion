@@ -1,8 +1,10 @@
+import 'dart:convert';
 
 import 'package:bloc/bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/auth_providers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthBloc extends Bloc<AuthEvents, AuthState> {
 
@@ -21,11 +23,44 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       emit(AuthStateLoggedOut(
         exception: e,
         isLoading: false,
-        intendedView: AuthView.signIn,
+        intendedView: AuthView.onboarding,
       ));
     }
   });
+  //user profile
+  on<AuthEventUserProfile>((event, emit) async {
+    final currentUser = event.user;
+    try {
+    // Save updated user to shared preferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_data', jsonEncode(currentUser.toJson()));
 
+    emit(AuthStateUserProfile(
+      user: currentUser,
+      isLoading: false,
+    ));
+
+    if(currentUser.aiModel == '' || currentUser.aiModel == null) {
+      // emit(AuthStateSelectCompanion(
+      //   user: currentUser,
+      //   isLoading: false,
+      // ));
+    } else {
+      emit(AuthStateLoggedIn(
+        user: currentUser,
+        isLoading: false,
+      ));
+    }
+    }
+    catch (e) {
+      emit(AuthStateUserProfile(
+        user: currentUser,
+        isLoading: false,
+        exception: e as Exception,
+      ));
+    }
+      
+  });
   //navigate to sign in
   on<AuthEventNavigateToSignIn>((event, emit) {
       emit(const AuthStateLoggedOut(
@@ -128,38 +163,5 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
         ));
       }
   });
-  // log in
-  // on<AuthEventLogIn>((event, emit) async {
-  //     emit(const AuthStateLoggedOut(
-  //       exception: null,
-  //       isLoading: true,
-  //       loadingText: 'Signing in...',
-  //     ));
-      
-  //     try {
-  //       final user = await provider.login(
-  //         email: event.email,
-  //         password: event.password,
-  //       );
-
-  //       if (!user.hasCompletedProfile) {
-  //         emit( AuthStateUserProfile(
-  //           user: user,
-  //           isLoading: false,
-  //         ));
-  //       } else {
-  //         emit(AuthStateLoggedIn(
-  //           user: user,
-  //           isLoading: false,
-  //         ));
-  //       }
-  //     } on Exception catch (e) {
-  //       emit(AuthStateLoggedOut(
-  //         exception: e,
-  //         isLoading: false,
-  //         intendedView: AuthView.signIn,
-  //       ));
-  //     }
-  // });
    }
 }

@@ -1,5 +1,5 @@
-import 'dart:io';
 
+import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:flutter/foundation.dart' show immutable;
 
 @immutable
@@ -22,10 +22,9 @@ class AuthEventSignInWithFacebook extends AuthEvents {
 }
 
 class AuthEventUserProfile extends AuthEvents {
+  final CustomAuthUser user;
  const AuthEventUserProfile({
-  required String fullName, 
-  required String username, 
-  File? profileImage
+  required  this.user,
   });
 }
 
