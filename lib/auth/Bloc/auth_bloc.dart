@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:bloc/bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
@@ -27,6 +26,17 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       ));
     }
   });
+  //logged in
+  on<AuthEventLoggedIn>((event, emit) {
+    emit(AuthStateLoggedIn(
+      user: event.user,
+      isLoading: false,
+    ));
+  });
+  //Companion selection screen
+  
+
+
   //user profile
   on<AuthEventUserProfile>((event, emit) async {
     final currentUser = event.user;
@@ -40,11 +50,11 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       isLoading: false,
     ));
 
-    if(currentUser.aiModel == '' || currentUser.aiModel == null) {
-      // emit(AuthStateSelectCompanion(
-      //   user: currentUser,
-      //   isLoading: false,
-      // ));
+    if(currentUser.aiModel?.name == '' || currentUser.aiModel == null) {
+      emit(AuthStateSelectCompanion(
+        user: currentUser,
+        isLoading: false,
+      ));
     } else {
       emit(AuthStateLoggedIn(
         user: currentUser,

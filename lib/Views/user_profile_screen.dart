@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/auth_exceptions.dart';
@@ -10,7 +9,6 @@ import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/utilities/Dialogs/show_message.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 
 class UserProfilePage extends StatefulWidget {
@@ -52,12 +50,15 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
     'Male', 'Female', 'Prefer not to say'
   ];
 
-  // Add new constants for styling
-  static const primaryColor = Color(0xFF6C63FF); // Modern purple
-  static const secondaryColor = Color(0xFF2C2C2C);
-  static const backgroundColor = Color(0xFFF8F9FE);
+  // Updated color scheme
+  static const primaryColor = Color(0xFF7C4DFF); // Deep purple for AI/Tech feel
+  static const accentColor = Color(0xFF2AC3FF); // Bright blue for accents
+  static const backgroundColor = Color(0xFFF8F9FF); // Soft background
+  static const secondaryColor = Color(0xFF4D4F5C); // Dark grey for text
   static const cardColor = Colors.white;
+  static const textColor = Color(0xFF2D3142);
   
+  // Animation controllers
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
@@ -66,9 +67,11 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 400),
     );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(_animationController);
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
     _initializeControllers();
     _loadUserData();
     _animationController.forward();
@@ -140,10 +143,29 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
           }
         }
       },
+      child: PopScope(
+  canPop: _currentUser?.aiModel != null && _currentUser!.aiModel!.toString().isNotEmpty,
+  onPopInvokedWithResult: (bool didPop, dynamic result) async {
+    if (_currentUser?.aiModel != null && _currentUser!.aiModel!.toString().isNotEmpty) {
+      context.read<AuthBloc>().add(
+        AuthEventLoggedIn(user: _currentUser!),
+      );
+    }
+  },
       child: Scaffold(
         backgroundColor: backgroundColor,
         appBar: AppBar(
           elevation: 0,
+          leading: _currentUser?.aiModel != null && _currentUser!.aiModel!.toString().isNotEmpty
+            ? BackButton(
+                color: secondaryColor,
+                onPressed: () {
+                  context.read<AuthBloc>().add(
+                    AuthEventLoggedIn(user: _currentUser!),
+                  );
+                },
+              )
+            : null,
           backgroundColor: cardColor,
           title: Text(
             'Your Profile',
@@ -157,7 +179,7 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
         ),
         body: _buildForm(),
       ),
-    );
+    ));
   }
 
   Widget _buildForm() {
@@ -166,17 +188,20 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
       child: Form(
         key: _formKey,
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16, // Reduced horizontal padding
+            vertical: 12,
+          ),
           children: [
             _buildProfileHeader(),
-            const SizedBox(height: 32),
-            _buildBasicInfoSection(),
-            const SizedBox(height: 32),
-            _buildPersonalitySection(),
-            const SizedBox(height: 32),
-            _buildInterestsSection(),
-            const SizedBox(height: 32),
-            _buildPreferencesSection(),
+            const SizedBox(height: 24), // Reduced spacing
+            _buildInfoCard(),
+            const SizedBox(height: 16), // Reduced spacing
+            _buildTraitsCard(),
+            const SizedBox(height: 24),
+            _buildInterestsCard(),
+            const SizedBox(height: 24),
+            _buildPreferencesCard(),
             const SizedBox(height: 32),
             _buildSaveButton(),
             const SizedBox(height: 32),
@@ -214,9 +239,9 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
                       _currentUser!.avatarUrl!,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) =>
-                          Icon(Icons.person, size: 60, color: cardColor),
+                          const Icon(Icons.person, size: 60, color: cardColor),
                     )
-                  : Icon(Icons.person, size: 60, color: cardColor),
+                  : const Icon(Icons.person, size: 60, color: cardColor),
             ),
           ),
           const SizedBox(height: 16),
@@ -233,56 +258,62 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
     );
   }
 
-  Widget _buildBasicInfoSection() {
-    return Container(
-      padding: const EdgeInsets.all(20),
+  Widget _buildInfoCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
       decoration: BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: primaryColor.withOpacity(0.08),
+            offset: const Offset(0, 8),
+            blurRadius: 24,
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Basic Information',
-            style: GoogleFonts.poppins(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: secondaryColor,
+      child: Padding(
+        padding: const EdgeInsets.all(20), // Reduced padding
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Basic Information',
+              style: GoogleFonts.poppins(
+                fontSize: 20, // Slightly smaller
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
-          _buildStylizedTextField(
-            controller: _fullNameController,
-            label: 'Full Name',
-            icon: Icons.person_outline,
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStylizedTextField(
-                  controller: _dobController,
-                  label: 'Date of Birth',
-                  icon: Icons.calendar_today,
-                  onTap: _selectDate,
-                  readOnly: true,
+            const SizedBox(height: 16), // Reduced spacing
+            _buildStylizedTextField(
+              controller: _fullNameController,
+              label: 'Full Name',
+              icon: Icons.person_outline,
+            ),
+            const SizedBox(height: 16), // Reduced spacing
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 1,
+                  child: _buildStylizedTextField(
+                    controller: _dobController,
+                    label: 'Date of Birth',
+                    icon: Icons.calendar_today,
+                    onTap: _selectDate,
+                    readOnly: true,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildGenderSelection(),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 12), // Reduced spacing
+                Expanded(
+                  flex: 1,
+                  child: _buildGenderDropdown(),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -309,7 +340,7 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: primaryColor, width: 2),
+          borderSide: const BorderSide(color: primaryColor, width: 2),
         ),
         filled: true,
         fillColor: cardColor,
@@ -317,126 +348,232 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
     );
   }
 
-  Widget _buildGenderSelection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Gender',
-          style: Theme.of(context).textTheme.bodyLarge),
-        Wrap(
-          spacing: 8.0,
-          children: _genders.map((gender) =>
-            ChoiceChip(
-              label: Text(gender),
-              selected: _selectedGender == gender,
-              onSelected: (selected) {
-                setState(() {
-                  _selectedGender = selected ? gender : null;
-                });
-              },
-            ),
-          ).toList(),
+  Widget _buildGenderDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedGender,
+      isExpanded: true, // Ensures dropdown fits in available space
+      isDense: true, // Makes the dropdown more compact
+      icon: const Icon(Icons.arrow_drop_down, size: 20), // Smaller icon
+      decoration: InputDecoration(
+        labelText: 'Gender',
+        labelStyle: GoogleFonts.poppins(
+          color: textColor.withOpacity(0.7),
+          fontSize: 15, // Smaller font size
         ),
-      ],
-    );
-  }
-
-  Widget _buildPersonalitySection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Personality Traits',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          )),
-        const SizedBox(height: 8),
-        Text('Select traits that best describe you',
-          style: Theme.of(context).textTheme.bodyMedium),
-        Wrap(
-          spacing: 8.0,
-          children: _personalityTraits.map((trait) =>
-            FilterChip(
-              label: Text(trait),
-              selected: _selectedPersonalityTraits.contains(trait),
-              onSelected: (selected) {
-                setState(() {
-                  if (selected) {
-                    _selectedPersonalityTraits.add(trait);
-                  } else {
-                    _selectedPersonalityTraits.remove(trait);
-                  }
-                });
-              },
-            ),
-          ).toList(),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 8,
+        ), // Optimized padding
+        prefixIcon: const Icon(
+          Icons.person_outline,
+          color: primaryColor,
+          size: 20, // Smaller icon
         ),
-      ],
-    );
-  }
-
-  Widget _buildInterestsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Interests',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          )),
-        const SizedBox(height: 8),
-        Text('Select your interests to personalize conversations',
-          style: Theme.of(context).textTheme.bodyMedium),
-        Wrap(
-          spacing: 8.0,
-          children: _interests.map((interest) =>
-            FilterChip(
-              label: Text(interest),
-              selected: _selectedInterests.contains(interest),
-              onSelected: (selected) {
-                setState(() {
-                  if (selected) {
-                    _selectedInterests.add(interest);
-                  } else {
-                    _selectedInterests.remove(interest);
-                  }
-                });
-              },
-            ),
-          ).toList(),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: textColor.withOpacity(0.2)),
         ),
-      ],
-    );
-  }
-
-  Widget _buildPreferencesSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Communication Preferences',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          )),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          value: _selectedLanguage,
-          decoration: InputDecoration(
-            labelText: 'Preferred Language',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: primaryColor, width: 2),
+        ),
+        filled: true,
+        fillColor: cardColor,
+      ),
+      items: _genders.map((gender) => DropdownMenuItem(
+        value: gender,
+        child: Text(
+          gender,
+          style: GoogleFonts.poppins(
+            fontSize: 14, // Smaller font size
           ),
-          items: _languages.map((language) =>
-            DropdownMenuItem(
-              value: language,
-              child: Text(language),
-            ),
-          ).toList(),
-          onChanged: (value) {
-            setState(() {
-              _selectedLanguage = value!;
-            });
-          },
+          overflow: TextOverflow.ellipsis,
         ),
-      ],
+      )).toList(),
+      onChanged: (value) {
+        setState(() => _selectedGender = value);
+      },
+    );
+  }
+
+  Widget _buildTraitsCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.08),
+            offset: const Offset(0, 8),
+            blurRadius: 24,
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(_getResponsivePadding(context)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Personality Traits',
+              style: GoogleFonts.poppins(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: _personalityTraits.map((trait) => _buildAnimatedChip(
+                label: trait,
+                isSelected: _selectedPersonalityTraits.contains(trait),
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _selectedPersonalityTraits.add(trait);
+                    } else {
+                      _selectedPersonalityTraits.remove(trait);
+                    }
+                  });
+                },
+              )).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedChip({
+    required String label,
+    required bool isSelected,
+    required Function(bool) onSelected,
+  }) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      child: FilterChip(
+        label: Text(
+          label,
+          style: GoogleFonts.poppins(
+            color: isSelected ? Colors.white : textColor,
+          ),
+        ),
+        selected: isSelected,
+        onSelected: onSelected,
+        backgroundColor: cardColor,
+        selectedColor: primaryColor,
+        checkmarkColor: Colors.white,
+        elevation: isSelected ? 4 : 0,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+    );
+  }
+
+  Widget _buildInterestsCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.08),
+            offset: const Offset(0, 8),
+            blurRadius: 24,
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Interests',
+              style: GoogleFonts.poppins(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: _interests.map((interest) => _buildAnimatedChip(
+                label: interest,
+                isSelected: _selectedInterests.contains(interest),
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _selectedInterests.add(interest);
+                    } else {
+                      _selectedInterests.remove(interest);
+                    }
+                  });
+                },
+              )).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreferencesCard() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.08),
+            offset: const Offset(0, 8),
+            blurRadius: 24,
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Communication Preferences',
+              style: GoogleFonts.poppins(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _selectedLanguage,
+              decoration: InputDecoration(
+                labelText: 'Preferred Language',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              items: _languages.map((language) =>
+                DropdownMenuItem(
+                  value: language,
+                  child: Text(language),
+                ),
+              ).toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedLanguage = value!;
+                });
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -445,8 +582,8 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          colors: [primaryColor, primaryColor.withOpacity(0.8)],
+        gradient: const LinearGradient(
+          colors: [primaryColor, accentColor],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),
@@ -466,16 +603,24 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
         ),
         child: _isLoading
             ? const CircularProgressIndicator(color: Colors.white)
-            : Text(
-                'Save & Continue',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Save Profile',
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.arrow_forward_rounded, color: Colors.white),
+                ],
               ),
       ),
     );
@@ -533,5 +678,13 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  // Add responsive sizing helper
+  double _getResponsivePadding(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width < 360) return 12.0;
+    if (width < 400) return 16.0;
+    return 20.0;
   }
 }
