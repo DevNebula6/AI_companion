@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:flutter/material.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,7 +15,7 @@ class CustomAuthUser {
   final String? avatarUrl;
   final String? interests;
   final String? personalityTraits;
-  final String? aiModel;
+  final AICompanion? aiModel;
   final String? chatLanguage;
   final Map<String, dynamic> metadata;
   final String? deviceToken; // For push notifications
@@ -79,7 +80,7 @@ class CustomAuthUser {
     metadata: json['metadata'] ?? {},
     dob: json['dob'],
     interests: json['interests'],
-    aiModel: json['ai_model'],
+    aiModel: AICompanion.fromJson(json['ai_model']),
     personalityTraits: json['personality_traits'],
     deviceToken: json['device_token'],
     chatLanguage: json['chat_language'],
@@ -139,7 +140,7 @@ class CustomAuthUser {
     String? dob,
     String? avatarUrl,
     String? interests,
-    String? aiModel,
+    AICompanion? aiModel,
     String? gender,
     String? deviceToken,
     String? chatLanguage,

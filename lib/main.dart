@@ -1,9 +1,12 @@
+import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/sign_page.dart';
+import 'package:ai_companion/Views/companion_selection.dart';
 import 'package:ai_companion/Views/user_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
 import 'package:ai_companion/Views/Home/home_page.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
@@ -22,6 +25,11 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
   final prefs = await SharedPreferences.getInstance();
+  await Hive.initFlutter();
+  Hive.registerAdapter(AICompanionAdapter());
+  Hive.registerAdapter(PhysicalAttributesAdapter());
+  Hive.registerAdapter(PersonalityTraitsAdapter());
+  await Hive.openBox<AICompanion>('companions');
 
    _setupLogging();
   runApp(
@@ -101,6 +109,8 @@ class MainApp extends StatelessWidget {
       return _buildLoggedOutView(state.intendedView);
     } else if (state is AuthStateUserProfile) {
       return const UserProfilePage();
+    } else if (state is AuthStateSelectCompanion) {
+      return const CompanionSelectionPage();
     } else {
       return Scaffold(
         body: Center(child: Text("$state")),

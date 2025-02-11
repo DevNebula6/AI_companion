@@ -10,7 +10,12 @@ abstract class AuthEvents{
 class AuthEventInitialise extends AuthEvents {
   const AuthEventInitialise();
 }
-
+class AuthEventLoggedIn extends AuthEvents {
+  final CustomAuthUser user;
+ const AuthEventLoggedIn({
+  required  this.user,
+  });
+}
 
 class AuthEventGoogleSignIn extends AuthEvents {
   const AuthEventGoogleSignIn();
