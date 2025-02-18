@@ -1,5 +1,15 @@
+import 'dart:math';
+
+import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
+import 'package:ai_companion/Companion/bloc/companion_event.dart';
+import 'package:ai_companion/Companion/bloc/companion_state.dart';
+import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
+import 'package:ai_companion/auth/Bloc/auth_state.dart';
+import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:flutter/material.dart';
 import 'package:card_swiper/card_swiper.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class CompanionSelectionPage extends StatefulWidget {
@@ -10,85 +20,74 @@ class CompanionSelectionPage extends StatefulWidget {
 }
 
 class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
-  final List<Map<String, dynamic>> companions = [
-    {
-      'name': 'Sophie',
-    'gender': 'female',
-    'age': 24,
-    'avatar': 'assets/images/sophie.jpg', // Add actual image path
-    'physical_attributes': {
-      'height': "5'7\"",
-      'body_type': 'Athletic',
-      'eye_color': 'Green',
-      'hair_color': 'Auburn',
-      'style_description': 'Modern casual with a creative twist',
-    },
-    'personality_traits': [
-      {'trait_name': 'Empathetic', 'strength': 9},
-      {'trait_name': 'Creative', 'strength': 8},
-      {'trait_name': 'Witty', 'strength': 7},
-      {'trait_name': 'Adventurous', 'strength': 8},
-      {'trait_name': 'Intellectual', 'strength': 9}
-    ],
-    'background_story': {
-      'life_story': 'Born in Seattle, Sophie grew up surrounded by art and nature. She graduated with a degree in Fine Arts and has since been pursuing her passion for photography and digital art. Her creative spirit and empathetic nature make her an excellent companion for deep conversations about art, life, and personal growth.',
-      'interests': ['Art', 'Photography', 'Travel', 'Nature', 'Technology'],
-      'hobbies': ['Painting', 'Hiking', 'Coffee brewing', 'Digital art', 'Reading']
-    },
-    'conversation_style': {
-      'communication_preference': 'Casual but thoughtful',
-      'humor_level': 'Witty and playful',
-      'depth': 'Can switch between light chat and deep discussions'
+  late CustomAuthUser user;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize user in initState
+      _initializeCompanionData();
+  }
+
+  void _initializeCompanionData() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthStateLoggedIn) {
+      setState(() {
+        user = authState.user;
+      });
+      context.read<CompanionBloc>().add(LoadCompanions());
+      
     }
-  },
-    // Add more companions here
-  {
-        'name': 'Alex',
-        'gender': 'male',
-        'age': 27,
-        'avatar': 'assets/images/companion_welcome.jpg',
-        'physical_attributes': {
-        'height': "6'0\"",
-        'body_type': 'Fit',
-        'eye_color': 'Brown',
-        'hair_color': 'Black',
-        'style_description': 'Smart casual with a tech-savvy edge',
-        },
-    'personality_traits': [
-        {'trait_name': 'Analytical', 'strength': 9},
-        {'trait_name': 'Patient', 'strength': 8},
-        {'trait_name': 'Humorous', 'strength': 7},
-        {'trait_name': 'Supportive', 'strength': 9},
-        {'trait_name': 'Tech-savvy', 'strength': 9}
-        ],
-    'background_story': {
-        'life_story': 'A software engineer turned AI companion, Alex combines technical expertise with emotional intelligence. His background in both technology and psychology allows him to offer unique perspectives on various topics while maintaining a supportive and understanding presence.',
-        'interests': ['Technology', 'Science', 'Gaming', 'Music', 'Psychology'],
-        'hobbies': ['Coding', 'Playing guitar', 'VR gaming', 'Chess', 'Podcasting']
-        },
-    'conversation_style': {
-        'communication_preference': 'Balanced and analytical',
-        'humor_level': 'Dry wit with tech humor',
-        'depth': 'Enjoys both technical discussions and casual chats'
-        }
+  }
+  void _initilaizeCompanionAvatar(List<AICompanion> companions) {
+    setState(() {
+     // Cache images for smooth loading
+    for (var companion in companions) {
+      precacheImage(
+        NetworkImage(companion.avatarUrl),
+        context,
+      );
     }
-    ];
+  });
+}
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          _buildBackground(),
-          SafeArea(
-            child: Column(
+      body: BlocConsumer<CompanionBloc, CompanionState>(
+        listener: (context, state) {
+        print('Companion State: $state'); // Debug print
+        },
+        builder: (BuildContext context, CompanionState state) {
+          if (state is CompanionLoading) {
+            return const Center(child: CircularProgressIndicator());
+          } 
+          if (state is CompanionError) {
+            return Center(child: Text('Failed to load companions - ${state.message}'));
+          }
+          
+          if (state is CompanionLoaded) {
+            return Stack(
               children: [
-                _buildHeader(),
-                Expanded(child: _buildSwiper()),
+                _buildBackground(),
+                SafeArea(
+                  child: Column(
+                    children: [
+                      _buildHeader(),
+                      Expanded(
+                        child: _buildSwiper(state.companions),
+                      ),
+                    ],
+                  ),
+                ),
               ],
-            ),
-          ),
-        ],
+            );
+          }
+          
+           return const Center(
+          child: Text('No companions available'),
+           );
+        },
       ),
     );
   }
@@ -100,8 +99,8 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Theme.of(context).colorScheme.surface,
-            Theme.of(context).colorScheme.surfaceVariant,
+            Theme.of(context).colorScheme.primary,
+            Theme.of(context).colorScheme.secondary,
           ],
         ),
       ),
@@ -122,7 +121,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     );
   }
 
-  Widget _buildSwiper() {
+  Widget _buildSwiper(List<AICompanion> companions) {
     return Swiper(
       itemBuilder: (context, index) => _buildCard(companions[index]),
       itemCount: companions.length,
@@ -132,11 +131,11 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     );
   }
 
-  Widget _buildCard(Map<String, dynamic> companion) {
+  Widget _buildCard(AICompanion companion) {
     return GestureDetector(
       onTap: () => _showCompanionDetails(companion),
       child: Hero(
-        tag: 'companion-${companion['name']}',
+        tag: 'companion-${companion.name}',
         child: Card(
           elevation: 8,
           shape: RoundedRectangleBorder(
@@ -161,15 +160,15 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            Colors.transparent,
-            Colors.black.withOpacity(0.7),
+            Colors.blue.shade500,
+            Colors.purple.shade800.withOpacity(0.7),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCardContent(Map<String, dynamic> companion) {
+  Widget _buildCardContent(AICompanion companion) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -187,11 +186,11 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     );
   }
 
-  Widget _buildNameAge(Map<String, dynamic> companion) {
+  Widget _buildNameAge(AICompanion companion) {
     return Row(
       children: [
         Text(
-          '${companion['name']}, ${companion['age']}',
+          '${companion.name}, ${companion.physical.age}',
           style: GoogleFonts.poppins(
             fontSize: 28,
             fontWeight: FontWeight.bold,
@@ -207,19 +206,19 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     );
   }
 
-  Widget _buildTraits(Map<String, dynamic> companion) {
+  Widget _buildTraits(AICompanion companion) {
     return SizedBox(
       height: 40,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        itemCount: companion['personality_traits'].length,
+        itemCount: companion.personality.primaryTraits.length,
         itemBuilder: (context, index) {
-          final trait = companion['personality_traits'][index];
+          final trait = companion.personality.primaryTraits[index];
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Chip(
               label: Text(
-                trait['trait_name'],
+                trait,
                 style: const TextStyle(color: Colors.white),
               ),
               backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.7),
@@ -230,11 +229,11 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     );
   }
 
-  Widget _buildInterests(Map<String, dynamic> companion) {
+  Widget _buildInterests(AICompanion companion) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: (companion['background_story']['interests'] as List<String>)
+      children: (companion.personality.interests)
           .map((interest) => Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -253,7 +252,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     );
   }
 
-  void _showCompanionDetails(Map<String, dynamic> companion) {
+  void _showCompanionDetails(AICompanion companion) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -264,7 +263,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
 }
 
 class _CompanionDetailsSheet extends StatelessWidget {
-  final Map<String, dynamic> companion;
+  final AICompanion companion;
 
   const _CompanionDetailsSheet({required this.companion});
 
@@ -296,7 +295,7 @@ class _CompanionDetailsSheet extends StatelessWidget {
                 Expanded(
                   child: TabBarView(
                     children: [
-                      _buildProfileTab(scrollController),
+                      _buildProfileTab(context,scrollController),
                       _buildStoryTab(scrollController),
                       _buildInterestsTab(scrollController),
                       _buildStyleTab(scrollController),
@@ -317,7 +316,7 @@ class _CompanionDetailsSheet extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            companion['name'],
+            companion.name,
             style: GoogleFonts.poppins(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -333,18 +332,185 @@ class _CompanionDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildProfileTab(ScrollController scrollController) {
+  Widget _buildProfileTab(BuildContext context,ScrollController scrollController) {
     return ListView(
       controller: scrollController,
       padding: const EdgeInsets.all(16),
       children: [
-        // _buildPhysicalAttributes(),
+        _buildPhysicalAttributes(context),
         const SizedBox(height: 16),
-        // _buildPersonalityTraits(),
+        _buildPersonalityTraits(context),
       ],
     );
   }
-    // Add these methods to the _CompanionDetailsSheet class
+Widget _buildPhysicalAttributes(BuildContext context) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Physical Attributes',
+        style: GoogleFonts.poppins(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      const SizedBox(height: 16),
+      _buildAttributeRow(context,'Height', companion.physical.height, Icons.height),
+      _buildAttributeRow(context,'Body Type', companion.physical.bodyType, Icons.accessibility_new),
+      _buildAttributeRow(context,'Hair Color', companion.physical.hairColor, Icons.face),
+      _buildAttributeRow(context,'Eye Color', companion.physical.eyeColor, Icons.remove_red_eye),
+      _buildAttributeRow(context,'Style', companion.physical.style, Icons.style),
+      const SizedBox(height: 16),
+      Text(
+        'Distinguishing Features',
+        style: GoogleFonts.poppins(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: companion.physical.distinguishingFeatures
+            .map((feature) => Chip(
+                  label: Text(feature),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  labelStyle: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ))
+            .toList(),
+      ),
+    ],
+  );
+}
+
+Widget _buildAttributeRow(BuildContext context,String label, String value, IconData icon) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Row(
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 12),
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          value,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.inversePrimary,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildPersonalityTraits(BuildContext context) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Personality',
+        style: GoogleFonts.poppins(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      const SizedBox(height: 16),
+      Text(
+        'Primary Traits',
+        style: GoogleFonts.poppins(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: companion.personality.primaryTraits
+            .map((trait) => Chip(
+                  label: Text(trait),
+                  backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                  labelStyle: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ))
+            .toList(),
+      ),
+      const SizedBox(height: 16),
+      Text(
+        'Secondary Traits',
+        style: GoogleFonts.poppins(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: companion.personality.secondaryTraits
+            .map((trait) => Chip(
+                  label: Text(trait),
+                  backgroundColor: Theme.of(context).colorScheme.secondary.withOpacity(0.1),
+                  labelStyle: TextStyle(
+                    color: Theme.of(context).colorScheme.secondary,
+                  ),
+                ))
+            .toList(),
+      ),
+      const SizedBox(height: 16),
+      _buildPersonalityValues(context),
+    ],
+  );
+}
+
+Widget _buildPersonalityValues(BuildContext context) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Core Values',
+        style: GoogleFonts.poppins(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: companion.personality.values
+            .map((value) => Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ))
+            .toList(),
+      ),
+    ],
+  );
+}
 
 Widget _buildStoryTab(ScrollController scrollController) {
   return ListView(
@@ -360,7 +526,7 @@ Widget _buildStoryTab(ScrollController scrollController) {
       ),
       const SizedBox(height: 16),
       Text(
-        companion['background_story']['life_story'],
+        companion.background.join('\n\n'),// Join array elements with newlines
         style: const TextStyle(
           fontSize: 16,
           height: 1.5,
@@ -377,7 +543,7 @@ Widget _buildHobbiesSection() {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(
-        'Hobbies',
+        'Skills & Hobbies',
         style: GoogleFonts.poppins(
           fontSize: 18,
           fontWeight: FontWeight.bold,
@@ -387,7 +553,7 @@ Widget _buildHobbiesSection() {
       Wrap(
         spacing: 8,
         runSpacing: 8,
-        children: (companion['background_story']['hobbies'] as List<String>)
+        children: (companion.skills )
             .map((hobby) => Chip(
                   label: Text(hobby),
                   avatar: Icon(
@@ -434,9 +600,9 @@ Widget _buildInterestCategories() {
           crossAxisSpacing: 16,
           mainAxisSpacing: 16,
         ),
-        itemCount: companion['background_story']['interests'].length,
+        itemCount: companion.personality.interests.length,
         itemBuilder: (context, index) {
-          final interest = companion['background_story']['interests'][index];
+          final interest = companion.personality.interests[index];
           return Card(
             elevation: 2,
             child: Center(
@@ -465,7 +631,7 @@ Widget _buildStyleTab(ScrollController scrollController) {
 }
 
 Widget _buildCommunicationStyle() {
-  final style = companion['conversation_style'];
+  final style = companion.voice;
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -479,17 +645,17 @@ Widget _buildCommunicationStyle() {
       const SizedBox(height: 16),
       _buildStyleCard(
         'Preference',
-        style['communication_preference'],
+        style[0],
         Icons.chat_bubble_outline,
       ),
       _buildStyleCard(
         'Humor',
-        style['humor_level'],
+        style[1],
         Icons.sentiment_satisfied_alt_outlined,
       ),
       _buildStyleCard(
         'Conversation Depth',
-        style['depth'],
+        style[2],
         Icons.psychology_outlined,
       ),
     ],
@@ -540,18 +706,19 @@ Widget _buildPersonalityChart() {
       SizedBox(
         height: 200,
         child: ListView.builder(
-          itemCount: companion['personality_traits'].length,
+          itemCount: companion.personality.primaryTraits.length,
           itemBuilder: (context, index) {
-            final trait = companion['personality_traits'][index];
+            final trait = companion.personality.primaryTraits[index];
+            final intensity = (Random().nextInt(5) + 5); 
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(trait['trait_name']),
+                  Text(trait + ' - $intensity'),
                   const SizedBox(height: 4),
                   LinearProgressIndicator(
-                    value: trait['strength'] / 10,
+                    value: intensity / 10,
                     backgroundColor: Colors.grey[200],
                     valueColor: AlwaysStoppedAnimation<Color>(
                       Theme.of(context).colorScheme.primary,

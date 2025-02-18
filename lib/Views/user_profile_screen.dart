@@ -58,7 +58,6 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   static const cardColor = Colors.white;
   static const textColor = Color(0xFF2D3142);
   
-  // Animation controllers
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
@@ -85,7 +84,6 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   Future<void> _loadUserData() async {
     final user = await CustomAuthUser.getCurrentUser();
     if (user != null) {
-      print(user.gender);
       setState(() {
         _currentUser = user;
         _fullNameController.text = user.fullName ?? '';
@@ -147,9 +145,9 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   canPop: _currentUser?.aiModel != null && _currentUser!.aiModel!.toString().isNotEmpty,
   onPopInvokedWithResult: (bool didPop, dynamic result) async {
     if (_currentUser?.aiModel != null && _currentUser!.aiModel!.toString().isNotEmpty) {
-      context.read<AuthBloc>().add(
-        AuthEventLoggedIn(user: _currentUser!),
-      );
+      // context.read<AuthBloc>().add(
+      //   AuthEventLoggedIn(user: _currentUser!),
+      // );
     }
   },
       child: Scaffold(
@@ -160,9 +158,9 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
             ? BackButton(
                 color: secondaryColor,
                 onPressed: () {
-                  context.read<AuthBloc>().add(
-                    AuthEventLoggedIn(user: _currentUser!),
-                  );
+                  // context.read<AuthBloc>().add(
+                  //   AuthEventLoggedIn(user: _currentUser!),
+                  // );
                 },
               )
             : null,

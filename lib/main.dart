@@ -1,12 +1,15 @@
-import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
+import 'package:ai_companion/Companion/bloc/companion_event.dart';
+import 'package:ai_companion/Companion/companion_repository.dart';
 import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/sign_page.dart';
 import 'package:ai_companion/Views/companion_selection.dart';
 import 'package:ai_companion/Views/user_profile_screen.dart';
+import 'package:ai_companion/auth/supabase_client_singleton.dart';
+import 'package:ai_companion/services/hive_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
 import 'package:ai_companion/Views/Home/home_page.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
@@ -25,13 +28,17 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
   final prefs = await SharedPreferences.getInstance();
-  await Hive.initFlutter();
-  Hive.registerAdapter(AICompanionAdapter());
-  Hive.registerAdapter(PhysicalAttributesAdapter());
-  Hive.registerAdapter(PersonalityTraitsAdapter());
-  await Hive.openBox<AICompanion>('companions');
+  
+  try {
+    // Initialize Hive
+    await HiveService.initHive();
+    await HiveService.getCompanionsBox();
+  } catch (e) {
+    print('Error initializing Hive: $e');
+  }
 
-   _setupLogging();
+  _setupLogging();
+  
   runApp(
     MultiBlocProvider(
       providers:[ 
@@ -39,6 +46,15 @@ Future<void> main() async {
         create: (context) => AuthBloc(
           SupabaseAuthProvider(),
         )..add(const AuthEventInitialise()),
+        ),
+        BlocProvider<CompanionBloc>(
+          create: (context) {
+            // Get the initialized Supabase client from AuthBloc
+            final supabase = SupabaseClientManager().client;
+            final companionRepository = AICompanionRepository(supabase);
+            return CompanionBloc(companionRepository)
+            ..add(LoadCompanions());
+          },
         ),
         BlocProvider<ChatBloc>(
           create: (context) => ChatBloc(

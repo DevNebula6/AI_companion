@@ -1,16 +1,25 @@
 import 'package:ai_companion/Companion/ai_model.dart';
-import 'package:ai_companion/auth/supabase_client_singleton.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AICompanionRepository {
-  final _supabase = SupabaseClientManager().client;
+final SupabaseClient _supabase;
 
+  AICompanionRepository(this._supabase);
+  
   Future<List<AICompanion>> getAllCompanions() async {
-    final response = await _supabase
-        .from('ai_companions')
-        .select()
-        .order('created_at');
-    
-    return response.map((json) => AICompanion.fromJson(json)).toList();
+    try {
+      final response = await _supabase
+          .from('ai_companions')
+          .select()
+          .order('created_at');
+      
+      print('Supabase response: $response'); // Debug print
+            
+      return response.map((json) => AICompanion.fromJson(json)).toList();
+    } catch (e) {
+      print('Error fetching companions: $e'); // Debug print
+      rethrow;
+    }
   }
 
   Future<List<AICompanion>> getCompanionsByTraits(List<String> traits) async {
@@ -30,5 +39,15 @@ class AICompanionRepository {
         .single();
     
     return AICompanion.fromJson(response);
+  }
+  
+  Stream<List<AICompanion>> watchCompanions() {
+    return _supabase
+      .from('ai_companions')
+      .stream(primaryKey: ['id'])
+      .map((data) {
+        print('Received companion update from Supabase'); // Debug print
+        return data.map((json) => AICompanion.fromJson(json)).toList();
+      });
   }
 }
