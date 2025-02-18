@@ -26,15 +26,9 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       ));
     }
   });
-  //logged in
-  on<AuthEventLoggedIn>((event, emit) {
-    emit(AuthStateLoggedIn(
-      user: event.user,
-      isLoading: false,
-    ));
-  });
-  //Companion selection screen
   
+  //Companion selection screen
+
 
 
   //user profile
@@ -125,6 +119,7 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       try {
         final user = await provider.signInWithGoogle();
         if (!user.hasCompletedProfile) {
+
           emit( AuthStateUserProfile(
             user: user,
             isLoading: false,

@@ -8,7 +8,7 @@ class AICompanion {
   final List<String> background;
   final List<String> skills;
   final List<String> voice;
-  final Map<String, dynamic> metadata;
+  final Map<String, dynamic>? metadata;
 
   AICompanion({
     required this.id,
@@ -20,7 +20,7 @@ class AICompanion {
     required this.background,
     required this.skills,
     required this.voice,
-    this.metadata = const {},
+    this.metadata,
   });
 
   factory AICompanion.fromJson(Map<String, dynamic> json) => AICompanion(
@@ -33,8 +33,20 @@ class AICompanion {
     background: List<String>.from(json['background']),
     skills: List<String>.from(json['skills']),
     voice: List<String>.from(json['voice']),
-    metadata: json['metadata'] ?? {},
+    metadata: json['metadata'] as Map<String, dynamic>?,
   );
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'avatar_url': avatarUrl,
+    'description': description,
+    'physical': physical.toJson(),
+    'personality': personality.toJson(),
+    'background': background,
+    'skills': skills,
+    'voice': voice,
+    'metadata': metadata,
+  };
 }
 
 class PhysicalAttributes {
@@ -58,39 +70,53 @@ class PhysicalAttributes {
   
   factory PhysicalAttributes.fromJson(Map<String, dynamic> json) {
     return PhysicalAttributes(
-      age: json['age'],
-      height: json['height'],
-      bodyType: json['body_type'],
-      hairColor: json['hair_color'],
-      eyeColor: json['eye_color'],
-      style: json['style'],
-      distinguishingFeatures: List<String>.from(json['distinguishing_features']),
+      age: json['age'] ?? 13,
+      height: json['height'] ?? '',
+      bodyType: json['bodyType'] ?? '',
+      hairColor: json['hairColor'] ?? '',
+      eyeColor: json['eyeColor'] ?? '',
+      style: json['style'] ?? '',
+      distinguishingFeatures: List<String>.from(json['distinguishingFeatures'] ?? []),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'age': age,
+    'height': height,
+    'body_type': bodyType,
+    'hair_color': hairColor,
+    'eye_color': eyeColor,
+    'style': style,
+    'distinguishing_features': distinguishingFeatures,
+  };
+  
 }
 
 class PersonalityTraits {
   final List<String> primaryTraits;
   final List<String> secondaryTraits;
-  final Map<String, double> traitIntensities;
   final List<String> interests;
   final List<String> values;
 
   PersonalityTraits({
     required this.primaryTraits,
     required this.secondaryTraits,
-    required this.traitIntensities,
     required this.interests,
     required this.values,
   });
 
   factory PersonalityTraits.fromJson(Map<String, dynamic> json) {
     return PersonalityTraits(
-      primaryTraits: List<String>.from(json['primary_traits']),
-      secondaryTraits: List<String>.from(json['secondary_traits']),
-      traitIntensities: Map<String, double>.from(json['trait_intensities']),
-      interests: List<String>.from(json['interests']),
-      values: List<String>.from(json['values']),
+      primaryTraits: List<String>.from(json['primaryTraits'] ?? []),
+      secondaryTraits: List<String>.from(json['secondaryTraits'] ?? []),
+      interests: List<String>.from(json['interests'] ?? []),
+      values: List<String>.from(json['values'] ?? []),
     );
   }
+  Map<String, dynamic> toJson() => {
+    'primary_traits': primaryTraits,
+    'secondary_traits': secondaryTraits,
+    'interests': interests,
+    'values': values,
+  };
 }

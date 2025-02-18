@@ -14,6 +14,9 @@ class AuthService implements AuthProvider {
   Future<void> initialize() => (provider.initialize());
 
   @override
+  Future<void> initializeHive() => provider.initializeHive();
+
+  @override
   CustomAuthUser? get currentUser => provider.currentUser;
   
   @override

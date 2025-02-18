@@ -42,13 +42,16 @@ class CustomAuthUser {
       final prefs = await SharedPreferences.getInstance();
       final userData = prefs.getString('user_data');
       
-      if (userData != null) {
-        return CustomAuthUser.fromJson(jsonDecode(userData));
+      if (userData != null && userData.isNotEmpty) {
+      final Map<String, dynamic> jsonData = jsonDecode(userData);
+      if (jsonData.isNotEmpty) {
+        return CustomAuthUser.fromJson(jsonData);
       }
+    }
     // If not found locally, get from Supabase
       final supabase = SupabaseClientManager().client;
       final currentUser = supabase.auth.currentUser;
-      if (currentUser != null && currentUser.email != null) {
+      if (currentUser != null) {
         return CustomAuthUser.fromSupabase(currentUser);
       }
       return null;
@@ -80,7 +83,7 @@ class CustomAuthUser {
     metadata: json['metadata'] ?? {},
     dob: json['dob'],
     interests: json['interests'],
-    aiModel: AICompanion.fromJson(json['ai_model']),
+    aiModel: json['ai_model'] != null ? AICompanion.fromJson(json['ai_model']) : null,
     personalityTraits: json['personality_traits'],
     deviceToken: json['device_token'],
     chatLanguage: json['chat_language'],
@@ -104,7 +107,7 @@ class CustomAuthUser {
       'device_token': deviceToken,
       'dob': dob,
       'interests': interests,
-      'ai_model': aiModel,
+      'ai_model': aiModel?.toJson(),
       'personality_traits': personalityTraits,
       'chat_language': chatLanguage,
       'gender': gender,

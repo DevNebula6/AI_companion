@@ -74,7 +74,6 @@ class PersonalityTraitsAdapter extends TypeAdapter<PersonalityTraits> {
     return PersonalityTraits(
       primaryTraits: List<String>.from(reader.read()),
       secondaryTraits: List<String>.from(reader.read()),
-      traitIntensities: Map<String, double>.from(reader.read()),
       interests: List<String>.from(reader.read()),
       values: List<String>.from(reader.read()),
     );
@@ -84,7 +83,6 @@ class PersonalityTraitsAdapter extends TypeAdapter<PersonalityTraits> {
   void write(BinaryWriter writer, PersonalityTraits obj) {
     writer.write(obj.primaryTraits);
     writer.write(obj.secondaryTraits);
-    writer.write(obj.traitIntensities);
     writer.write(obj.interests);
     writer.write(obj.values);
   }

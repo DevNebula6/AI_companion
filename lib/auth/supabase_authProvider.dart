@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/Companion/hive_adapter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:ai_companion/auth/auth_exceptions.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:hive/hive.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:logging/logging.dart';
 import 'auth_providers.dart';
@@ -25,6 +29,15 @@ class SupabaseAuthProvider implements AuthProvider {
       _log.severe('Failed to initialize Supabase client: $e');
       throw SupabaseInitializationException();
     }
+  }
+
+  @override
+  Future<void> initializeHive() async {
+    await Hive.initFlutter();
+    Hive.registerAdapter(AICompanionAdapter());
+    Hive.registerAdapter(PhysicalAttributesAdapter());
+    Hive.registerAdapter(PersonalityTraitsAdapter());
+    await Hive.openBox<AICompanion>('companions');
   }
 
   @override
