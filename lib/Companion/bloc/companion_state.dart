@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:ai_companion/Companion/ai_model.dart';
 
 abstract class CompanionState {}
@@ -8,10 +10,12 @@ class CompanionLoading extends CompanionState {}
 
 class CompanionLoaded extends CompanionState {
   final List<AICompanion> companions;
+  // final List<Image> aicompanionImages;
+  // final List<AICompanion> selectedCompanions = [];
   final bool isSyncing;
   final bool? hasError;
 
-  CompanionLoaded(this.companions,{this.hasError,this.isSyncing = false});
+  CompanionLoaded(this.companions, {this.hasError,this.isSyncing = false});
 }
 
 class CompanionError extends CompanionState {
