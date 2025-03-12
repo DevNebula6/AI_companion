@@ -10,6 +10,8 @@ class AICompanionAdapter extends TypeAdapter<AICompanion> {
     return AICompanion(
       id: reader.read(),
       name: reader.read(),
+      gender: _readEnum(reader, CompanionGender.values) ?? CompanionGender.other,
+      artStyle: _readEnum(reader, CompanionArtStyle.values) ?? CompanionArtStyle.realistic,
       avatarUrl: reader.read(),
       description: reader.read(),
       physical: reader.read(),
@@ -25,6 +27,8 @@ class AICompanionAdapter extends TypeAdapter<AICompanion> {
   void write(BinaryWriter writer, AICompanion obj) {
     writer.write(obj.id);
     writer.write(obj.name);
+    writer.write(obj.gender.toString());
+    writer.write(obj.artStyle.toString());
     writer.write(obj.avatarUrl);
     writer.write(obj.description);
     writer.write(obj.physical);
@@ -33,6 +37,15 @@ class AICompanionAdapter extends TypeAdapter<AICompanion> {
     writer.write(obj.skills);
     writer.write(obj.voice);
     writer.write(obj.metadata);
+  }
+  // Helper method to read enums
+  T? _readEnum<T>(BinaryReader reader, List<T> values) {
+    final String? value = reader.read();
+    if (value == null) return null;
+    return values.firstWhere(
+      (e) => e.toString() == value,
+      orElse: () => values.first
+    );
   }
 }
 
@@ -85,5 +98,35 @@ class PersonalityTraitsAdapter extends TypeAdapter<PersonalityTraits> {
     writer.write(obj.secondaryTraits);
     writer.write(obj.interests);
     writer.write(obj.values);
+  }
+}
+
+class CompanionGenderAdapter extends TypeAdapter<CompanionGender> {
+  @override
+  final int typeId = 3;
+
+  @override
+  CompanionGender read(BinaryReader reader) {
+    return CompanionGender.values[reader.readByte()];
+  }
+
+  @override
+  void write(BinaryWriter writer, CompanionGender obj) {
+    writer.writeByte(obj.index);
+  }
+}
+
+class CompanionArtStyleAdapter extends TypeAdapter<CompanionArtStyle> {
+  @override
+  final int typeId = 4;
+
+  @override
+  CompanionArtStyle read(BinaryReader reader) {
+    return CompanionArtStyle.values[reader.readByte()];
+  }
+
+  @override
+  void write(BinaryWriter writer, CompanionArtStyle obj) {
+    writer.writeByte(obj.index);
   }
 }

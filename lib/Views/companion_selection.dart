@@ -65,7 +65,6 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
           if (state is CompanionError) {
             return Center(child: Text('Failed to load companions - ${state.message}'));
           }
-          
           if (state is CompanionLoaded) {
             return Stack(
               children: [
@@ -75,7 +74,10 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                     children: [
                       _buildHeader(),
                       Expanded(
-                        child: _buildSwiper(state.companions),
+                        child: 
+                          (state.companions.toList().isNotEmpty)?
+                            _buildSwiper(state.companions):
+                            Center(child: const Text("No Companion Available")),
                       ),
                     ],
                   ),
@@ -83,7 +85,6 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
               ],
             );
           }
-          
            return const Center(
           child: Text('No companions available'),
            );
@@ -187,24 +188,35 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
   }
 
   Widget _buildNameAge(AICompanion companion) {
-    return Row(
-      children: [
-        Text(
-          '${companion.name}, ${companion.physical.age}',
-          style: GoogleFonts.poppins(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+  return Row(
+    children: [
+      Expanded(  // Wrap Text with Expanded
+        flex: 4,  // Give more space to the name
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            '${companion.name}, ${companion.physical.age}',
+            style: GoogleFonts.poppins(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+            overflow: TextOverflow.ellipsis,  // Add ellipsis for long text
+            maxLines: 1,
           ),
         ),
-        const Spacer(),
-        IconButton(
+      ),
+      Expanded(
+        flex: 1,
+        child: IconButton(
           icon: const Icon(Icons.info_outline, color: Colors.white),
           onPressed: () => _showCompanionDetails(companion),
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}
 
   Widget _buildTraits(AICompanion companion) {
     return SizedBox(

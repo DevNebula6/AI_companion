@@ -19,6 +19,12 @@ class HiveService {
     if (!Hive.isAdapterRegistered(2)) {
       Hive.registerAdapter(PersonalityTraitsAdapter());
     }
+    if (!Hive.isAdapterRegistered(3)) {
+      Hive.registerAdapter(CompanionGenderAdapter());
+    }
+    if (!Hive.isAdapterRegistered(4)) {
+      Hive.registerAdapter(CompanionArtStyleAdapter());
+    }
   }
 
   static Future<Box<AICompanion>> getCompanionsBox() async {

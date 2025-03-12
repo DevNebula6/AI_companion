@@ -41,6 +41,14 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
     Emitter<CompanionState> emit,
   ) async {
     try {
+      // final prompts = await _repository.generateImagePrompts();
+
+      // // Print each prompt
+      // for (final prompt in prompts) {
+      //   print('\n=== Image Generation Prompt ===\n');
+      //   print(prompt);
+      //   print('\n==============================\n');
+      // }
       emit(CompanionLoading());
       
       // Check if authenticated

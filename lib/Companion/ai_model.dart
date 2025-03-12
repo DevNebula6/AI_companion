@@ -1,6 +1,9 @@
+
 class AICompanion {
   final String id;
   final String name;
+  final CompanionGender gender;
+  final CompanionArtStyle artStyle;
   final String avatarUrl;
   final String description;
   final PhysicalAttributes physical;
@@ -13,6 +16,8 @@ class AICompanion {
   AICompanion({
     required this.id,
     required this.name,
+    required this.gender,    
+    required this.artStyle,
     required this.avatarUrl,
     required this.description,
     required this.physical,
@@ -26,27 +31,53 @@ class AICompanion {
   factory AICompanion.fromJson(Map<String, dynamic> json) => AICompanion(
     id: json['id'],
     name: json['name'],
-    avatarUrl: json['avatar_url'],
+    gender: CompanionGender.values.firstWhere(
+      (e) => e.toString() == 'CompanionGender.${json['gender']}',
+      orElse: () => CompanionGender.other
+    ),
+    artStyle: CompanionArtStyle.values.firstWhere(
+      (e) => e.toString() == 'CompanionArtStyle.${json['artStyle']}',
+      orElse: () => CompanionArtStyle.realistic
+    ),
+    avatarUrl: json['avatarUrl'],
     description: json['description'],
     physical: PhysicalAttributes.fromJson(json['physical']),
     personality: PersonalityTraits.fromJson(json['personality']),
     background: List<String>.from(json['background']),
     skills: List<String>.from(json['skills']),
     voice: List<String>.from(json['voice']),
-    metadata: json['metadata'] as Map<String, dynamic>?,
+    metadata: json['metadata'] as Map<String, dynamic>? ?? {},
   );
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
-    'avatar_url': avatarUrl,
+    'gender': gender.toString().split('.').last,
+    'artStyle': artStyle.toString().split('.').last,
+    'avatarUrl': avatarUrl,
     'description': description,
     'physical': physical.toJson(),
     'personality': personality.toJson(),
     'background': background,
     'skills': skills,
     'voice': voice,
-    'metadata': metadata,
+    'metadata': metadata ?? {},
   };
+}
+
+enum CompanionGender {
+  male,
+  female,
+  other
+}
+
+enum CompanionArtStyle {
+  realistic,
+  anime,
+  digitalArt,
+  cartoon,
+  stylized,
+  fantasy
 }
 
 class PhysicalAttributes {
@@ -70,7 +101,7 @@ class PhysicalAttributes {
   
   factory PhysicalAttributes.fromJson(Map<String, dynamic> json) {
     return PhysicalAttributes(
-      age: json['age'] ?? 13,
+      age: json['age'] ?? 18,
       height: json['height'] ?? '',
       bodyType: json['bodyType'] ?? '',
       hairColor: json['hairColor'] ?? '',
@@ -83,11 +114,11 @@ class PhysicalAttributes {
   Map<String, dynamic> toJson() => {
     'age': age,
     'height': height,
-    'body_type': bodyType,
-    'hair_color': hairColor,
-    'eye_color': eyeColor,
+    'bodyType': bodyType,
+    'hairColor': hairColor,
+    'eyeColor': eyeColor,
     'style': style,
-    'distinguishing_features': distinguishingFeatures,
+    'distinguishingFeatures': distinguishingFeatures,
   };
   
 }
@@ -114,8 +145,8 @@ class PersonalityTraits {
     );
   }
   Map<String, dynamic> toJson() => {
-    'primary_traits': primaryTraits,
-    'secondary_traits': secondaryTraits,
+    'primaryTraits': primaryTraits,
+    'secondaryTraits': secondaryTraits,
     'interests': interests,
     'values': values,
   };
