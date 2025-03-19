@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:ai_companion/Companion/ai_model.dart';
 
 abstract class CompanionState {}

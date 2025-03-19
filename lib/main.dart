@@ -3,7 +3,7 @@ import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/companion_repository.dart';
 import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/sign_page.dart';
-import 'package:ai_companion/Views/companion_selection.dart';
+import 'package:ai_companion/Views/AI_selection/companion_selection.dart';
 import 'package:ai_companion/Views/user_profile_screen.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:ai_companion/services/hive_service.dart';
