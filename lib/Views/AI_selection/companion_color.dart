@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:flutter/material.dart';
 
@@ -15,44 +13,192 @@ class CompanionColors {
     required this.accent,
   });
 }
+/// Converts companion-specific colors to a complete Material ColorScheme
+ColorScheme getCompanionColorScheme(AICompanion companion) {
+  final colors = getCompanionColors(companion);
+  final bool isDarkMode = false; // You could get this from system or preferences
+  
+  // Create harmonious color variants based on primary/secondary
+  final Color primaryContainer = _lightenColor(colors.primary, 0.85);
+  final Color secondaryContainer = _lightenColor(colors.secondary, 0.85);
+  final Color tertiary = _getComplementaryColor(colors.accent);
+  final Color tertiaryContainer = _lightenColor(tertiary, 0.85);
+  
+  // Generate surface colors with subtle tinting
+  final Color surfaceColor = isDarkMode 
+      ? const Color(0xFF1A1A2E) // Deep blue-black for dark mode
+      : Colors.white;
+  
+  final Color surfaceVariant = isDarkMode
+      ? const Color(0xFF16213E) // Slightly lighter dark blue
+      : const Color(0xFFF7F9FC); // Very light blue-gray
+  
+  return ColorScheme(
+    brightness: isDarkMode ? Brightness.dark : Brightness.light,
+    
+    // Primary colors
+    primary: colors.primary,
+    onPrimary: _getContrastColor(colors.primary),
+    primaryContainer: primaryContainer,
+    onPrimaryContainer: colors.primary,
+    
+    // Secondary colors
+    secondary: colors.secondary,
+    onSecondary: _getContrastColor(colors.secondary),
+    secondaryContainer: secondaryContainer,
+    onSecondaryContainer: colors.secondary,
+    
+    // Tertiary colors (accent)
+    tertiary: tertiary,
+    onTertiary: _getContrastColor(tertiary),
+    tertiaryContainer: tertiaryContainer,
+    onTertiaryContainer: tertiary,
+    
+    // Background and surface colors
+    background: isDarkMode ? const Color(0xFF0A0A1A) : Colors.white,
+    onBackground: isDarkMode ? Colors.white : Colors.black87,
+    surface: surfaceColor,
+    onSurface: isDarkMode ? Colors.white : Colors.black87,
+    
+    // Variant surfaces for cards, dialogs, etc.
+    surfaceVariant: surfaceVariant,
+    onSurfaceVariant: isDarkMode 
+        ? Colors.white.withOpacity(0.8) 
+        : Colors.black87.withOpacity(0.75),
+    surfaceTint: colors.primary.withOpacity(0.05),
+    
+    // Error states
+    error: const Color(0xFFE53935), // Modern red that works in both light/dark
+    onError: Colors.white,
+    errorContainer: const Color(0xFFFFDEDF),
+    onErrorContainer: const Color(0xFFB3261E),
+    
+    // Outline colors
+    outline: isDarkMode
+        ? Colors.white.withOpacity(0.2)
+        : Colors.black.withOpacity(0.12),
+    outlineVariant: isDarkMode
+        ? Colors.white.withOpacity(0.1)
+        : Colors.black.withOpacity(0.06),
+    
+    // Shadow
+    shadow: Colors.black,
+    
+    // Scrim overlay
+    scrim: Colors.black,
+    
+    // Inversions for popups, tooltips, etc.
+    inverseSurface: isDarkMode ? Colors.white : const Color(0xFF1A1A2E),
+    onInverseSurface: isDarkMode ? Colors.black : Colors.white,
+    inversePrimary: _getInverseColor(colors.primary),
+  );
+}
 
+/// Updates the companion color sets with more sophisticated modern palette
 CompanionColors getCompanionColors(AICompanion companion) {
-  // Base color sets for different personality types
+  // Enhanced modern color palette by personality type
   final Map<String, List<List<Color>>> colorSets = {
     'Calm': [
-      [const Color(0xFF3A6073), const Color(0xFF16213E)], // Blue
-      [const Color(0xFF606C88), const Color(0xFF3F4C6B)], // Navy
+      // Female palette - Serene blues and teals
+      [const Color(0xFF3A8DB4), const Color(0xFF1F6E8C)], 
+      // Male palette - Deep blues with subtle violet
+      [const Color(0xFF4A6FA5), const Color(0xFF2B4162)],
     ],
     'Creative': [
-      [const Color(0xFF834D9B), const Color(0xFFD04ED6)], // Purple
-      [const Color(0xFFCB356B), const Color(0xFFBD3F32)], // Red
+      // Female palette - Vibrant purple to pink gradients
+      [const Color(0xFF9656A1), const Color(0xFFDB5A6B)],
+      // Male palette - Rich burgundy to deep orange  
+      [const Color(0xFF8E3B46), const Color(0xFFBD4F6C)],
     ],
     'Warm': [
-      [const Color(0xFFFF8008), const Color(0xFFFFC837)], // Orange
-      [const Color(0xFFEB3349), const Color(0xFFF45C43)], // Red-orange
+      // Female palette - Sunset orange to coral
+      [const Color(0xFFFA8F38), const Color(0xFFFF6E69)],
+      // Male palette - Amber to terracotta
+      [const Color(0xFFEF7A39), const Color(0xFFD45D1B)],
     ],
     'Thoughtful': [
-      [const Color(0xFF4776E6), const Color(0xFF8E54E9)], // Purple-blue
-      [const Color(0xFF067D68), const Color(0xFF0E9577)], // Teal
+      // Female palette - Intellectual indigo to lavender
+      [const Color(0xFF5B5F97), const Color(0xFF7C90DB)],
+      // Male palette - Sophisticated forest to sage
+      [const Color(0xFF1D6C5C), const Color(0xFF2E8B57)],
     ],
   };
   
   // Determine personality type
-  String personalityType = _getPersonalityType(companion);
+  String personalityType = getPersonalityType(companion);
   
   // Get color set based on personality and gender
   List<List<Color>> options = colorSets[personalityType] ?? colorSets['Thoughtful']!;
   int index = companion.gender == CompanionGender.female ? 0 : 1;
   List<Color> colors = options[index % options.length];
   
+  // Generate accent color more intelligently - complementary or analogous
+  Color accent;
+  if (personalityType == 'Creative' || personalityType == 'Warm') {
+    // Use analogous color for more vibrant personalities
+    accent = _getAnalogousColor(colors[0]);
+  } else {
+    // Use gentle intermediate shade for calmer personalities
+    accent = Color.lerp(colors[0], colors[1], 0.3)!;
+  }
+  
   return CompanionColors(
     primary: colors[0],
     secondary: colors[1],
-    accent: Color.lerp(colors[0], colors[1], 0.5)!,
+    accent: accent,
   );
 }
 
-String _getPersonalityType(AICompanion companion) {
+/// Utility method to get a proper contrasting text color
+Color _getContrastColor(Color backgroundColor) {
+  // Calculate relative luminance using standard formula
+  double luminance = (0.299 * backgroundColor.red + 
+                     0.587 * backgroundColor.green + 
+                     0.114 * backgroundColor.blue) / 255;
+  
+  // Use white text on dark backgrounds, black on light
+  return luminance > 0.5 ? Colors.black87 : Colors.white;
+}
+
+/// Create a complementary color (opposite on color wheel)
+Color _getComplementaryColor(Color color) {
+  // Convert to HSL for easier manipulation
+  HSLColor hsl = HSLColor.fromColor(color);
+  
+  // Rotate hue by 180 degrees for complementary color
+  return hsl.withHue((hsl.hue + 180) % 360).toColor();
+}
+
+/// Create an analogous color (adjacent on color wheel)
+Color _getAnalogousColor(Color color) {
+  // Convert to HSL for easier manipulation
+  HSLColor hsl = HSLColor.fromColor(color);
+  
+  // Shift hue by 30 degrees for analogous color
+  return hsl.withHue((hsl.hue + 30) % 360).toColor();
+}
+
+/// Lighten a color to create container variants
+Color _lightenColor(Color color, double factor) {
+  // Convert to HSL for easier manipulation
+  HSLColor hsl = HSLColor.fromColor(color);
+  
+  // Create lighter version with same hue
+  return hsl.withLightness((hsl.lightness + (1 - hsl.lightness) * factor).clamp(0.0, 1.0)).toColor();
+}
+
+/// Get inverse color for contrast situations
+Color _getInverseColor(Color color) {
+  HSLColor hsl = HSLColor.fromColor(color);
+  
+  // Create inverted hue with adjusted saturation
+  return hsl.withHue((hsl.hue + 180) % 360)
+            .withSaturation((hsl.saturation * 0.8).clamp(0.0, 1.0))
+            .withLightness((1 - hsl.lightness).clamp(0.3, 0.8))
+            .toColor();
+}
+
+String getPersonalityType(AICompanion companion) {
   final traits = companion.personality.primaryTraits;
   
   if (traits.any((t) => ['Calm', 'Peaceful', 'Serene', 'Composed'].contains(t))) {
@@ -66,8 +212,94 @@ String _getPersonalityType(AICompanion companion) {
   }
 }
 
+  // Helper method to get skill icon
+  IconData getSkillIcon(String skill) {
+    final String lowercaseSkill = skill.toLowerCase();
+    
+    if (lowercaseSkill.contains('design') || lowercaseSkill.contains('art')) {
+      return Icons.design_services;
+    } else if (lowercaseSkill.contains('cook') || lowercaseSkill.contains('bak')) {
+      return Icons.restaurant;
+    } else if (lowercaseSkill.contains('music') || lowercaseSkill.contains('sing') || lowercaseSkill.contains('play')) {
+      return Icons.music_note;
+    } else if (lowercaseSkill.contains('language') || lowercaseSkill.contains('speak') || lowercaseSkill.contains('fluency')) {
+      return Icons.translate;
+    } else if (lowercaseSkill.contains('write') || lowercaseSkill.contains('story') || lowercaseSkill.contains('poetry')) {
+      return Icons.edit_note;
+    } else if (lowercaseSkill.contains('tech') || lowercaseSkill.contains('code') || lowercaseSkill.contains('program')) {
+      return Icons.code;
+    } else if (lowercaseSkill.contains('social') || lowercaseSkill.contains('people') || lowercaseSkill.contains('communication')) {
+      return Icons.people;
+    } else if (lowercaseSkill.contains('strategy') || lowercaseSkill.contains('chess')) {
+      return Icons.psychology;
+    } else if (lowercaseSkill.contains('photo')) {
+      return Icons.camera_alt;
+    }
+    
+    return Icons.star;
+  }
+
+  // Helper method to get voice icon
+  IconData getVoiceIcon(String attribute, int index) {
+    if (attribute.contains('accent') || attribute.contains('phrases')) {
+      return Icons.language;
+    } else if (attribute.contains('enthusiastic') || attribute.contains('animated') || attribute.contains('expressive')) {
+      return Icons.sentiment_very_satisfied;
+    } else if (attribute.contains('calm') || attribute.contains('soothing') || attribute.contains('measured')) {
+      return Icons.waves;
+    } else if (attribute.contains('laugh') || attribute.contains('humor')) {
+      return Icons.mood;
+    } else if (attribute.contains('pauses') || attribute.contains('thoughtful')) {
+      return Icons.motion_photos_pause;
+    } else if (attribute.contains('storytelling') || attribute.contains('descriptive')) {
+      return Icons.auto_stories;
+    }
+    
+    // Alternate between different voice-related icons
+    final List<IconData> voiceIcons = [
+      Icons.record_voice_over,
+      Icons.graphic_eq,
+      Icons.mic,
+      Icons.volume_up,
+    ];
+    
+    return voiceIcons[index % voiceIcons.length];
+  }
+
+  // Helper method to get conversation icon
+  IconData getConversationIcon(String topic) {
+    // Reuse interest icon logic since topics are derived from interests
+    return getInterestIcon(topic);
+  }
+
+  // Helper method to generate conversation prompts
+  String getConversationPrompt(String topic) {
+    final String lowercaseTopic = topic.toLowerCase();
+    
+    if (lowercaseTopic.contains('art') || lowercaseTopic.contains('design')) {
+      return "Discuss favorite art movements and creative influences";
+    } else if (lowercaseTopic.contains('music')) {
+      return "Share thoughts about musical styles and memorable performances";
+    } else if (lowercaseTopic.contains('food') || lowercaseTopic.contains('cook')) {
+      return "Exchange favorite recipes and culinary experiences";
+    } else if (lowercaseTopic.contains('book') || lowercaseTopic.contains('read')) {
+      return "Talk about inspiring books and favorite authors";
+    } else if (lowercaseTopic.contains('travel')) {
+      return "Share memorable journeys and dream destinations";
+    } else if (lowercaseTopic.contains('tech')) {
+      return "Discuss technological innovations and digital trends";
+    } else if (lowercaseTopic.contains('nature') || lowercaseTopic.contains('outdoor')) {
+      return "Explore favorite natural places and outdoor activities";
+    } else if (lowercaseTopic.contains('culture') || lowercaseTopic.contains('history')) {
+      return "Discover fascinating historical periods and cultural practices";
+    } else if (lowercaseTopic.contains('wine') || lowercaseTopic.contains('tea')) {
+      return "Compare preferences and tasting experiences";
+    }
+    
+    return "Have a meaningful conversation about ${topic}";
+  }
 IconData getPersonalityIcon(AICompanion companion) {
-  String type = _getPersonalityType(companion);
+  String type = getPersonalityType(companion);
   
   switch (type) {
     case 'Calm': return Icons.water_drop_outlined;
@@ -79,7 +311,7 @@ IconData getPersonalityIcon(AICompanion companion) {
 }
 
 String getPersonalityLabel(AICompanion companion) {
-  return _getPersonalityType(companion);
+  return getPersonalityType(companion);
 }
 
 /// Get an icon that best represents a given interest

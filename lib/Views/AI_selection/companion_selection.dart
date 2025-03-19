@@ -131,8 +131,8 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
 
   Widget _buildCard(AICompanion companion) {
     List<Color> colors = [
-      getTraitColor(companion.personality.primaryTraits.first, context).withOpacity(0.5),
-      getTraitColor(companion.personality.primaryTraits.first, context).withOpacity(0.5),
+      getTraitColor(companion.personality.primaryTraits[0], context),
+      getTraitColor(companion.personality.primaryTraits.last, context),
     ];
 
     return GestureDetector(
@@ -170,7 +170,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        colors[1],
+                        colors[0],
                         colors[1],
                       ],
                     ),
