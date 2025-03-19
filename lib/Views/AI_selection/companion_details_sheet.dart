@@ -1,48 +1,173 @@
-import 'dart:math';
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
 
-class CompanionDetailsSheet extends StatelessWidget {
+class CompanionDetailsSheet extends StatefulWidget {
   final AICompanion companion;
 
   const CompanionDetailsSheet({super.key, required this.companion});
 
   @override
+  State<CompanionDetailsSheet> createState() => _CompanionDetailsSheetState();
+}
+
+class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  late ScrollController _scrollController;
+  bool _isHeaderCollapsed = false;
+  
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 4, vsync: this);
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
+    
+    // Add slight haptic feedback when opening sheet
+    HapticFeedback.lightImpact();
+  }
+  
+  void _onScroll() {
+    // Collapse header after scrolling past a threshold
+    if (_scrollController.offset > 120 && !_isHeaderCollapsed) {
+      setState(() => _isHeaderCollapsed = true);
+    } else if (_scrollController.offset <= 120 && _isHeaderCollapsed) {
+      setState(() => _isHeaderCollapsed = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final colorScheme = getCompanionColorScheme(widget.companion);
+    
     return DraggableScrollableSheet(
-      initialChildSize: 0.9,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
+      initialChildSize: 0.92,
+      minChildSize: 0.65,
+      maxChildSize: 1,
       builder: (context, scrollController) {
+        _scrollController = scrollController;
         return Container(
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            color: Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 20,
+                spreadRadius: 5,
+                offset: const Offset(0, -4),
+              ),
+            ],
           ),
-          child: DefaultTabController(
-            length: 4,
-            child: Column(
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: Stack(
               children: [
-                _buildHeader(context),
-                const TabBar(
-                  tabs: [
-                    Tab(text: 'Profile'),
-                    Tab(text: 'Story'),
-                    Tab(text: 'Interests'),
-                    Tab(text: 'Style'),
+                // Content
+                CustomScrollView(
+                  controller: scrollController,
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    // Expandable Header
+                    _buildSliverHeader(),
+                    
+                    // Tabs
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _SliverTabBarDelegate(
+                        TabBar(
+                          controller: _tabController,
+                          indicatorColor: colorScheme.primary,
+                          indicatorWeight: 3,
+                          labelColor: colorScheme.primary,
+                          unselectedLabelColor: Colors.grey,
+                          labelStyle: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                          tabs: const [
+                            Tab(
+                              icon: Icon(Icons.person_outline),
+                              text: 'Profile',
+                            ),
+                            Tab(
+                              icon: Icon(Icons.auto_stories_outlined),
+                              text: 'Story',
+                            ),
+                            Tab(
+                              icon: Icon(Icons.favorite_outline),
+                              text: 'Interests',
+                            ),
+                            Tab(
+                              icon: Icon(Icons.style_outlined),
+                              text: 'Voice',
+                            ),
+                          ],
+                        ),
+                        backgroundColor: Colors.white,
+                      ),
+                    ),
+                    
+                    // Tab Content
+                    SliverFillRemaining(
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildProfileTab(colorScheme),
+                          _buildStoryTab(colorScheme),
+                          _buildInterestsTab(colorScheme),
+                          _buildVoiceTab(colorScheme),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _buildProfileTab(context,scrollController),
-                      _buildStoryTab(scrollController),
-                      _buildInterestsTab(scrollController),
-                      _buildStyleTab(scrollController),
-                    ],
+                
+                // Floating Header when collapsed
+                if (_isHeaderCollapsed)
+                  _buildFloatingHeader(colorScheme),
+                
+                // Draggable handle
+                Positioned(
+                  top: 12,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
                   ),
+                ),
+                
+                // Close button
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: _buildCloseButton(),
+                ),
+                
+                // Bottom Action Button
+                Positioned(
+                  bottom: 16,
+                  left: 24,
+                  right: 24,
+                  child: _buildActionButton(colorScheme),
                 ),
               ],
             ),
@@ -52,503 +177,1045 @@ class CompanionDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Row(
+  Widget _buildSliverHeader() {
+    return SliverToBoxAdapter(
+      child: Stack(
         children: [
-          Text(
-            companion.name,
-            style: GoogleFonts.poppins(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProfileTab(BuildContext context,ScrollController scrollController) {
-    return ListView(
-      controller: scrollController,
-      padding: const EdgeInsets.all(16),
-      children: [
-        _buildPhysicalAttributes(context),
-        const SizedBox(height: 16),
-        _buildPersonalityTraits(context),
-      ],
-    );
-  }
-Widget _buildPhysicalAttributes(BuildContext context) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'Physical Attributes',
-        style: GoogleFonts.poppins(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      const SizedBox(height: 16),
-      _buildAttributeRow(context,'Height', companion.physical.height, Icons.height),
-      _buildAttributeRow(context,'Body Type', companion.physical.bodyType, Icons.accessibility_new),
-      _buildAttributeRow(context,'Hair Color', companion.physical.hairColor, Icons.face),
-      _buildAttributeRow(context,'Eye Color', companion.physical.eyeColor, Icons.remove_red_eye),
-      _buildAttributeRow(context,'Style', companion.physical.style, Icons.style),
-      const SizedBox(height: 16),
-      Text(
-        'Distinguishing Features',
-        style: GoogleFonts.poppins(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: companion.physical.distinguishingFeatures
-            .map((feature) => Chip(
-                  label: Text(feature),
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  labelStyle: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ))
-            .toList(),
-      ),
-    ],
-  );
-}
-
-Widget _buildAttributeRow(BuildContext context,String label, String value, IconData icon) {
-  return Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: Row(
-      children: [
-        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 12),
-        Text(
-          label,
-          style: const TextStyle(
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          value,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.inversePrimary,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _buildPersonalityTraits(BuildContext context) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'Personality',
-        style: GoogleFonts.poppins(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      const SizedBox(height: 16),
-      Text(
-        'Primary Traits',
-        style: GoogleFonts.poppins(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: companion.personality.primaryTraits
-            .map((trait) => Chip(
-                  label: Text(trait),
-                  backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                  labelStyle: TextStyle(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ))
-            .toList(),
-      ),
-      const SizedBox(height: 16),
-      Text(
-        'Secondary Traits',
-        style: GoogleFonts.poppins(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: companion.personality.secondaryTraits
-            .map((trait) => Chip(
-                  label: Text(trait),
-                  backgroundColor: Theme.of(context).colorScheme.secondary.withOpacity(0.1),
-                  labelStyle: TextStyle(
-                    color: Theme.of(context).colorScheme.secondary,
-                  ),
-                ))
-            .toList(),
-      ),
-      const SizedBox(height: 16),
-      _buildPersonalityValues(context),
-    ],
-  );
-}
-
-Widget _buildPersonalityValues(BuildContext context) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'Core Values',
-        style: GoogleFonts.poppins(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: companion.personality.values
-            .map((value) => Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.primary,
+          // Hero image - full width
+          Container(
+            height: 530,
+            width: double.infinity,
+            child: Hero(
+              tag: 'companion-avatar-${widget.companion.id}',
+              child: CachedNetworkImage(
+                imageUrl: widget.companion.avatarUrl,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => 
+                    Container(color: getTraitColor(widget.companion.personality.primaryTraits.first, context)),
+                errorWidget: (context, url, error) => 
+                    Container(
+                      color: getTraitColor(widget.companion.personality.primaryTraits.first, context),
+                      child: const Icon(Icons.person, size: 80, color: Colors.white),
                     ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    value,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ))
-            .toList(),
-      ),
-    ],
-  );
-}
-
-Widget _buildStoryTab(ScrollController scrollController) {
-  return ListView(
-    controller: scrollController,
-    padding: const EdgeInsets.all(16),
-    children: [
-      Text(
-        'Background Story',
-        style: GoogleFonts.poppins(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      const SizedBox(height: 16),
-      Text(
-        companion.background.join('\n\n'),// Join array elements with newlines
-        style: const TextStyle(
-          fontSize: 16,
-          height: 1.5,
-        ),
-      ),
-      const SizedBox(height: 24),
-      _buildHobbiesSection(),
-    ],
-  );
-}
-
-Widget _buildHobbiesSection() {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'Skills & Hobbies',
-        style: GoogleFonts.poppins(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      const SizedBox(height: 12),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: (companion.skills )
-            .map((hobby) => Chip(
-                  label: Text(hobby),
-                  avatar: Icon(
-                    _getHobbyIcon(hobby),
-                    size: 16,
-                  ),
-                ))
-            .toList(),
-      ),
-    ],
-  );
-}
-
-Widget _buildInterestsTab(ScrollController scrollController) {
-  return ListView(
-    controller: scrollController,
-    padding: const EdgeInsets.all(16),
-    children: [
-      _buildInterestCategories(),
-      const SizedBox(height: 24),
-    //   _buildConversationStyle(),
-    ],
-  );
-}
-
-Widget _buildInterestCategories() {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'Interests',
-        style: GoogleFonts.poppins(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      const SizedBox(height: 16),
-      GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-        ),
-        itemCount: companion.personality.interests.length,
-        itemBuilder: (context, index) {
-          final interest = companion.personality.interests[index];
-          return Card(
-            elevation: 2,
-            child: Center(
-              child: ListTile(
-                leading: Icon(getInterestIcon(interest)),
-                title: Text(interest),
               ),
             ),
-          );
-        },
-      ),
-    ],
-  );
-}
-
-Widget _buildStyleTab(ScrollController scrollController) {
-  return ListView(
-    controller: scrollController,
-    padding: const EdgeInsets.all(16),
-    children: [
-      _buildCommunicationStyle(),
-      const SizedBox(height: 24),
-      _buildPersonalityChart(),
-    ],
-  );
-}
-
-Widget _buildCommunicationStyle() {
-  final style = companion.voice;
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'Communication Style',
-        style: GoogleFonts.poppins(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      const SizedBox(height: 16),
-      _buildStyleCard(
-        'Preference',
-        style[0],
-        Icons.chat_bubble_outline,
-      ),
-      _buildStyleCard(
-        'Humor',
-        style[1],
-        Icons.sentiment_satisfied_alt_outlined,
-      ),
-      _buildStyleCard(
-        'Conversation Depth',
-        style[2],
-        Icons.psychology_outlined,
-      ),
-    ],
-  );
-}
-
-Widget _buildStyleCard(String title, String content, IconData icon) {
-  return Card(
-    margin: const EdgeInsets.only(bottom: 12),
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Icon(icon),
-          const SizedBox(width: 16),
-          Expanded(
+          ),
+          
+          // Gradient overlay
+          Container(
+            height: 530,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withOpacity(0.7),
+                ],
+                stops: const [0.6, 1.0],
+              ),
+            ),
+          ),
+          
+          // Name and Info
+          Positioned(
+            bottom: 24,
+            left: 24,
+            right: 24,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
+                // Name with shine effect
+                ShaderMask(
+                  shaderCallback: (bounds) => LinearGradient(
+                    colors: [Colors.white, Colors.white.withOpacity(0.8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ).createShader(bounds),
+                  child: Text(
+                    widget.companion.name,
+                    style: GoogleFonts.poppins(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: -0.5,
+                    ),
                   ),
                 ),
-                Text(content),
+                
+                // Age and short description
+                Text(
+                  '${widget.companion.physical.age} • ${widget.companion.physical.style}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    color: Colors.white.withOpacity(0.9),
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Personality type indicator
+                _buildPersonalityTypeChip(),
               ],
             ),
           ),
         ],
       ),
-    ),
-  );
-}
+    );
+  }
+  
+  Widget _buildFloatingHeader(ColorScheme colorScheme) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      height: 62,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          // Small avatar
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: colorScheme.primary, width: 2),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: CachedNetworkImage(
+                imageUrl: widget.companion.avatarUrl,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => CircleAvatar(
+                  backgroundColor: colorScheme.primary.withOpacity(0.2),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          
+          // Name
+          Text(
+            widget.companion.name,
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+          
+          const Spacer(),
+          
+          // Like button
+          IconButton(
+            icon: Icon(Icons.favorite_border, color: colorScheme.primary),
+            onPressed: () {
+              // Add favorite functionality
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Added to favorites!'))
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
-Widget _buildPersonalityChart() {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'Personality Traits',
-        style: GoogleFonts.poppins(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
+  Widget _buildPersonalityTypeChip() {
+    final type = getPersonalityType(widget.companion);
+    final color = getTraitColor(widget.companion.personality.primaryTraits.first, context);
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white24, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            getPersonalityIcon(widget.companion),
+            color: Colors.white,
+            size: 16,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            type,
+            style: GoogleFonts.poppins(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCloseButton() {
+    return Material(
+      color: Colors.white.withOpacity(0.2),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () {
+          HapticFeedback.lightImpact();
+          Navigator.pop(context);
+        },
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          child: const Icon(
+            Icons.close,
+            color: Colors.white,
+            size: 20,
+          ),
         ),
       ),
-      const SizedBox(height: 16),
-      SizedBox(
-        height: 200,
-        child: ListView.builder(
-          itemCount: companion.personality.primaryTraits.length,
-          itemBuilder: (context, index) {
-            final trait = companion.personality.primaryTraits[index];
-            final intensity = (Random().nextInt(5) + 5); 
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+
+  Widget _buildProfileTab(ColorScheme colorScheme) {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 80),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 24),
+          _buildSectionCard(
+            title: 'Physical Attributes',
+            icon: Icons.person_outline,
+            color: colorScheme.primary,
+            child: Column(
+              children: [
+                _buildAttributeRow('Height', widget.companion.physical.height, Icons.height),
+                _buildAttributeRow('Body Type', widget.companion.physical.bodyType, Icons.accessibility_new),
+                _buildAttributeRow('Hair', widget.companion.physical.hairColor, Icons.face),
+                _buildAttributeRow('Eyes', widget.companion.physical.eyeColor, Icons.remove_red_eye),
+                _buildAttributeRow('Style', widget.companion.physical.style, Icons.style),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          _buildSectionCard(
+            title: 'Distinguishing Features',
+            icon: Icons.auto_awesome,
+            color: colorScheme.secondary,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: widget.companion.physical.distinguishingFeatures
+                  .map((feature) => _buildFeatureChip(feature, colorScheme))
+                  .toList(),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          _buildSectionCard(
+            title: 'Personality Traits',
+            icon: Icons.psychology,
+            color: colorScheme.primary,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTraitList('Primary', widget.companion.personality.primaryTraits, colorScheme.primary),
+                const SizedBox(height: 16),
+                _buildTraitList('Secondary', widget.companion.personality.secondaryTraits, colorScheme.secondary),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          _buildSectionCard(
+            title: 'Core Values',
+            icon: Icons.volunteer_activism,
+            color: colorScheme.secondary,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: widget.companion.personality.values
+                  .map((value) => _buildValueChip(value, colorScheme))
+                  .toList(),
+            ),
+          ),
+          
+          // Space for bottom action button
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStoryTab(ColorScheme colorScheme) {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 80),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 24),
+          _buildSectionCard(
+            title: 'Background Story',
+            icon: Icons.auto_stories_outlined,
+            color: colorScheme.primary,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: widget.companion.background
+                  .asMap()
+                  .entries
+                  .map((entry) => _buildStoryItem(entry.value, entry.key, colorScheme))
+                  .toList(),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          _buildSectionCard(
+            title: 'Skills & Abilities',
+            icon: Icons.workspace_premium,
+            color: colorScheme.secondary,
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 12,
+              children: widget.companion.skills
+                  .map((skill) => _buildSkillChip(skill, colorScheme))
+                  .toList(),
+            ),
+          ),
+          
+          // Space for bottom action button
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInterestsTab(ColorScheme colorScheme) {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 80),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 24),
+          _buildSectionCard(
+            title: 'Interests & Hobbies',
+            icon: Icons.favorite_border,
+            color: colorScheme.primary,
+            child: _buildInterestsGrid(colorScheme),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          _buildSectionCard(
+            title: 'Conversation Topics',
+            icon: Icons.chat_bubble_outline,
+            color: colorScheme.secondary,
+            child: _buildConversationTopics(colorScheme),
+          ),
+          
+          // Space for bottom action button
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVoiceTab(ColorScheme colorScheme) {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 80),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 24),
+          _buildSectionCard(
+            title: 'Voice & Communication',
+            icon: Icons.record_voice_over,
+            color: colorScheme.primary,
+            child: Column(
+              children: widget.companion.voice
+                  .asMap()
+                  .entries
+                  .map((entry) => _buildVoiceAttribute(entry.value, entry.key, colorScheme))
+                  .toList(),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          _buildSectionCard(
+            title: 'Voice Sample',
+            icon: Icons.graphic_eq,
+            color: colorScheme.secondary,
+            child: Column(
+              children: [
+                // Voice waveform visualization
+                Container(
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: colorScheme.secondary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: List.generate(30, (index) {
+                      // Create random height bars for waveform
+                      final height = 10 + (index % 3) * 10.0 + (index % 7) * 5.0;
+                      return Container(
+                        width: 3,
+                        height: height,
+                        decoration: BoxDecoration(
+                          color: colorScheme.secondary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Play button
+                ElevatedButton.icon(
+                  onPressed: () {
+                    HapticFeedback.mediumImpact();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Voice sample coming soon!'))
+                    );
+                  },
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Listen to voice sample'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colorScheme.secondary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Space for bottom action button
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required Widget child,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.grey.shade100,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Divider
+          Divider(height: 1, thickness: 1, color: Colors.grey.shade100),
+          
+          // Content
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildAttributeRow(String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 18, color: Colors.grey.shade700),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildFeatureChip(String feature, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: colorScheme.secondary.withOpacity(0.3)),
+      ),
+      child: Text(
+        feature,
+        style: GoogleFonts.poppins(
+          color: Colors.grey.shade800,
+          fontWeight: FontWeight.w500,
+          fontSize: 13,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTraitList(String type, List<String> traits, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$type Traits',
+          style: GoogleFonts.poppins(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 10,
+          children: traits.map((trait) {
+            final IconData traitIcon = getTraitIcon(trait);
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(trait + ' - $intensity'),
-                  const SizedBox(height: 4),
-                  LinearProgressIndicator(
-                    value: intensity / 10,
-                    backgroundColor: Colors.grey[200],
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Theme.of(context).colorScheme.primary,
+                  Icon(traitIcon, size: 16, color: color),
+                  const SizedBox(width: 6),
+                  Text(
+                    trait,
+                    style: GoogleFonts.poppins(
+                      color: color,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
                     ),
                   ),
                 ],
               ),
             );
-          },
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildValueChip(String value, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: colorScheme.secondary.withOpacity(0.5),
+          width: 1.5,
         ),
       ),
-    ],
-  );
-}
-
-
-IconData _getHobbyIcon(String hobby) {
-  // Add more mappings as needed
-  final Map<String, IconData> iconMap = {
-    'Painting': Icons.palette,
-    'Hiking': Icons.landscape,
-    'Coffee brewing': Icons.coffee,
-    'Digital art': Icons.brush,
-    'Reading': Icons.book,
-    'Coding': Icons.code,
-    'Playing guitar': Icons.music_note,
-    'VR gaming': Icons.videogame_asset,
-    'Chess': Icons.casino,
-    'Podcasting': Icons.mic,
-    'Cooking': Icons.restaurant,
-    'Photography': Icons.camera_alt,
-    'Travel': Icons.flight,
-    'Technology': Icons.computer,
-    'Science': Icons.science,
-    'Gaming': Icons.games,
-    'Music': Icons.music_note,
-    'Nature': Icons.nature,
-  };
-  return iconMap[hobby] ?? Icons.favorite;
-}
-ColorScheme getCompanionColorScheme(AICompanion companion) {
-  // Create different color schemes based on companion characteristics
-  // This creates visual variation between companions
-  
-  // Base colors for different companion types
-  final Map<CompanionGender, List<Color>> baseColors = {
-    CompanionGender.female: [
-      const Color(0xFFE91E63), // Pink
-      const Color(0xFF9C27B0), // Purple
-      const Color(0xFF3F51B5), // Indigo
-    ],
-    CompanionGender.male: [
-      const Color(0xFF2196F3), // Blue
-      const Color(0xFF009688), // Teal
-      const Color(0xFF673AB7), // Deep Purple
-    ],
-    CompanionGender.other: [
-      const Color(0xFF4CAF50), // Green
-      const Color(0xFF00BCD4), // Cyan
-      const Color(0xFFFF9800), // Orange
-    ],
-  };
-  
-  // Get a deterministic "random" color based on name
-  int nameSum = companion.name.codeUnits.fold(0, (sum, val) => sum + val);
-  List<Color> colorOptions = baseColors[companion.gender] ?? 
-      baseColors[CompanionGender.other]!;
-  
-  Color primary = colorOptions[nameSum % colorOptions.length];
-  Color secondary = colorOptions[(nameSum + 1) % colorOptions.length];
-  
-  // Mix in art style influence
-  if (companion.artStyle == CompanionArtStyle.anime) {
-    // Brighter colors for anime style
-    primary = Color.lerp(primary, Colors.white, 0.15)!;
-    secondary = Color.lerp(secondary, Colors.white, 0.15)!;
-  } else if (companion.artStyle == CompanionArtStyle.realistic) {
-    // Deeper colors for realistic style
-    primary = Color.lerp(primary, Colors.black, 0.15)!;
-    secondary = Color.lerp(secondary, Colors.black, 0.15)!;
+      child: Text(
+        value,
+        style: GoogleFonts.poppins(
+          color: colorScheme.secondary,
+          fontWeight: FontWeight.w500,
+          fontSize: 14,
+        ),
+      ),
+    );
   }
-  
-  return ColorScheme.dark(
-    primary: primary,
-    secondary: secondary,
-    background: const Color(0xFF1A1A2E),
-    surface: const Color(0xFF16213E),
-    onPrimary: Colors.white,
-  );
+
+  Widget _buildStoryItem(String story, int index, ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Timeline dot and line
+          Column(
+            children: [
+              Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 3,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colorScheme.primary.withOpacity(0.3),
+                      blurRadius: 4,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+              ),
+              // Line to next item
+              if (index < widget.companion.background.length - 1)
+                Container(
+                  width: 2,
+                  height: 40,
+                  color: Colors.grey.shade300,
+                ),
+            ],
+          ),
+          
+          const SizedBox(width: 12),
+          
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.grey.shade200,
+                ),
+              ),
+              child: Text(
+                story,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: Colors.black87,
+                  height: 1.5,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkillChip(String skill, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: colorScheme.secondary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            getSkillIcon(skill),
+            size: 16,
+            color: colorScheme.secondary,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            skill,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: colorScheme.secondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+// Completing the _buildInterestsGrid method and adding remaining methods
+
+  Widget _buildInterestsGrid(ColorScheme colorScheme) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 2.2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: widget.companion.personality.interests.length,
+      itemBuilder: (context, index) {
+        final interest = widget.companion.personality.interests[index];
+        return Container(
+          decoration: BoxDecoration(
+            color: index % 2 == 0
+                ? colorScheme.primary.withOpacity(0.07)
+                : colorScheme.secondary.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: index % 2 == 0
+                  ? colorScheme.primary.withOpacity(0.3)
+                  : colorScheme.secondary.withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Stack(
+            children: [
+              // Subtle decoration
+              Positioned(
+                top: -15,
+                right: -15,
+                child: Opacity(
+                  opacity: 0.05,
+                  child: Icon(
+                    getInterestIcon(interest),
+                    size: 50,
+                    color: index % 2 == 0
+                        ? colorScheme.primary
+                        : colorScheme.secondary,
+                  ),
+                ),
+              ),
+              
+              // Content
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(
+                      getInterestIcon(interest),
+                      size: 20,
+                      color: index % 2 == 0
+                          ? colorScheme.primary
+                          : colorScheme.secondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        interest,
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.black87,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildConversationTopics(ColorScheme colorScheme) {
+    // Generate conversation topics based on interests and background
+    final List<String> topics = [
+      ...widget.companion.personality.interests,
+      ...widget.companion.personality.values,
+      ...widget.companion.skills.take(2),
+    ].take(6).toList();
+
+    return Column(
+      children: [
+        for (int i = 0; i < topics.length; i++)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: i % 2 == 0
+                  ? Colors.white
+                  : Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.grey.shade200,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  getConversationIcon(topics[i]),
+                  color: i % 2 == 0
+                      ? colorScheme.secondary
+                      : colorScheme.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Talk about ${topics[i]}",
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        getConversationPrompt(topics[i]),
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.grey.shade400,
+                  size: 14,
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildVoiceAttribute(String attribute, int index, ColorScheme colorScheme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: index % 2 == 0
+            ? colorScheme.primary.withOpacity(0.05)
+            : colorScheme.secondary.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(
+              getVoiceIcon(attribute, index),
+              size: 18,
+              color: index % 2 == 0
+                  ? colorScheme.primary
+                  : colorScheme.secondary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              attribute,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton(ColorScheme colorScheme) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.9, end: 1.0),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.elasticOut,
+      builder: (context, value, child) {
+        return Transform.scale(
+          scale: value,
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                colors: [
+                  colorScheme.primary,
+                  Color.lerp(colorScheme.primary, colorScheme.secondary, 0.5)!,
+                  colorScheme.secondary,
+                ],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: colorScheme.primary.withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () {
+                  HapticFeedback.mediumImpact();
+                  Navigator.pop(context);
+                  // Start conversation with this companion
+                  // Add navigation to chat screen
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Starting conversation with ${widget.companion.name}!'))
+                  );
+                },
+                splashColor: Colors.white.withOpacity(0.1),
+                highlightColor: Colors.transparent,
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Start conversation',
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.chat_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
+
+// Tab Bar Delegate implementation
+class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar tabBar;
+  final Color backgroundColor;
+
+  _SliverTabBarDelegate(this.tabBar, {required this.backgroundColor});
+
+  @override
+  double get minExtent => tabBar.preferredSize.height;
+  
+  @override
+  double get maxExtent => tabBar.preferredSize.height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: backgroundColor,
+      child: tabBar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_SliverTabBarDelegate oldDelegate) {
+    return tabBar != oldDelegate.tabBar || backgroundColor != oldDelegate.backgroundColor;
+  }
 }

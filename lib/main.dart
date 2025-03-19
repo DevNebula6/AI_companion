@@ -20,7 +20,7 @@ import 'package:ai_companion/chat/chat_bloc/chat_bloc.dart';
 import 'package:ai_companion/chat/chat_cache_manager.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/chat/gemini/gemini_service.dart';
-import 'package:ai_companion/themes/light_mode.dart';
+import 'package:ai_companion/themes/theme.dart';
 import 'package:ai_companion/utilities/Loading/loading_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -83,7 +83,6 @@ class MainApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'S Chat',
-      theme: lightmode,
       home: BlocProvider<AuthBloc>(
         create: (context) => AuthBloc(
           SupabaseAuthProvider(),
