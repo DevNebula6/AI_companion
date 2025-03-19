@@ -20,6 +20,7 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
     on<LoadCompanions>(_onLoadCompanions);
     on<SyncCompanions>(_onSyncCompanions);
     on<FilterCompanions>(_onFilterCompanions);
+    on<PreloadCompanionImages>(_onPreloadCompanionImages);
     
     // Subscribe to companion changes with debounce
     _companionSubscription = _repository.watchCompanions()
@@ -41,14 +42,6 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
     Emitter<CompanionState> emit,
   ) async {
     try {
-      // final prompts = await _repository.generateImagePrompts();
-
-      // // Print each prompt
-      // for (final prompt in prompts) {
-      //   print('\n=== Image Generation Prompt ===\n');
-      //   print(prompt);
-      //   print('\n==============================\n');
-      // }
       emit(CompanionLoading());
       
       // Check if authenticated
@@ -81,6 +74,17 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
     } catch (e) {
       print('Error loading companions: $e');
       emit(CompanionError(e.toString()));
+    }
+  }
+  
+  Future<void> _onPreloadCompanionImages(
+    PreloadCompanionImages event,
+    Emitter<CompanionState> emit,
+  ) async {
+    try {
+      await _repository.prefetchCompanionImages(event.companions);
+    } catch (e) {
+      print('Error preloading images: $e');
     }
   }
 

@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/services/image_cache_service.dart';
+import 'package:ai_companion/services/image_prompt_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AICompanionRepository {
@@ -26,9 +30,12 @@ final SupabaseClient _supabase;
           ''')
           .order('created_at');
       
-      print('Supabase response: $response'); // Debug print
+      print('Supabase response: $response'); 
             
-      return response.map((json) => AICompanion.fromJson(json)).toList();
+      final companions = response.map((json) => AICompanion.fromJson(json)).toList();
+      // Prefetch images in background without awaiting
+      prefetchCompanionImages(companions);
+      return companions;
     } catch (e) {
       print('Error fetching companions: $e'); // Debug print
       rethrow;
@@ -63,55 +70,52 @@ final SupabaseClient _supabase;
         return data.map((json) => AICompanion.fromJson(json)).toList();
       });
   }
+
+  Future<void> prefetchCompanionImages(List<AICompanion> companions) async {
+    for (final companion in companions) {
+      if (companion.avatarUrl.isNotEmpty) {
+        try {
+          // Pre-download the image to cache
+          await CompanionImageCacheManager.instance.getSingleFile(companion.avatarUrl);
+        } catch (e) {
+          print('Error prefetching image: $e');
+        }
+      }
+    }
+  }
   
-//   Future<List<String>> generateImagePrompts() async {
-//     try {
-//       final companions = await getAllCompanions();
-//       return companions.map((companion) => _createImagePrompt(companion)).toList();
-//     } catch (e) {
-//       print('Error generating prompts: $e');
-//       return [];
-//     }
-//   }
-
-//   String _createImagePrompt(AICompanion companion) {
-//     final physical = companion.physical;
-//     final personality = companion.personality;
-
-//     return '''
-// A ${physical.age} year old ${companion.gender.toString().split('.').last}, 
-// ${physical.height} tall with ${physical.bodyType} build. 
-// ${physical.hairColor} hair and ${physical.eyeColor} eyes. 
-// Style: ${physical.style}
-// Distinguishing features: ${physical.distinguishingFeatures.join(', ')}
-
-// Personality expressed through: 
-// Primary traits: ${personality.primaryTraits.join(', ')}
-// Expression: ${_getExpressionFromTraits(personality.primaryTraits)}
-
-// Technical specifications:
-// - Style: ${companion.artStyle.toString().split('.').last}
-// - Lighting: Soft, natural lighting
-// - Composition: Portrait or three-quarter shot
-// - Background: Modern, clean setting
-// - Details: High focus on distinguishing features and style elements
-
-// Negative prompts:
-// - No exaggerated features
-// - No unrealistic proportions
-// - No cluttered background
-// - No artificial poses
-// ''';
-//   }
-
-//   String _getExpressionFromTraits(List<String> traits) {
-//     if (traits.contains('Cheerful') || traits.contains('Optimistic')) {
-//       return 'Warm, genuine smile';
-//     } else if (traits.contains('Serious') || traits.contains('Professional')) {
-//       return 'Composed, thoughtful expression';
-//     } else if (traits.contains('Creative') || traits.contains('Artistic')) {
-//       return 'Inspired, engaged look';
-//     }
-//     return 'Natural, relaxed expression';
-//   }
+  Future<bool> generateAllImagePrompts() async {
+    try {
+      final companions = await getAllCompanions();
+      
+      final directory = Directory('${Directory.current.path}/lib/AI');
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+      
+      // Create a single file for all prompts
+      final allPromptsFile = File('${Directory.current.path}/lib/AI/all_image_prompts.txt');
+      final buffer = StringBuffer();
+      
+      // Create individual files for each companion
+      for (final companion in companions) {
+        final prompt = ImagePromptService.createPrompt(companion);
+        
+        // Write to individual file
+        final individualFile = File('${Directory.current.path}/lib/AI/${companion.name.replaceAll(' ', '_')}_prompt.txt');
+        await individualFile.writeAsString(prompt);
+        
+        // Append to combined file
+        buffer.writeln(prompt);
+        buffer.writeln('\n' + '=' * 60 + '\n');
+      }
+      
+      // Write combined file
+      await allPromptsFile.writeAsString(buffer.toString());
+      return true;
+    } catch (e) {
+      print('Error generating all prompts: $e');
+      return false;
+    }
+  }
 }
