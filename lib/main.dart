@@ -16,7 +16,7 @@ import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/supabase_authProvider.dart';
-import 'package:ai_companion/chat/chat_bloc/chat_bloc.dart';
+import 'package:ai_companion/chat/message_bloc/message_bloc.dart';
 import 'package:ai_companion/chat/chat_cache_manager.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/chat/gemini/gemini_service.dart';
@@ -56,8 +56,8 @@ Future<void> main() async {
             ..add(LoadCompanions());
           },
         ),
-        BlocProvider<ChatBloc>(
-          create: (context) => ChatBloc(
+        BlocProvider<MessageBloc>(
+          create: (context) => MessageBloc(
             ChatRepository(), 
             GeminiService(),
             ChatCacheService(prefs),
@@ -81,8 +81,15 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    //Default color scheme
+    final defaultColorScheme = ColorScheme.fromSeed(
+        seedColor: const Color(0xFF4A6FA5),  // Modern blue as base
+        brightness: Brightness.light,
+      );
     return MaterialApp(
-      title: 'S Chat',
+      title: 'Ai_Companion',
+      debugShowCheckedModeBanner: false,
+      theme: createAppTheme(defaultColorScheme),
       home: BlocProvider<AuthBloc>(
         create: (context) => AuthBloc(
           SupabaseAuthProvider(),

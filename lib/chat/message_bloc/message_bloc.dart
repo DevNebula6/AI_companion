@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:ai_companion/chat/chat_bloc/chat_event.dart';
-import 'package:ai_companion/chat/chat_bloc/chat_state.dart';
+import 'package:ai_companion/chat/message_bloc/message_event.dart';
+import 'package:ai_companion/chat/message_bloc/message_state.dart';
 import 'package:ai_companion/chat/chat_cache_manager.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/chat/gemini/gemini_service.dart';
 import 'package:ai_companion/chat/message.dart';
 
-class ChatBloc extends Bloc<ChatEvent, ChatState> {
+class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final ChatRepository _repository;
   final GeminiService _geminiService;
   final ChatCacheService _cacheService;
@@ -18,8 +18,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   List<Message> _currentMessages = [];
   
 
- ChatBloc(this._repository, this._geminiService, this._cacheService) 
-  : super(ChatInitial()) {
+ MessageBloc(this._repository, this._geminiService, this._cacheService) 
+  : super(MessageInitial()) {
     on<SendMessageEvent>(_onSendMessage);
     on<LoadMessagesEvent>(_onLoadMessages);
     on<DeleteMessageEvent>(_onDeleteMessage);
@@ -56,7 +56,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       print('Error initializing AI: $e');
     }
   }
-  Future<void> _onSendMessage(SendMessageEvent event, Emitter<ChatState> emit) async {
+  Future<void> _onSendMessage(SendMessageEvent event, Emitter<MessageState> emit) async {
     try {
       // 1. Add user message with optimistic update
       final userMessage = Message(
@@ -71,7 +71,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
       _currentMessages.add(userMessage);
       
-      emit(ChatLoaded(
+      emit(MessageLoaded(
         messageStream: _messageStream!,
         currentMessages: _currentMessages,
       ));
@@ -92,7 +92,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       _currentMessages.add(aiMessage);
       await _cacheService.cacheMessages(_currentUserId!, _currentMessages);
 
-      emit(ChatLoaded(
+      emit(MessageLoaded(
         messageStream: _messageStream!,
         currentMessages: _currentMessages,
       ));
@@ -104,13 +104,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         _currentMessages.removeLast();
         await _cacheService.cacheMessages(_currentUserId!, _currentMessages);
       }
-      emit(const ChatError());
+      emit(const MessageError());
     }
   }
 
-  Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<ChatState> emit) async {
+  Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit) async {
     try {
-      emit(ChatLoading());
+      emit(MessageLoading());
 
       _currentUserId = event.userId;
 
@@ -126,7 +126,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           await _cacheService.cacheMessages(event.userId, messages);
           
           if (_currentUserId == event.userId && !emit.isDone) {
-            emit(ChatLoaded(
+            emit(MessageLoaded(
               messageStream: _messageStream!,
               currentMessages: messages,
             ));
@@ -135,7 +135,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         onError: (error) {
           print('Stream error: $error');
           if (!emit.isDone) {
-            emit(ChatLoaded(
+            emit(MessageLoaded(
               messageStream: _messageStream!,
               currentMessages: _currentMessages,
             ));
@@ -165,7 +165,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         }
 
       if (!emit.isDone) {
-        emit(ChatLoaded(
+        emit(MessageLoaded(
           messageStream: _messageStream!,
           currentMessages: _currentMessages,
         ));
@@ -175,12 +175,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       if (!emit.isDone) {
         // Fallback to cached messages if available
         if (_currentMessages.isNotEmpty) {
-          emit(ChatLoaded(
+          emit(MessageLoaded(
             messageStream: _messageStream!,
             currentMessages: _currentMessages,
           ));
         } else {
-          emit(const ChatError());
+          emit(const MessageError());
         }
       }
     }
@@ -188,14 +188,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   
   Future<void> _onDeleteMessage(
     DeleteMessageEvent event,
-    Emitter<ChatState> emit
+    Emitter<MessageState> emit
   ) async {
     try {
-      emit(ChatLoading());
+      emit(MessageLoading());
       await _repository.deleteMessage(event.messageId);
       emit(MessageSent());
     } catch (e) {
-      emit(const ChatError()); 
+      emit(const MessageError()); 
     }
   }
 
