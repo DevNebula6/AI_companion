@@ -1,25 +1,25 @@
 import 'package:equatable/equatable.dart';
 import '../message.dart';
 
-abstract class ChatState extends Equatable {
-  const ChatState();
+abstract class MessageState extends Equatable {
+  const MessageState();
   
   @override
   List<Object?> get props => [];
 }
 
-class ChatInitial extends ChatState {}
-class ChatLoading extends ChatState {}
-class ChatError extends ChatState {
-  const ChatError();
+class MessageInitial extends MessageState {}
+class MessageLoading extends MessageState {}
+class MessageError extends MessageState {
+  const MessageError();
 }
 
 
-class ChatLoaded extends ChatState {
+class MessageLoaded extends MessageState {
   final Stream<List<Message>> messageStream;
   final List<Message> currentMessages;
   
-  const ChatLoaded({
+  const MessageLoaded({
     required this.messageStream,
     required this.currentMessages,
   });
@@ -28,8 +28,8 @@ class ChatLoaded extends ChatState {
   List<Object?> get props => [messageStream, currentMessages];
 }
 
-class MessageSent extends ChatState {}
-class MessageReceiving extends ChatState {
+class MessageSent extends MessageState {}
+class MessageReceiving extends MessageState {
   final String message;
   const MessageReceiving(this.message);
   

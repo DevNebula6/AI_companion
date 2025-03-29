@@ -1,8 +1,8 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
+import 'package:ai_companion/utilities/constants/textstyles.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 
 class CompanionDetailsSheet extends StatefulWidget {
@@ -16,34 +16,43 @@ class CompanionDetailsSheet extends StatefulWidget {
 
 class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  late ScrollController _scrollController;
+  ScrollController? _scrollController;
   bool _isHeaderCollapsed = false;
-  
+  late int _currentTabIndex = 0;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _scrollController = ScrollController();
-    _scrollController.addListener(_onScroll);
-    
-    // Add slight haptic feedback when opening sheet
-    HapticFeedback.lightImpact();
+    // Add listener for tab changes
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {
+          _currentTabIndex = _tabController.index;
+        });
+      }
+    });  
   }
   
   void _onScroll() {
-    // Collapse header after scrolling past a threshold
-    if (_scrollController.offset > 120 && !_isHeaderCollapsed) {
-      setState(() => _isHeaderCollapsed = true);
-    } else if (_scrollController.offset <= 120 && _isHeaderCollapsed) {
-      setState(() => _isHeaderCollapsed = false);
+    // Only use _scrollController if it's not null
+    if (_scrollController != null) {
+      // Collapse header after scrolling past a threshold
+      if (_scrollController!.offset > 360 && !_isHeaderCollapsed) {
+        setState(() => _isHeaderCollapsed = true);
+      } else if (_scrollController!.offset <= 360 && _isHeaderCollapsed) {
+        setState(() => _isHeaderCollapsed = false);
+      }
     }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(() {});
     _tabController.dispose();
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
+    if (_scrollController != null) {
+      _scrollController!.removeListener(_onScroll);
+    }
     super.dispose();
   }
 
@@ -56,134 +65,138 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       minChildSize: 0.65,
       maxChildSize: 1,
       builder: (context, scrollController) {
+        // Clean up previous controller if it exists
+        if (_scrollController != null) {
+          _scrollController!.removeListener(_onScroll);
+        }
+        // Use the controller provided by DraggableScrollableSheet
         _scrollController = scrollController;
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 20,
-                spreadRadius: 5,
-                offset: const Offset(0, -4),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: Stack(
-              children: [
-                // Content
-                CustomScrollView(
-                  controller: scrollController,
-                  physics: const BouncingScrollPhysics(),
-                  slivers: [
-                    // Expandable Header
-                    _buildSliverHeader(),
-                    
-                    // Tabs
-                    SliverPersistentHeader(
-                      pinned: true,
-                      delegate: _SliverTabBarDelegate(
-                        TabBar(
-                          controller: _tabController,
-                          indicatorColor: colorScheme.primary,
-                          indicatorWeight: 3,
-                          labelColor: colorScheme.primary,
-                          unselectedLabelColor: Colors.grey,
-                          labelStyle: GoogleFonts.poppins(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                          tabs: const [
-                            Tab(
-                              icon: Icon(Icons.person_outline),
-                              text: 'Profile',
-                            ),
-                            Tab(
-                              icon: Icon(Icons.auto_stories_outlined),
-                              text: 'Story',
-                            ),
-                            Tab(
-                              icon: Icon(Icons.favorite_outline),
-                              text: 'Interests',
-                            ),
-                            Tab(
-                              icon: Icon(Icons.style_outlined),
-                              text: 'Voice',
-                            ),
-                          ],
-                        ),
-                        backgroundColor: Colors.white,
-                      ),
-                    ),
-                    
-                    // Tab Content
-                    SliverFillRemaining(
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildProfileTab(colorScheme),
-                          _buildStoryTab(colorScheme),
-                          _buildInterestsTab(colorScheme),
-                          _buildVoiceTab(colorScheme),
-                        ],
-                      ),
+        _scrollController!.addListener(_onScroll);
+        return Material(
+          color: Colors.transparent,
+          child: Stack(
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 0),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 20,
+                      spreadRadius: 5,
+                      offset: const Offset(0, -4),
                     ),
                   ],
                 ),
-                
-                // Floating Header when collapsed
-                if (_isHeaderCollapsed)
-                  _buildFloatingHeader(colorScheme),
-                
-                // Draggable handle
-                Positioned(
-                  top: 12,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      width: 40,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(3),
+                clipBehavior: Clip.antiAlias,
+                child: // Content
+                  CustomScrollView(
+                    controller: scrollController,
+                    physics: const BouncingScrollPhysics(),
+                    slivers: [
+                      // Expandable Header
+                      _buildSliverHeader(),
+                      
+                      // Tabs
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _SliverTabBarDelegate(
+                          TabBar(
+                            controller: _tabController,
+                            indicatorColor: colorScheme.primary,
+                            indicatorWeight: 3,
+                            labelColor: colorScheme.primary,
+                            unselectedLabelColor: Colors.grey,
+                            labelStyle: AppTextStyles.buttonMedium.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: colorScheme.primary,
+                            ),
+                            tabs: const [
+                              Tab(
+                                icon: Icon(Icons.person_outline),
+                                text: 'Profile',
+                              ),
+                              Tab(
+                                icon: Icon(Icons.auto_stories_outlined),
+                                text: 'Story',
+                              ),
+                              Tab(
+                                icon: Icon(Icons.favorite_outline),
+                                text: 'Interests',
+                              ),
+                              Tab(
+                                icon: Icon(Icons.style_outlined),
+                                text: 'Voice',
+                              ),
+                            ],
+                          ),
+                          backgroundColor: Colors.white,
+                        ),
                       ),
-                    ),
+                      
+                      // Tab Content
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: _getTabHeight(),
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [
+                              _buildProfileTab(colorScheme),
+                              _buildStoryTab(colorScheme),
+                              _buildInterestsTab(colorScheme),
+                              _buildVoiceTab(colorScheme),
+                            ],
+                          ),
+                        ),
+                      ),
+                      
+                    ],
                   ),
-                ),
-                
-                // Close button
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: _buildCloseButton(),
-                ),
-                
-                // Bottom Action Button
-                Positioned(
-                  bottom: 16,
-                  left: 24,
-                  right: 24,
-                  child: _buildActionButton(colorScheme),
-                ),
-              ],
-            ),
+              ),
+              
+              // Floating Header when collapsed
+              if (_isHeaderCollapsed)
+                _buildFloatingHeader(colorScheme),
+                  
+              // Close button
+              Positioned(
+                top: 16,
+                right: 16,
+                child: _buildCloseButton(),
+              ),
+                  
+              // Bottom Action Button
+              Positioned(
+                bottom: 16,
+                left: 24,
+                right: 24,
+                child: _buildActionButton(colorScheme),
+              ),
+            ],
           ),
         );
       },
     );
   }
-
+  double _getTabHeight() {
+    switch (_currentTabIndex) {
+      case 0: // Profile tab
+        return 1200; 
+      case 2: // Interests tab
+        return 1100;
+      default:
+        return 850;
+    }
+  }
   Widget _buildSliverHeader() {
     return SliverToBoxAdapter(
       child: Stack(
         children: [
           // Hero image - full width
-          Container(
-            height: 530,
+          SizedBox(
+            height: _isHeaderCollapsed ? 0 : 530,
             width: double.infinity,
             child: Hero(
               tag: 'companion-avatar-${widget.companion.id}',
@@ -191,11 +204,14 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                 imageUrl: widget.companion.avatarUrl,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => 
-                    Container(color: getTraitColor(widget.companion.personality.primaryTraits.first, context)),
+                    Container(
+                      color:Colors.transparent,
+                      ),
                 errorWidget: (context, url, error) => 
                     Container(
-                      color: getTraitColor(widget.companion.personality.primaryTraits.first, context),
-                      child: const Icon(Icons.person, size: 80, color: Colors.white),
+                      color: 
+                        Colors.transparent,
+                      child: const Icon(Icons.person, size: 150, color: Colors.black26),
                     ),
               ),
             ),
@@ -225,29 +241,18 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Name with shine effect
-                ShaderMask(
-                  shaderCallback: (bounds) => LinearGradient(
-                    colors: [Colors.white, Colors.white.withOpacity(0.8)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ).createShader(bounds),
-                  child: Text(
-                    widget.companion.name,
-                    style: GoogleFonts.poppins(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
-                    ),
+                // Name
+                Text(
+                  widget.companion.name,
+                  style: AppTextStyles.companionNamePopins.copyWith(
+                    color: Colors.white,
                   ),
                 ),
                 
                 // Age and short description
                 Text(
                   '${widget.companion.physical.age} • ${widget.companion.physical.style}',
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
+                  style: AppTextStyles.bodyMedium.copyWith(
                     color: Colors.white.withOpacity(0.9),
                     letterSpacing: 0.2,
                   ),
@@ -296,19 +301,22 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                 imageUrl: widget.companion.avatarUrl,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => CircleAvatar(
-                  backgroundColor: colorScheme.primary.withOpacity(0.2),
+                  backgroundColor: colorScheme.primary.withOpacity(0.5),
+                  child: const Icon(Icons.person, color: Colors.white),
                 ),
+                errorWidget: (context, url, error) => CircleAvatar(
+                  backgroundColor: colorScheme.primary.withOpacity(0.5),
+                  child: const Icon(Icons.person, color: Colors.white),
               ),
             ),
+            )
           ),
           const SizedBox(width: 12),
           
           // Name
           Text(
             widget.companion.name,
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
+            style: AppTextStyles.displaySmall.copyWith(
               color: Colors.black87,
             ),
           ),
@@ -359,9 +367,8 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
           const SizedBox(width: 6),
           Text(
             type,
-            style: GoogleFonts.poppins(
+            style: AppTextStyles.chipLabel.copyWith(
               color: Colors.white,
-              fontSize: 14,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -669,9 +676,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                 const SizedBox(width: 12),
                 Text(
                   title,
-                  style: GoogleFonts.poppins(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
+                  style: AppTextStyles.sectionHeader.copyWith(
                     color: Colors.black87,
                   ),
                 ),
@@ -708,17 +713,15 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
           const SizedBox(width: 12),
           Text(
             label,
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.w500,
-              color: Colors.grey.shade800,
-            ),
+            style: AppTextStyles.attributeLabel,
           ),
           const Spacer(),
-          Text(
-            value,
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
+          Expanded(
+            flex: 2,
+            child: Text(
+              value,
+              style: AppTextStyles.attributeValue,
+              textAlign: TextAlign.end,  // Right-align the text
             ),
           ),
         ],
@@ -736,10 +739,9 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       ),
       child: Text(
         feature,
-        style: GoogleFonts.poppins(
+        style: AppTextStyles.chipLabel.copyWith(
           color: Colors.grey.shade800,
           fontWeight: FontWeight.w500,
-          fontSize: 13,
         ),
       ),
     );
@@ -751,7 +753,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       children: [
         Text(
           '$type Traits',
-          style: GoogleFonts.poppins(
+          style: AppTextStyles.bodyMedium.copyWith(
             fontSize: 15,
             fontWeight: FontWeight.w600,
             color: color,
@@ -776,10 +778,9 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   const SizedBox(width: 6),
                   Text(
                     trait,
-                    style: GoogleFonts.poppins(
+                    style: AppTextStyles.chipLabel.copyWith(
                       color: color,
                       fontWeight: FontWeight.w500,
-                      fontSize: 13,
                     ),
                   ),
                 ],
@@ -803,10 +804,9 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       ),
       child: Text(
         value,
-        style: GoogleFonts.poppins(
+        style: AppTextStyles.chipLabel.copyWith(
           color: colorScheme.secondary,
           fontWeight: FontWeight.w500,
-          fontSize: 14,
         ),
       ),
     );
@@ -864,9 +864,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               ),
               child: Text(
                 story,
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  color: Colors.black87,
+                style: AppTextStyles.bodyMedium.copyWith(
                   height: 1.5,
                 ),
               ),
@@ -895,8 +893,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
           const SizedBox(width: 8),
           Text(
             skill,
-            style: GoogleFonts.poppins(
-              fontSize: 14,
+            style: AppTextStyles.chipLabel.copyWith(
               fontWeight: FontWeight.w500,
               color: colorScheme.secondary,
             ),
@@ -905,7 +902,6 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       ),
     );
   }
-// Completing the _buildInterestsGrid method and adding remaining methods
 
   Widget _buildInterestsGrid(ColorScheme colorScheme) {
     return GridView.builder(
@@ -953,25 +949,30 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               
               // Content
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.only(
+                    left: 12,
+                    right: 8,
+                    top: 12,
+                    bottom: 12,
+                    ),
                 child: Row(
                   children: [
                     Icon(
                       getInterestIcon(interest),
-                      size: 20,
+                      size: 22,
                       color: index % 2 == 0
                           ? colorScheme.primary
                           : colorScheme.secondary,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         interest,
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
+                        style: AppTextStyles.bodyMedium.copyWith(
                           fontWeight: FontWeight.w500,
                           color: Colors.black87,
                         ),
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -1033,16 +1034,14 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                     children: [
                       Text(
                         "Talk about ${topics[i]}",
-                        style: GoogleFonts.poppins(
+                        style: AppTextStyles.bodyMedium.copyWith(
                           fontWeight: FontWeight.w500,
-                          fontSize: 14,
                           color: Colors.black87,
                         ),
                       ),
                       Text(
                         getConversationPrompt(topics[i]),
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
+                        style: AppTextStyles.bodySmall.copyWith(
                           color: Colors.grey.shade600,
                         ),
                         maxLines: 2,
@@ -1100,10 +1099,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
           Expanded(
             child: Text(
               attribute,
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: Colors.black87,
-              ),
+              style: AppTextStyles.bodyMedium,
             ),
           ),
         ],
@@ -1147,8 +1143,6 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                 onTap: () {
                   HapticFeedback.mediumImpact();
                   Navigator.pop(context);
-                  // Start conversation with this companion
-                  // Add navigation to chat screen
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Starting conversation with ${widget.companion.name}!'))
                   );
@@ -1161,10 +1155,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                     children: [
                       Text(
                         'Start conversation',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
+                        style: AppTextStyles.buttonLarge.copyWith(
                           letterSpacing: 0.5,
                         ),
                       ),

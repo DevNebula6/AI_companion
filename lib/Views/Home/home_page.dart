@@ -3,9 +3,9 @@ import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
-import 'package:ai_companion/chat/chat_bloc/chat_bloc.dart';
-import 'package:ai_companion/chat/chat_bloc/chat_event.dart';
-import 'package:ai_companion/chat/chat_bloc/chat_state.dart';
+import 'package:ai_companion/chat/message_bloc/message_bloc.dart';
+import 'package:ai_companion/chat/message_bloc/message_event.dart';
+import 'package:ai_companion/chat/message_bloc/message_state.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:ai_companion/utilities/Dialogs/generic_dialog.dart';
 import 'package:ai_companion/utilities/widgets/user_avatar.dart';
@@ -43,7 +43,7 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         user = authState.user;
       });
-      context.read<ChatBloc>().add(
+      context.read<MessageBloc>().add(
         LoadMessagesEvent(
           userId: user.id,
           userName: user.email.split('@')[0],
@@ -91,12 +91,12 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       body: 
-       BlocConsumer<ChatBloc, ChatState>(
+       BlocConsumer<MessageBloc, MessageState>(
           listener: (context, state) {
           if (state is MessageSent){
             _scrollToBottom();
           }
-          if (state is ChatLoaded ) {
+          if (state is MessageLoaded ) {
             _scrollToBottom();
           }
           },
@@ -104,7 +104,7 @@ class _ChatScreenState extends State<ChatScreen> {
             return current is! MessageSent;
           },
           builder: (context, chatState) {
-                if (chatState is ChatLoaded) {
+                if (chatState is MessageLoaded) {
                   return Column(
                     children: [
                       Expanded(
@@ -137,13 +137,13 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             );
           }
-          if (chatState is ChatLoading) {
+          if (chatState is MessageLoading) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (chatState is ChatError) {
+          if (chatState is MessageError) {
             return const Center(child: Text('An error occurred'));
           }
-          if (chatState is ChatInitial) {
+          if (chatState is MessageInitial) {
             return const Center(child: Text('Loading...'));
           }
           return const Center(child: Text("An error occurred"));
@@ -169,7 +169,7 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: const Icon(Icons.send),
             onPressed: () {
               if (_messageController.text.isNotEmpty) {
-                context.read<ChatBloc>().add(
+                context.read<MessageBloc>().add(
                   SendMessageEvent(
                     userId: user.id,
                     message: _messageController.text,

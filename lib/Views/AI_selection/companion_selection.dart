@@ -7,11 +7,11 @@ import 'package:ai_companion/Views/AI_selection/companion_details_sheet.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
+import 'package:ai_companion/utilities/constants/textstyles.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:card_swiper/card_swiper.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class CompanionSelectionPage extends StatefulWidget {
   const CompanionSelectionPage({super.key});
@@ -46,7 +46,11 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     return Scaffold(
       body: BlocConsumer<CompanionBloc, CompanionState>(
         listener: (context, state) {
-        print('Companion State: $state'); // Debug print
+          if (state is CompanionError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to load companions - ${state.message}')),
+            );
+          }
         },
         builder: (BuildContext context, CompanionState state) {
           if (state is CompanionLoading) {
@@ -72,7 +76,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                         child: 
                           (state.companions.toList().isNotEmpty)?
                             _buildSwiper(state.companions):
-                            Center(child: const Text("No Companion Available")),
+                            const Center(child: Text("No Companion Available")),
                       ),
                       const SizedBox(height: 4),
                     ],
@@ -90,29 +94,47 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
   }
 
   Widget _buildBackground() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.grey.shade200,
-            Colors.grey.shade300,
-            
-          ],
+  return Stack(
+    children: [
+      // Base gradient (lighter than current)
+      Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              // Color(0xFFFFFAF5), // Very soft warm white
+              // Color(0xFFF8F0F0), // Subtle blush undertone
+             // Subtle bluish undertone
+              Color(0xFFE6F0F5),
+              Color(0xFFE6F0F6),
+            ],
+          ),
         ),
       ),
-    );
-  }
+      
+      Opacity(
+        opacity: 0.0, 
+        child: Container(
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/backgrounds/pt4.png'),
+              fit: BoxFit.cover,
+              scale: 2, 
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
 
   Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Text(
         'Choose Your Companion',
-        style: GoogleFonts.poppins(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
+        style: AppTextStyles.displayMedium.copyWith(
           color: Theme.of(context).colorScheme.onSurface,
         ),
       ),
@@ -155,7 +177,15 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                 imageUrl: companion.avatarUrl,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
-                  color: colors[1],
+                  decoration: const BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage(
+                        'assets/backgrounds/pt6.png',
+                      ),
+                      fit: BoxFit.cover,
+                      opacity: .3,
+                      )
+                  ),
                   child: Center(
                     child: 
                     CircularProgressIndicator(
@@ -165,21 +195,20 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                     )),
                 ),
                 errorWidget: (context, url, error) => Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        colors[0],
-                        colors[1],
-                      ],
-                    ),
+                  decoration: const BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage(
+                        'assets/backgrounds/pt5.png',
+                      ),
+                      fit: BoxFit.cover,
+                      opacity: .3,
+                      )
                   ),
                   child: Center(
                     child: Icon(
-                      companion.gender == CompanionGender.female ? Icons.face_3 : Icons.face,
-                      size: 80,
-                      color: Colors.white60,
+                      Icons.person,
+                      size: 150,
+                      color: Colors.black.withOpacity(0.3),
                     ),
                   ),
                 ),
@@ -238,35 +267,22 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
         child: FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
-          child: ShaderMask(
-            shaderCallback: (bounds) => LinearGradient(
-          colors: [
-            Colors.white.withOpacity(0.99), 
-            Colors.white.withOpacity(0.99)
-            ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ).createShader(bounds),
-        child: Text(
-          '${companion.name}, ${companion.physical.age}',
-          overflow: TextOverflow.ellipsis,
-          maxLines: 1,
-          style: GoogleFonts.poppins(
-            fontSize: 34,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-            letterSpacing: -0.5,
-            height: 1.5,
-            shadows: [
-              Shadow(
-                color: Colors.black.withOpacity(0.6),
-                offset: const Offset(1.5, 2),
-                blurRadius: 1.5,
-              ),
-            ], 
+          child: Text(
+            '${companion.name}, ${companion.physical.age}',
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+            style: AppTextStyles.companionNamePopins.copyWith(
+              height: 1.5,
+              fontSize: 34,
+              shadows: [
+                Shadow(
+                  color: Colors.black.withOpacity(0.6),
+                  offset: const Offset(1.5, 2),
+                  blurRadius: 1.5,
+                ),
+              ], 
+            ),
           ),
-        ),
-      ),
         ),
       ),
       const SizedBox(width: 10,),
@@ -276,7 +292,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
               color: Colors.white10,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(Icons.favorite_border, color: Colors.white, size: 20),
+            child: const Icon(Icons.favorite_border, color: Colors.white, size: 20),
           ),
     ],
   );
@@ -320,8 +336,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                     const SizedBox(width: 8),
                     Text(
                       interest,
-                      style: GoogleFonts.poppins(
-                        fontSize: 15,
+                      style: AppTextStyles.forDarkTheme(AppTextStyles.bodyMedium).copyWith(
                         fontWeight: FontWeight.w500,
                         color: Colors.white.withOpacity(0.7),
                       ),
@@ -342,8 +357,8 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            traitColor.withOpacity(0.05),
-            traitColor.withOpacity(0.05),
+            traitColor.withOpacity(0.1),
+            traitColor.withOpacity(0.1),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -372,10 +387,8 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
           const SizedBox(width: 6),
           Text(
             trait,
-            style: GoogleFonts.poppins(
+            style: AppTextStyles.chipLabel.copyWith(
               color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
             ),
           ),
         ],

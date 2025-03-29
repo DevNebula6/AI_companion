@@ -42,7 +42,34 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+      - assets/
       - assets/images/
       - assets/icons/
       - assets/animation/
+      - assets/backgrounds/
       - .env
+  fonts:
+    - family: SpaceGrotesk
+      fonts:
+        - asset: assets/fonts/Space_Grotesk/SpaceGrotesk-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Space_Grotesk/SpaceGrotesk-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Space_Grotesk/SpaceGrotesk-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Space_Grotesk/SpaceGrotesk-Bold.ttf
+          weight: 700
+    
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/Plus_Jakarta_Sans/PlusJakartaSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Plus_Jakarta_Sans/PlusJakartaSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Plus_Jakarta_Sans/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Plus_Jakarta_Sans/PlusJakartaSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Plus_Jakarta_Sans/PlusJakartaSans-Italic.ttf
+          style: italic
+          weight: 400

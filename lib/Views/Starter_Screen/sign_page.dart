@@ -296,7 +296,7 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.only(left: 18, right: 18),
                 elevation: 1,
               ),
               child: Row(
@@ -304,15 +304,20 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
                 children: [
                   SvgPicture.asset(
                     iconPath,
-                    height: 24,
-                    width: 24,
+                    height: 26,
+                    width: 26,
                   ),
                   const SizedBox(width: 12),
-                  Text(
-                    text,
-                    style: GoogleFonts.inter(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      text,
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
