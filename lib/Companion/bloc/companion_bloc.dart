@@ -174,8 +174,6 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
       final validCompanions = companions.where((companion) =>
         companion.id.isNotEmpty &&
         companion.name.isNotEmpty
-        // companion.physical != null &&
-        // companion.personality != null
       );
     for (var companion in validCompanions) {
       await _companionsBox?.put(companion.id, companion);

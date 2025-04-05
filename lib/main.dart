@@ -1,17 +1,18 @@
 import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
 import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/companion_repository.dart';
+import 'package:ai_companion/Views/Home/home_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/sign_page.dart';
 import 'package:ai_companion/Views/AI_selection/companion_selection.dart';
 import 'package:ai_companion/Views/user_profile_screen.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
+import 'package:ai_companion/chat/conversation_bloc.dart/conversation_bloc.dart';
 import 'package:ai_companion/services/hive_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:logging/logging.dart';
-import 'package:ai_companion/Views/Home/home_page.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
@@ -63,6 +64,11 @@ Future<void> main() async {
             ChatCacheService(prefs),
           )
           ),
+        BlocProvider<ConversationBloc>(
+          create: (context) => ConversationBloc(
+            ChatRepository(),
+          ),
+        ),
       ],
       child: const MainApp(),
     ),
@@ -125,7 +131,7 @@ class MainApp extends StatelessWidget {
       if (state is AuthStateUserProfile || !state.user.hasCompletedProfile) {
         return const UserProfilePage() ;
       } else {
-        return const ChatScreen();
+        return const HomeScreen();
       }
     } else if (state is AuthStateLoggedOut) {
       return _buildLoggedOutView(state.intendedView);

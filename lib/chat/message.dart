@@ -1,12 +1,30 @@
 // ignore_for_file: non_constant_identifier_names
-
 import 'package:flutter/foundation.dart';
+
+enum MessageType {
+  text,
+  image,
+  audio,
+  emoji,
+  typing,
+  systemMessage,
+  action
+}
+
+enum MessageStatus {
+  sending,
+  sent,
+  delivered,
+  read,
+  failed
+}
 
 @immutable
 class Message {
   final String id;
   final String message;
   final String userId;
+  final String companionId;
   final bool isBot;
   final DateTime created_at;
   final MessageType type;
@@ -28,6 +46,7 @@ class Message {
     required this.id,
     required this.message,
     required this.userId,
+    required this.companionId, 
     required this.isBot,
     required this.created_at,
     this.type = MessageType.text,
@@ -49,6 +68,7 @@ class Message {
       id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
       message: json['message']?.toString() ?? '',
       userId: json['user_id']?.toString() ?? '',
+      companionId: json['companion_id']?.toString() ?? '',
       isBot: json['is_bot'] ?? false,
       created_at: json['created_at'] != null 
           ? DateTime.parse(json['created_at']) 
@@ -75,6 +95,7 @@ class Message {
     return Message(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       message: 'Error loading message',
+      companionId:'',
       userId: '',
       isBot: false,
       created_at: DateTime.now(),
@@ -88,6 +109,7 @@ class Message {
       'id': id,
       'message': message,
       'user_id': userId,
+      'companion_id': companionId,
       'is_bot': isBot,
       'created_at': created_at.toIso8601String(),
       'type': type.toString(),
@@ -116,6 +138,7 @@ class Message {
       id: id,
       message: text ?? message,
       userId: userId,
+      companionId: companionId,
       isBot: isBot,
       created_at: created_at,
       type: type,
@@ -142,7 +165,6 @@ class Message {
   int get hashCode => id.hashCode;
 }
 
-enum MessageType { text, image, file, audio, video, location }
 enum MediaType { image, video, audio, document }
 
 // Extension for time-related utilities

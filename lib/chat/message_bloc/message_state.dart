@@ -36,3 +36,12 @@ class MessageReceiving extends MessageState {
   @override
   List<Object?> get props => [message];
 }
+
+class LoadingMoreMessages extends MessageState {
+  final List<Message> currentMessages;
+  
+  const LoadingMoreMessages(this.currentMessages);
+  
+  @override
+  List<Object?> get props => [currentMessages];
+}

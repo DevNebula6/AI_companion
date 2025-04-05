@@ -1,8 +1,5 @@
-import 'dart:io';
-
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/services/image_cache_service.dart';
-import 'package:ai_companion/services/image_prompt_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AICompanionRepository {
@@ -84,38 +81,38 @@ final SupabaseClient _supabase;
     }
   }
   
-  Future<bool> generateAllImagePrompts() async {
-    try {
-      final companions = await getAllCompanions();
+  // Future<bool> generateAllImagePrompts() async {
+  //   try {
+  //     final companions = await getAllCompanions();
       
-      final directory = Directory('${Directory.current.path}/lib/AI');
-      if (!await directory.exists()) {
-        await directory.create(recursive: true);
-      }
+  //     final directory = Directory('${Directory.current.path}/lib/AI');
+  //     if (!await directory.exists()) {
+  //       await directory.create(recursive: true);
+  //     }
       
-      // Create a single file for all prompts
-      final allPromptsFile = File('${Directory.current.path}/lib/AI/all_image_prompts.txt');
-      final buffer = StringBuffer();
+  //     // Create a single file for all prompts
+  //     final allPromptsFile = File('${Directory.current.path}/lib/AI/all_image_prompts.txt');
+  //     final buffer = StringBuffer();
       
-      // Create individual files for each companion
-      for (final companion in companions) {
-        final prompt = ImagePromptService.createPrompt(companion);
+  //     // Create individual files for each companion
+  //     for (final companion in companions) {
+  //       final prompt = ImagePromptService.createPrompt(companion);
         
-        // Write to individual file
-        final individualFile = File('${Directory.current.path}/lib/AI/${companion.name.replaceAll(' ', '_')}_prompt.txt');
-        await individualFile.writeAsString(prompt);
+  //       // Write to individual file
+  //       final individualFile = File('${Directory.current.path}/lib/AI/${companion.name.replaceAll(' ', '_')}_prompt.txt');
+  //       await individualFile.writeAsString(prompt);
         
-        // Append to combined file
-        buffer.writeln(prompt);
-        buffer.writeln('\n' + '=' * 60 + '\n');
-      }
+  //       // Append to combined file
+  //       buffer.writeln(prompt);
+  //       buffer.writeln('\n' + '=' * 60 + '\n');
+  //     }
       
-      // Write combined file
-      await allPromptsFile.writeAsString(buffer.toString());
-      return true;
-    } catch (e) {
-      print('Error generating all prompts: $e');
-      return false;
-    }
-  }
+  //     // Write combined file
+  //     await allPromptsFile.writeAsString(buffer.toString());
+  //     return true;
+  //   } catch (e) {
+  //     print('Error generating all prompts: $e');
+  //     return false;
+  //   }
+  // }
 }

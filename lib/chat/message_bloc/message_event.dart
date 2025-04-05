@@ -1,4 +1,5 @@
 
+import 'package:ai_companion/chat/message.dart';
 import 'package:equatable/equatable.dart';
 
 abstract class MessageEvent extends Equatable {
@@ -9,29 +10,27 @@ abstract class MessageEvent extends Equatable {
 }
 
 class SendMessageEvent extends MessageEvent {
-  final String userId;
-  final String message;
+  final Message message;
   
   const SendMessageEvent({
-    required this.userId,
     required this.message,
   });
   
   @override
-  List<Object?> get props => [userId, message];
+  List<Object?> get props => [message];
 }
 
 class LoadMessagesEvent extends MessageEvent {
   final String userId;
-  final String userName;
+  final String companionId;
   
   const LoadMessagesEvent({
     required this.userId,
-    required this.userName,
+    required this.companionId,
   });
   
   @override
-  List<Object?> get props => [userId, userName];
+  List<Object?> get props => [userId, companionId];
 }
 
 class DeleteMessageEvent extends MessageEvent {
@@ -40,4 +39,24 @@ class DeleteMessageEvent extends MessageEvent {
   
   @override
   List<Object?> get props => [messageId];
+}
+
+class LoadMoreMessages extends MessageEvent {
+  final String userId;
+  final int limit;
+  final int offset;
+  
+  const LoadMoreMessages(this.userId, {this.limit = 20, required this.offset});
+}
+
+class ClearConversation extends MessageEvent {
+  final String userId;
+  final String companionId;
+  const ClearConversation({required this.userId,required this.companionId});
+}
+
+class RetryChatRequest extends MessageEvent {
+  final Message failedMessage;
+  
+  const RetryChatRequest(this.failedMessage);
 }
