@@ -1,12 +1,13 @@
 import 'dart:async';
+import 'dart:convert' show jsonEncode;
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Companion/hive_adapter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:ai_companion/auth/auth_exceptions.dart';
+import 'package:ai_companion/ErrorHandling/auth_exceptions.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:logging/logging.dart';
 import 'auth_providers.dart';
@@ -55,7 +56,38 @@ class SupabaseAuthProvider implements AuthProvider {
       return null;
     }
   }
-
+  @override
+  Future<void> updateUserProfile(CustomAuthUser user) async {
+    try {
+      final Map<String, dynamic> userData = {
+        'id': user.id,
+        'email': user.email,
+        'full_name': user.fullName,
+        'dob': user.dob,
+        'gender': user.gender,
+        'avatar_url': user.avatarUrl,
+        'interests': user.interests,
+        'personality_traits': user.personalityTraits,
+        'chat_language': user.chatLanguage ?? 'English',
+        'metadata': user.metadata,
+        'device_token': user.deviceToken,
+      };
+      
+      await _supabase
+      .from('user_profiles')
+      .upsert(userData);
+        
+      // Update cached user
+      _cachedUser = user;
+      
+      // Also save to shared preferences for offline access
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_data', jsonEncode(user.toJson()));
+    } catch (e) {
+      _log.warning('Error updating user profile: $e');
+      throw UserProfileUpdateException();
+    }
+  }
   @override
   Future<void> logout() async {
     try {
@@ -75,7 +107,7 @@ class SupabaseAuthProvider implements AuthProvider {
       throw SessionRefreshException();
     }
   }
-  
+
   Future<String?> getSignInMethod() async {
     try {
       final user = _supabase.auth.currentUser;

@@ -1,4 +1,6 @@
 
+import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:equatable/equatable.dart';
 
@@ -8,7 +10,20 @@ abstract class MessageEvent extends Equatable {
   @override
   List<Object?> get props => [];
 }
-
+class InitializeCompanionEvent extends MessageEvent {
+  final AICompanion companion;
+  final String userId;
+  final CustomAuthUser? user;
+  
+  const InitializeCompanionEvent({
+    required this.companion,
+    required this.userId,
+    this.user,
+  });
+  
+  @override
+  List<Object?> get props => [companion, userId, user];
+}
 class SendMessageEvent extends MessageEvent {
   final Message message;
   
@@ -48,7 +63,15 @@ class LoadMoreMessages extends MessageEvent {
   
   const LoadMoreMessages(this.userId, {this.limit = 20, required this.offset});
 }
-
+class RefreshMessages extends MessageEvent {
+  final String userId;
+  final String companionId;
+  
+  const RefreshMessages({
+    required this.userId,
+    required this.companionId,
+  });
+}
 class ClearConversation extends MessageEvent {
   final String userId;
   final String companionId;

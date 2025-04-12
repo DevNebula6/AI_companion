@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/message_bloc/message_event.dart';
 import 'package:ai_companion/chat/message_bloc/message_state.dart';
 import 'package:ai_companion/chat/chat_cache_manager.dart';
@@ -12,13 +14,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final ChatRepository _repository;
   final GeminiService _geminiService;
   final ChatCacheService _cacheService;
-  
-  // Stream subscriptions and controllers
-  StreamSubscription<List<Message>>? _messageSubscription;
+
   String? _currentUserId;
+  String? _currentCompanionId;
   Timer? _syncTimer;
-  Stream<List<Message>>? _messageStream;
   List<Message> _currentMessages = [];
+  AICompanion? _currentCompanion;
+  CustomAuthUser? _currentUser;
   
   // Add a BehaviorSubject for typing indicators
   final BehaviorSubject<bool> _typingSubject = BehaviorSubject.seeded(false);
@@ -32,6 +34,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<ClearConversation>(_onClearConversation);
     on<LoadMoreMessages>(_onLoadMoreMessages);
     on<RetryChatRequest>(_onRetryChatRequest);
+    on<InitializeCompanionEvent>(_onInitializeCompanion);
+    on<RefreshMessages>(_onRefreshMessages);
     
     _setupPeriodicSync();
   }
@@ -45,9 +49,10 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   }
   
   Future<void> _backgroundSync() async {
-    if (_currentUserId != null && _cacheService.needsSync(_currentUserId!)) {
+    if (_currentUserId != null && _currentCompanionId != null && 
+        _cacheService.needsSync(_currentUserId!)) {
       try {
-        final messages = await _repository.getMessages(_currentUserId!).first;
+        final messages = await _repository.getMessages(_currentUserId!, _currentCompanionId!);
         await _cacheService.cacheMessages(_currentUserId!, messages);
       } catch (e) {
         print('Background sync error: $e');
@@ -55,99 +60,106 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
   
-  Future<void> _initializeAI(String userId, String userName) async {
+  Future<void> _onInitializeCompanion(
+    InitializeCompanionEvent event, 
+    Emitter<MessageState> emit
+  ) async {
     try {
-      // Initialize AI with user info for personalized responses
-      await _geminiService.initializeChat(
-        userName: userName,
-        additionalInfo: {
-          'userId': userId,
-          'timezone': DateTime.now().timeZoneName,
-        },
+      emit(MessageLoading());
+      
+      _currentUserId = event.userId;
+      _currentCompanionId = event.companion.id;
+      _currentCompanion = event.companion;
+      _currentUser = event.user;
+      
+      // Initialize the AI companion with user information
+      await _geminiService.initializeCompanion(
+        companion: event.companion,
+        userId: event.userId,
+        userName: event.user?.fullName,
+        userProfile: event.user?.toAIFormat(),
       );
+      
+      emit(CompanionInitialized(event.companion));
     } catch (e) {
-      print('Error initializing AI: $e');
+      print('Error initializing companion: $e');
+      emit(MessageError(error: e as Exception));
     }
   }
   
   Future<void> _onSendMessage(SendMessageEvent event, Emitter<MessageState> emit) async {
     try {
-      final message = event.message;
-      
+      final userMessage = event.message;
+
+
       // 1. Optimistic update for immediate UI feedback
-      _currentMessages.add(message);
+      _currentMessages.add(userMessage);
       emit(MessageLoaded(
-        messageStream: _messageStream!,
-        currentMessages: _currentMessages,
+        messages: _currentMessages,
       ));
       
-      // 2. Send to Supabase
-      await _repository.sendMessage(message);
-      
-      // 3. Get or create conversation for this companion
-      String conversationId = await 
-        _repository.getOrCreateConversation(
-          message.userId,
-          message.companionId,
-          );
-      
-      // 4. Update conversation with last message
-      await _repository.updateConversation(
-        conversationId,
-        lastMessage: message.message,
-        incrementUnread: null, // Don't increment for user messages
-      );
+      // 2. Send to database in background (don't await)
+      Future(() async {
+        await _repository.sendMessage(userMessage);
+        await _repository.updateConversation(
+          userMessage.conversationId,
+          lastMessage: userMessage.message,
+          incrementUnread: null,
+        );
+      });
       
       // 5. Show typing indicator
       _typingSubject.add(true);
-      emit(MessageReceiving(message.message));
+      emit(MessageReceiving(userMessage.message));
       
-      // 6. Get AI response with timeout handling
-      String aiResponse;
-      try {
-        aiResponse = await _geminiService.generateResponse(message.message)
-            .timeout(const Duration(seconds: 15));
-      } catch (timeoutError) {
-        aiResponse = "I'm having trouble processing that right now. Could you try again?";
-      }
+      // 6. Generate AI response
+      final String aiResponse = await _geminiService.generateResponse(
+        userMessage.message,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?"
+      );
       
       // 7. Hide typing indicator
       _typingSubject.add(false);
       
       // 8. Create AI message
+      final metrics = _geminiService.getRelationshipMetrics();
       final aiMessage = Message(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         message: aiResponse,
-        companionId: message.companionId,
-        userId: message.userId,
+        companionId: userMessage.companionId,
+        userId: userMessage.userId,
+        conversationId: userMessage.conversationId,
         isBot: true,
         created_at: DateTime.now(),
-        // Add metadata for enhanced context
+        metadata: {
+          'relationship_level': metrics['level'],
+          'emotion': metrics['dominant_emotion'],
+        },
       );
       
-      // 9. Update conversation with AI response
-      await _repository.updateConversation(
-        conversationId,
-        lastMessage: aiMessage.message,
-        incrementUnread: 1, // Increment unread count for bot message
-      );
-      
-      // 10. Optimistically update UI and Emit loaded state with updated messages
-      emit(MessageLoaded(
-        messageStream: _messageStream!,
-        currentMessages: _currentMessages,
-      ));
-      // 11. Send AI message to Supabase
-      await _repository.sendMessage(aiMessage);
-      
-      // 12. Update local state
+      // 9. Update local state
       _currentMessages.add(aiMessage);
       await _cacheService.cacheMessages(_currentUserId!, _currentMessages);
-            
+      
+      // 10. Update UI with both messages
+      emit(MessageLoaded(
+        messages: _currentMessages,
+      ));
       emit(MessageSent());
+
+      // 13. Update database in background
+      Future(() async {
+        await _repository.sendMessage(aiMessage);
+        await _repository.updateConversation(
+          userMessage.conversationId,
+          lastMessage: aiMessage.message,
+          incrementUnread: 1,
+        );
+      });
     } catch (e) {
       print('Error sending message: $e');
-      
       // Remove the optimistically added message if error occurs
       if (_currentMessages.isNotEmpty) {
         _currentMessages.removeLast();
@@ -155,108 +167,105 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
       
       _typingSubject.add(false);
-      emit(const MessageError());
+      emit(MessageError(error: e as Exception));
     }
   }
   
-  Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit) async {
+Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit) async {
     try {
       emit(MessageLoading());
       _currentUserId = event.userId;
+      _currentCompanionId = event.companionId;
       
-      // 1. Get cached messages for instant display
+      // 1. Get companion data
+      final companion = await _repository.getCompanion(event.companionId);
+      if (companion != null) {
+        _currentCompanion = companion;
+      } else {
+        throw Exception('Companion not found');
+      }
+      
+      // 2. Try cached messages first for immediate response
       _currentMessages = _cacheService.getCachedMessages(event.userId);
+      if (_currentMessages.isNotEmpty) {
+        emit(MessageLoaded(messages: _currentMessages));
+      }
       
-      // 2. Setup message stream from Supabase
-      _messageStream = _repository.getMessages(event.userId);
+      // 3. Then fetch fresh messages
+      final messages = await _repository.getMessages(event.userId, event.companionId);
       
-      // 3. Setup stream subscription for real-time updates
-      await _messageSubscription?.cancel();
-      _messageSubscription = _messageStream!.listen(
-        (messages) async {
-          _currentMessages = messages;
-          await _cacheService.cacheMessages(event.userId, messages);
-          
-          if (_currentUserId == event.userId && !emit.isDone) {
-            emit(MessageLoaded(
-              messageStream: _messageStream!,
-              currentMessages: messages,
-            ));
-          }
-        },
-        onError: (error) {
-          print('Stream error: $error');
-          if (!emit.isDone) {
-            emit(MessageLoaded(
-              messageStream: _messageStream!,
-              currentMessages: _currentMessages,
-            ));
-          }
-        },
+      if (messages.isNotEmpty) {
+        _currentMessages = messages;
+        await _cacheService.cacheMessages(event.userId, messages);
+      }
+      
+      // 4. Get current user
+      final user = await CustomAuthUser.getCurrentUser();
+      _currentUser = user;
+      
+      // 5. Initialize AI companion if not initialised
+      
+      await _geminiService.initializeCompanion(
+        companion: companion,
+        userId: event.userId,
+        userName: user?.fullName,
+        userProfile: user?.toAIFormat(),
       );
-
-      // 4. Initialize AI with user info
-      await _initializeAI(event.userId, event.companionId);
-      
-      // 5. Send welcome message if this is user's first time
+          
+      // 6. Handle welcome message if needed
       if (_currentMessages.isEmpty) {
-        // Generate personalized greeting
-        final greeting = await _geminiService.generateInitialGreeting(event.userId);
+        // Generate greeting and create welcome message
+        final greeting = await _geminiService.generateGreeting();
         
-        // Create welcome message
+        // Get conversation ID
+        final conversationId = await _repository.getOrCreateConversation(
+          event.userId, 
+          event.companionId
+        );
+        
         final welcomeMessage = Message(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          id: "welcome-${DateTime.now().millisecondsSinceEpoch}",
           message: greeting,
           userId: event.userId,
           companionId: event.companionId,
+          conversationId: conversationId,
           isBot: true,
           created_at: DateTime.now(),
+          metadata: {
+            'is_greeting': true,
+            'relationship_level': _geminiService.relationshipLevel,
+          },
         );
         
-        // Send to Supabase
+        // Add to local state first
+        _currentMessages = [welcomeMessage];
+        await _cacheService.cacheMessages(event.userId, _currentMessages);
+        
+        // Update UI with local state
+        emit(MessageLoaded(messages: _currentMessages));
+        
+        // Then send to database
         await _repository.sendMessage(welcomeMessage);
-        
-        // Create or update conversation
-        String conversationId = await _repository.getOrCreateConversation(
-          event.userId,
-          event.companionId,
-        );
         await _repository.updateConversation(
           conversationId,
           lastMessage: welcomeMessage.message,
           incrementUnread: 1,
         );
-        
-        // Add to local cache
-        _currentMessages.add(welcomeMessage);
-        await _cacheService.cacheMessages(_currentUserId!, _currentMessages);
-      }
-      
-      // 6. Emit loaded state
-      if (!emit.isDone) {
-        emit(MessageLoaded(
-          messageStream: _messageStream!,
-          currentMessages: _currentMessages,
-        ));
+      } else {
+        // Just emit loaded state with messages
+        emit(MessageLoaded(messages: _currentMessages));
       }
     } catch (e) {
       print('Error loading messages: $e');
       
-      if (!emit.isDone) {
-        // Fallback to cached messages if available
-        if (_currentMessages.isNotEmpty) {
-          emit(MessageLoaded(
-            messageStream: _messageStream!,
-            currentMessages: _currentMessages,
-          ));
-        } else {
-          emit(const MessageError());
-        }
+      // Fallback to cached messages
+      if (_currentMessages.isNotEmpty) {
+        emit(MessageLoaded(messages:_currentMessages));
+      } else {
+        emit(MessageError(error: e as Exception));
       }
     }
   }
-  
-  // Other event handlers...
   
   Future<void> _onClearConversation(
     ClearConversation event, 
@@ -275,12 +284,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       _repository.deleteAllMessages(companionId: event.companionId);
       
       emit(MessageLoaded(
-        messageStream: _messageStream!,
-        currentMessages: _currentMessages,
+        messages: _currentMessages,
       ));
     } catch (e) {
       print('Error clearing conversation: $e');
-      emit(const MessageError());
+      emit(MessageError(error: e as Exception));
     }
   }
   
@@ -295,7 +303,32 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     RetryChatRequest event,
     Emitter<MessageState> emit
   ) async {
-    // Implementation for retrying failed messages...
+    try {
+      emit(MessageLoading());
+      
+      // Get the failed message
+      final failedMessage = event.failedMessage;
+      
+      // Try to resend the message
+      if (failedMessage.isBot) {
+        // If it's a bot message that failed, regenerate the response
+        final previousUserMessage = _currentMessages
+            .lastWhere((msg) => !msg.isBot && msg.id != failedMessage.id,
+                );
+                
+        add(SendMessageEvent(message: previousUserMessage));
+      } else {
+        // If it's a user message that failed, try sending again
+        add(SendMessageEvent(message: failedMessage));
+      }
+      
+      emit(MessageLoaded(
+        messages: _currentMessages,
+      ));
+    } catch (e) {
+      print('Error retrying message: $e');
+      emit(MessageError(error: e as Exception));
+    }
   }
   
   Future<void> _onDeleteMessage(
@@ -311,20 +344,31 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       await _cacheService.cacheMessages(_currentUserId!, _currentMessages);
       
       emit(MessageLoaded(
-        messageStream: _messageStream!,
-        currentMessages: _currentMessages,
+        messages: _currentMessages,
       ));
     } catch (e) {
       print('Error deleting message: $e');
-      emit(const MessageError()); 
+      emit(MessageError(error: e as Exception));
+    }
+  }
+
+  Future<void> _onRefreshMessages(RefreshMessages event, Emitter<MessageState> emit) async {
+    if (_currentUserId != null && _currentCompanionId != null) {
+      await _onLoadMessages(
+        LoadMessagesEvent(
+          userId: _currentUserId!, 
+          companionId: _currentCompanionId!
+        ), 
+        emit
+      );
     }
   }
 
   @override
   Future<void> close() async {
-    await _messageSubscription?.cancel();
     _syncTimer?.cancel();
     await _typingSubject.close();
+    await _geminiService.saveState();
     return super.close();
   }
 }

@@ -90,7 +90,28 @@ class ChatCacheService {
   String _getLastSyncKey(String userId) => '$_lastSyncKey$userId';
 
   Future<void> clearCache(String userId) async {
-    await _prefs.remove(_getCacheKey(userId));
-    await _prefs.remove(_getLastSyncKey(userId));
+    try {
+      final key = _getCacheKey(userId);
+      await _prefs.remove(key);
+      await _prefs.remove(_getLastSyncKey(userId));
+    } catch (e) {
+      print('Failed to clear cache: $e');
+    }
+  }
+  List<Message> getCachedMessagesPaginated(String userId, {int limit = 50, int offset = 0}) {
+    try {
+      final allMessages = getCachedMessages(userId);
+      if (allMessages.isEmpty) return [];
+      
+      final startIndex = offset < allMessages.length ? offset : 0;
+      final endIndex = (startIndex + limit) < allMessages.length 
+          ? startIndex + limit 
+          : allMessages.length;
+      
+      return allMessages.sublist(startIndex, endIndex);
+    } catch (e) {
+      print('Cache pagination error: $e');
+      return [];
+    }
   }
 }

@@ -1,37 +1,44 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
+import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/bloc/companion_state.dart';
-import 'package:ai_companion/Views/chat_screen/chat_page.dart';
+import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
+import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/conversation.dart';
-import 'package:ai_companion/chat/conversation_bloc.dart/conversation_bloc.dart';
-import 'package:ai_companion/chat/conversation_bloc.dart/conversation_event.dart';
-import 'package:ai_companion/chat/conversation_bloc.dart/conversation_state.dart';
+import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
+import 'package:ai_companion/chat/conversation/conversation_event.dart';
+import 'package:ai_companion/chat/conversation/conversation_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:ai_companion/utilities/constants/textstyles.dart';
-import 'package:ai_companion/Views/AI_selection/companion_selection.dart';
 import 'package:shimmer/shimmer.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+    final CustomAuthUser user;
+
+  const HomeScreen({super.key, required this.user});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late final CustomAuthUser user;
-
+  List<Conversation> _conversations = [];
   @override
   void initState() {
     super.initState();
     
-    // Get the current user from the context
-    user = context.read<CustomAuthUser>();
     
+    final companionBloc = context.read<CompanionBloc>();
+    companionBloc.add(LoadCompanions());
+
+
     // Request conversation data when screen initializes
-    context.read<ConversationBloc>().add(LoadConversations());
+    context.read<ConversationBloc>().add(LoadConversations(widget.user.id));
+    
+    companionBloc.add(CheckForUpdates());
+
   }
 
   @override
@@ -56,18 +63,25 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: BlocBuilder<ConversationBloc, ConversationState>(
-        builder: (context, state) {
-          if (state is ConversationLoading) {
-            return _buildLoadingState();
-          } else if (state is ConversationLoaded) {
-            return _buildConversationList(context, state);
-          } else if (state is ConversationError) {
-            return _buildErrorState(state);
-          } else {
-            return _buildEmptyState();
-          }
-        },
+      body: BlocBuilder<CompanionBloc,CompanionState>(
+        builder: (context,companionState) {
+          if (companionState is CompanionLoading) {
+          return _buildLoadingState();
+        }
+        return BlocBuilder<ConversationBloc, ConversationState>(
+            builder: (context, state) {
+              if (state is ConversationLoading) {
+                return _buildLoadingState();
+              } else if (state is ConversationLoaded) {
+                return _buildConversationList(context, state);
+              } else if (state is ConversationError) {
+                return _buildErrorState(state);
+              } else {
+                return _buildEmptyState();
+              }
+            },
+          );
+        }
       ),
       // Add button to create a new conversation
       floatingActionButton: FloatingActionButton(
@@ -129,7 +143,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: () => context.read<ConversationBloc>().add(LoadConversations()),
+            onPressed: () => context.read<ConversationBloc>().add(LoadConversations(widget.user.id)),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
             child: const Text('Try Again'),
           ),
         ],
@@ -416,25 +433,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     
     // Navigate to chat page
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatPage(
-          user:user ,
-          companion: conversationCompanion,
-        ),
-      ),
+    context.read<AuthBloc>().add(
+      AuthEventNavigateToChat(
+        conversationId: conversation.id,
+        user: widget.user,
+        companion: conversationCompanion,
+      )
     );
   }
 
   // Helper method to navigate to companion selection
   void _navigateToCompanionSelection(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const CompanionSelectionPage(),
-      ),
-    );
+    context.read<AuthBloc>().add(AuthEventNavigateToCompanion(user:widget.user));
   }
 
   // Show delete confirmation dialog

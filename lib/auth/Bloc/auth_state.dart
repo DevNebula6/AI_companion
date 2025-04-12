@@ -1,3 +1,4 @@
+import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:flutter/foundation.dart' show immutable;
 import 'package:equatable/equatable.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
@@ -40,6 +41,20 @@ class AuthStateUserProfile extends AuthState {
     required super.isLoading,
     this.exception,
   });
+}
+
+class AuthStateChatPage extends AuthState {
+  final CustomAuthUser user;
+  final AICompanion companion;
+  final String conversationId;
+  const AuthStateChatPage({
+    required this.conversationId,
+    required this.user,
+    required this.companion, required super.isLoading,
+  });
+  
+  
+  List<Object?> get props => [user, companion, isLoading];
 }
 
 class AuthStateSelectCompanion extends AuthState {

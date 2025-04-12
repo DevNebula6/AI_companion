@@ -1,9 +1,9 @@
-import 'dart:convert';
+import 'package:ai_companion/auth/custom_auth_user.dart';
+import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:bloc/bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/auth_providers.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthBloc extends Bloc<AuthEvents, AuthState> {
 
@@ -28,28 +28,47 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
   });
   
   //Companion selection screen
-
-
+  on<AuthEventSelectCompanion>((event, emit) async {
+    final currentUser = event.user;
+    try {
+      
+      emit(AuthStateLoggedIn(
+        user: currentUser,
+        isLoading: false,
+      ));
+    } catch (e) {
+      emit(AuthStateSelectCompanion(
+        user: currentUser,
+        isLoading: false,
+        exception: e as Exception,
+      ));
+    }
+  });
 
   //user profile
   on<AuthEventUserProfile>((event, emit) async {
     final currentUser = event.user;
     try {
-    // Save updated user to shared preferences
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('user_data', jsonEncode(currentUser.toJson()));
+
+    await provider.updateUserProfile(event.user);
 
     emit(AuthStateUserProfile(
       user: currentUser,
       isLoading: false,
     ));
 
-    if(currentUser.aiModel?.name == '' || currentUser.aiModel == null) {
+    // Check if user has any conversations
+    final chatRepository = ChatRepository();
+    final hasConversations = await chatRepository.hasConversations(currentUser.id);
+    
+    if (!hasConversations) {
+      // No conversations - navigate to companion selection
       emit(AuthStateSelectCompanion(
         user: currentUser,
         isLoading: false,
       ));
     } else {
+      // User has conversations - navigate to home
       emit(AuthStateLoggedIn(
         user: currentUser,
         isLoading: false,
@@ -64,6 +83,29 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       ));
     }
       
+  });
+
+  on<AuthEventNavigateToHome>((event, emit) {
+    emit(AuthStateLoggedIn(
+      user: event.user,
+      isLoading: false,
+    ));
+  });
+  
+  on<AuthEventNavigateToCompanion>((event, emit) {
+    emit(AuthStateSelectCompanion(
+      user: event.user,
+      isLoading: false,
+    ));
+  });
+  
+  on<AuthEventNavigateToChat>((event, emit) {
+    emit(AuthStateChatPage(
+      user: event.user,
+      companion: event.companion,
+      conversationId: event.conversationId,
+      isLoading: false,
+    ));
   });
   //navigate to sign in
   on<AuthEventNavigateToSignIn>((event, emit) {
@@ -85,7 +127,7 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
   // initialize
   on<AuthEventInitialise>((event, emit) async {
       await provider.initialize();
-      final user = provider.currentUser;
+    final user = await CustomAuthUser.getCurrentUser(); 
       if (user == null) {
         emit(
           const AuthStateLoggedOut(

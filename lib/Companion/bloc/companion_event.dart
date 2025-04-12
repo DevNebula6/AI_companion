@@ -15,3 +15,7 @@ class PreloadCompanionImages extends CompanionEvent {
   final List<AICompanion> companions;
   PreloadCompanionImages(this.companions);
 }
+class CheckForUpdates extends CompanionEvent {
+  final bool forceSync;
+  CheckForUpdates({this.forceSync = false});
+}

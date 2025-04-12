@@ -32,12 +32,11 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
 
   void _initializeCompanionData() {
     final authState = context.read<AuthBloc>().state;
-    if (authState is AuthStateLoggedIn) {
+    if (authState is AuthStateSelectCompanion) {
       setState(() {
         user = authState.user;
       });
       context.read<CompanionBloc>().add(LoadCompanions());
-      
     }
   }
 
@@ -57,14 +56,9 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
             return const Center(child: CircularProgressIndicator());
           } 
           if (state is CompanionError) {
-            return Center(child: Text('Failed to load companions - ${state.message}'));
+            return RetryActionButton();
           }
           if (state is CompanionLoaded) {
-            // Trigger image preloading
-            context.read<CompanionBloc>().add(
-              PreloadCompanionImages(state.companions)
-            );
-
             return Stack(
               children: [
                 _buildBackground(),
@@ -76,7 +70,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                         child: 
                           (state.companions.toList().isNotEmpty)?
                             _buildSwiper(state.companions):
-                            const Center(child: Text("No Companion Available")),
+                            const RetryActionButton(),
                       ),
                       const SizedBox(height: 4),
                     ],
@@ -158,7 +152,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     ];
 
     return GestureDetector(
-      onTap: () => _showCompanionDetails(companion),
+      onTap: () => _showCompanionDetails(companion,user),
       child: Card(
         elevation: 8,
         shape: RoundedRectangleBorder(
@@ -177,14 +171,11 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                 imageUrl: companion.avatarUrl,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
-                  decoration: const BoxDecoration(
-                    image: DecorationImage(
-                      image: AssetImage(
-                        'assets/backgrounds/pt6.png',
-                      ),
-                      fit: BoxFit.cover,
-                      opacity: .3,
-                      )
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [
+                      colors[0],
+                      colors[1],
+                    ]),
                   ),
                   child: Center(
                     child: 
@@ -195,14 +186,11 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                     )),
                 ),
                 errorWidget: (context, url, error) => Container(
-                  decoration: const BoxDecoration(
-                    image: DecorationImage(
-                      image: AssetImage(
-                        'assets/backgrounds/pt5.png',
-                      ),
-                      fit: BoxFit.cover,
-                      opacity: .3,
-                      )
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [
+                      colors[0],
+                      colors[1],
+                    ]),
                   ),
                   child: Center(
                     child: Icon(
@@ -395,12 +383,47 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
       ),
     );
   }
-  void _showCompanionDetails(AICompanion companion) {
+  void _showCompanionDetails(AICompanion companion,CustomAuthUser user) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+
       backgroundColor: Colors.transparent,
-      builder: (context) => CompanionDetailsSheet(companion: companion),
+      builder: (context) => CompanionDetailsSheet(
+        companion: companion,
+        user: user,
+
+        ),
     );
+  }
+}
+
+class RetryActionButton extends StatelessWidget {
+  const RetryActionButton({
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+        children: [
+          Center(
+            child:Text(
+              'Failed to load companions, please try again',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+                )
+              )
+            ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: () {
+              context.read<CompanionBloc>().add(LoadCompanions());
+            },
+            child: const Text('Retry'),
+          ),
+        ],
+      );
   }
 }

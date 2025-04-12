@@ -1,5 +1,6 @@
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
-import 'package:ai_companion/auth/auth_exceptions.dart';
+import 'package:ai_companion/ErrorHandling/auth_exceptions.dart';
+import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
@@ -32,6 +33,8 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   List<Widget>? _cachedCategoryWidgets;
   bool _interestsChanged = false;
   bool _barAnimationsComplete = false;
+  bool _hasConversations = false;
+
 
   // Remove static style definitions as we'll use AppTextStyles
   
@@ -61,7 +64,8 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
     super.initState();
     _initializeControllers();
     _loadUserData();    
-    _barAnimationsComplete = false;  
+    _barAnimationsComplete = false;
+    _checkForConversations();
   }
 
   void _initializeControllers() {
@@ -90,7 +94,18 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
       });
     }
   }
-
+  // Add this method to check for conversations
+  Future<void> _checkForConversations() async {
+    final user = await CustomAuthUser.getCurrentUser();
+    if (user != null) {
+      final chatRepository = ChatRepository();
+      final hasConversations = await chatRepository.hasConversations(user.id);
+      setState(() {
+        _hasConversations = hasConversations;
+      });
+    }
+  }
+  
   @override
   void dispose() {
     _fullNameController.dispose();
@@ -144,33 +159,40 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
           }
         }
       },
-      child: PopScope(
-        canPop: _currentUser?.aiModel != null && _currentUser!.aiModel!.toString().isNotEmpty,
-        onPopInvokedWithResult: (bool didPop, dynamic result) async {
-          if (_currentUser?.aiModel != null && _currentUser!.aiModel!.toString().isNotEmpty) {
-            // Handle back navigation
+      child:PopScope(
+        // Allow popping only if user has conversations
+        canPop: _hasConversations,
+        onPopInvoked: (didPop) {
+          if (!didPop && _hasConversations) {
+            // If back button is pressed and user has conversations
+            context.read<AuthBloc>().add(
+              AuthEventNavigateToHome(user: _currentUser!)
+            );
           }
         },
-        child: Scaffold(
-          backgroundColor: Colors.grey.shade50,
-          appBar: _buildAppBar(themeColors),
-          body: _buildBody(themeColors),
-        ),
+      child: Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        appBar: _buildAppBar(themeColors),
+        body: _buildBody(themeColors),
       ),
+    ),
     );
   }
 
   PreferredSizeWidget _buildAppBar(ColorScheme colors) {
     return AppBar(
       elevation: 0,
-      leading: _currentUser?.aiModel != null && _currentUser!.aiModel!.toString().isNotEmpty
-        ? BackButton(
-            color: Colors.white,
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-          )
-        : null,
+      leading: _hasConversations 
+      ? BackButton(
+          color: Colors.white,
+          onPressed: () {
+            // Navigate to home screen using AuthBloc
+            context.read<AuthBloc>().add(
+              AuthEventNavigateToHome(user: _currentUser!)
+            );
+          },
+        )
+      : null,
       backgroundColor: colors.primary,
       foregroundColor: Colors.white,
       title: Text(

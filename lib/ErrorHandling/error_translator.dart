@@ -1,4 +1,4 @@
-import 'package:ai_companion/auth/auth_exceptions.dart';
+import 'package:ai_companion/ErrorHandling/auth_exceptions.dart';
 
 class ErrorTranslator {
   static String translate(Exception exception) {
@@ -36,6 +36,8 @@ class ErrorTranslator {
       return 'There was a problem resetting your password. Please try again.';
     } else if (exception is PasswordUpdateException) {
       return 'There was a problem updating your password. Please try again.';
+    } else if (exception is UserProfileUpdateException) {
+      return 'There was a problem updating your profile. Please try again.';
     } else {
       return 'An unexpected error occurred. Please try again later.';
     }
