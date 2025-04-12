@@ -1,13 +1,13 @@
 import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
-import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/companion_repository.dart';
 import 'package:ai_companion/Views/Home/home_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/sign_page.dart';
 import 'package:ai_companion/Views/AI_selection/companion_selection.dart';
+import 'package:ai_companion/Views/chat_screen/chat_page.dart';
 import 'package:ai_companion/Views/user_profile_screen.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
-import 'package:ai_companion/chat/conversation_bloc.dart/conversation_bloc.dart';
+import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
 import 'package:ai_companion/services/hive_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -54,7 +54,14 @@ Future<void> main() async {
             final supabase = SupabaseClientManager().client;
             final companionRepository = AICompanionRepository(supabase);
             return CompanionBloc(companionRepository)
-            ..add(LoadCompanions());
+              ;
+          },
+        ),
+        BlocProvider<ConversationBloc>(
+          create: (context) {
+            final companionBloc = context.read<CompanionBloc>();
+            final chatRepository = ChatRepository(companionBloc: companionBloc);
+            return ConversationBloc(chatRepository);
           },
         ),
         BlocProvider<MessageBloc>(
@@ -64,11 +71,6 @@ Future<void> main() async {
             ChatCacheService(prefs),
           )
           ),
-        BlocProvider<ConversationBloc>(
-          create: (context) => ConversationBloc(
-            ChatRepository(),
-          ),
-        ),
       ],
       child: const MainApp(),
     ),
@@ -78,7 +80,7 @@ Future<void> main() async {
 void _setupLogging() {
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((LogRecord rec) {
-    print('${rec.level.name}: ${rec.time}: ${rec.message}');
+    print('Log -${rec.level.name}: ${rec.time}: ${rec.message}');
   });
 }
 
@@ -96,25 +98,20 @@ class MainApp extends StatelessWidget {
       title: 'Ai_Companion',
       debugShowCheckedModeBanner: false,
       theme: createAppTheme(defaultColorScheme),
-      home: BlocProvider<AuthBloc>(
-        create: (context) => AuthBloc(
-          SupabaseAuthProvider(),
-        )..add(const AuthEventInitialise()),
-        child: BlocConsumer<AuthBloc, AuthState>(
-          listenWhen: (previous, current) => 
-            previous.isLoading != current.isLoading,
-          listener: (context, state) {
-            if (state.isLoading) {
-              LoadingScreen().show(
-                context: context,
-                text: state.loadingText ?? 'Please wait a moment',
-              );
-            } else {
-              LoadingScreen().hide();
-            }
-          },
-          builder: (context, state) => _buildHome(context, state),
-        ),
+      home: BlocConsumer<AuthBloc, AuthState>(
+        listenWhen: (previous, current) => 
+          previous.isLoading != current.isLoading,
+        listener: (context, state) {
+          if (state.isLoading) {
+            LoadingScreen().show(
+              context: context,
+              text: state.loadingText ?? 'Please wait a moment',
+            );
+          } else {
+            LoadingScreen().hide();
+          }
+        },
+        builder: (context, state) => _buildHome(context, state),
       ),
     );
   }
@@ -128,18 +125,20 @@ class MainApp extends StatelessWidget {
 
   Widget _buildHomeContent(BuildContext context, AuthState state) {
     if (state is AuthStateLoggedIn) {
-      if (state is AuthStateUserProfile || !state.user.hasCompletedProfile) {
-        return const UserProfilePage() ;
-      } else {
-        return const HomeScreen();
-      }
+      return HomeScreen(user: state.user,);
     } else if (state is AuthStateLoggedOut) {
       return _buildLoggedOutView(state.intendedView);
     } else if (state is AuthStateUserProfile) {
       return const UserProfilePage();
     } else if (state is AuthStateSelectCompanion) {
       return const CompanionSelectionPage();
-    } else {
+    } else if (state is AuthStateChatPage) {
+      return ChatPage(
+        conversationId: state.conversationId,
+        user: state.user,
+        companion: state.companion,
+      );
+    }  else {
       return Scaffold(
         body: Center(child: Text("$state")),
       );

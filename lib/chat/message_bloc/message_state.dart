@@ -1,3 +1,4 @@
+import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:equatable/equatable.dart';
 import '../message.dart';
 
@@ -11,23 +12,29 @@ abstract class MessageState extends Equatable {
 class MessageInitial extends MessageState {}
 class MessageLoading extends MessageState {}
 class MessageError extends MessageState {
-  const MessageError();
+  final Exception error;  
+  const MessageError({required this.error});
 }
 
 
 class MessageLoaded extends MessageState {
-  final Stream<List<Message>> messageStream;
-  final List<Message> currentMessages;
+  final List<Message> messages;
   
   const MessageLoaded({
-    required this.messageStream,
-    required this.currentMessages,
+    required this.messages,
   });
   
   @override
-  List<Object?> get props => [messageStream, currentMessages];
+  List<Object?> get props => [ messages];
 }
-
+class CompanionInitialized extends MessageState {
+  final AICompanion companion;
+  
+  const CompanionInitialized(this.companion);
+  
+  @override
+  List<Object?> get props => [companion];
+}
 class MessageSent extends MessageState {}
 class MessageReceiving extends MessageState {
   final String message;

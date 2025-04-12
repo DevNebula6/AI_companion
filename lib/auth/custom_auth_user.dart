@@ -15,7 +15,6 @@ class CustomAuthUser {
   final String? avatarUrl;
   final String? interests;
   final String? personalityTraits;
-  final AICompanion? aiModel;
   final String? chatLanguage;
   final Map<String, dynamic> metadata;
   final String? deviceToken; // For push notifications
@@ -33,7 +32,6 @@ class CustomAuthUser {
     this.chatLanguage,
     this.metadata = const {},
     this.deviceToken,
-    this.aiModel,
   });
 
   static Future<CustomAuthUser?> getCurrentUser() async {
@@ -43,16 +41,45 @@ class CustomAuthUser {
       final userData = prefs.getString('user_data');
       
       if (userData != null && userData.isNotEmpty) {
-      final Map<String, dynamic> jsonData = jsonDecode(userData);
-      if (jsonData.isNotEmpty) {
-        return CustomAuthUser.fromJson(jsonData);
+        final Map<String, dynamic> jsonData = jsonDecode(userData);
+        if (jsonData.isNotEmpty) {
+          return CustomAuthUser.fromJson(jsonData);
+        }
       }
-    }
-    // If not found locally, get from Supabase
+      
+      // If not found locally, get from Supabase
       final supabase = SupabaseClientManager().client;
       final currentUser = supabase.auth.currentUser;
       if (currentUser != null) {
-        return CustomAuthUser.fromSupabase(currentUser);
+        // Get basic user from auth
+        final basicUser = CustomAuthUser.fromSupabase(currentUser);
+        
+        // Fetch full profile data
+        try {
+          final profileData = await supabase
+            .from('user_profiles')
+            .select()
+            .eq('id', basicUser.id)
+            .single();
+            
+          // Return complete user with profile data
+          return CustomAuthUser(
+            id: basicUser.id,
+            email: basicUser.email,
+            fullName: profileData['full_name'] ?? basicUser.fullName,
+            avatarUrl: profileData['avatar_url'] ?? basicUser.avatarUrl,
+            dob: profileData['dob'],
+            gender: profileData['gender'],
+            interests: profileData['interests'],
+            personalityTraits: profileData['personality_traits'],
+            chatLanguage: profileData['chat_language'],
+            metadata: profileData['metadata'] ?? basicUser.metadata,
+            deviceToken: profileData['device_token'] ?? basicUser.deviceToken,
+          );
+        } catch (e) {
+          print('Error fetching user profile: $e');
+          return basicUser; // Return basic user if profile fetch fails
+        }
       }
       return null;
     } catch (e) {
@@ -60,7 +87,6 @@ class CustomAuthUser {
       return null;
     }
   }
-
   // Create from Supabase User
   factory CustomAuthUser.fromSupabase(User user) {
     return CustomAuthUser(
@@ -83,7 +109,6 @@ class CustomAuthUser {
     metadata: json['metadata'] ?? {},
     dob: json['dob'],
     interests: json['interests'],
-    aiModel: json['ai_model'] != null ? AICompanion.fromJson(json['ai_model']) : null,
     personalityTraits: json['personality_traits'],
     deviceToken: json['device_token'],
     chatLanguage: json['chat_language'],
@@ -107,7 +132,6 @@ class CustomAuthUser {
       'device_token': deviceToken,
       'dob': dob,
       'interests': interests,
-      'ai_model': aiModel?.toJson(),
       'personality_traits': personalityTraits,
       'chat_language': chatLanguage,
       'gender': gender,
@@ -155,7 +179,6 @@ class CustomAuthUser {
       email: email,
       dob: dob ?? this.dob,
       interests: interests ?? this.interests, 
-      aiModel: aiModel ?? this.aiModel, 
       gender: gender ?? this.gender,
       fullName: fullName ?? this.fullName,
       avatarUrl: avatarUrl ?? this.avatarUrl,

@@ -6,44 +6,51 @@ import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:ai_companion/services/hive_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:rxdart/rxdart.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../ai_model.dart';
 
 class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
   final AICompanionRepository _repository;
   Box<AICompanion>? _companionsBox;
-  StreamSubscription? _companionSubscription;
 
-  CompanionBloc(this._repository) : 
-    super(CompanionInitial()) {
+  DateTime? _lastSyncTime;
 
+
+  CompanionBloc(this._repository) : super(CompanionInitial()) {
     on<LoadCompanions>(_onLoadCompanions);
     on<SyncCompanions>(_onSyncCompanions);
     on<FilterCompanions>(_onFilterCompanions);
     on<PreloadCompanionImages>(_onPreloadCompanionImages);
-    
-    // Subscribe to companion changes with debounce
-    _companionSubscription = _repository.watchCompanions()
-        .debounce((_) => TimerStream(true, const Duration(seconds: 2)))
-        .listen(
-      (companions) {
-        if (state is CompanionLoaded) {
-          add(SyncCompanions());
-        }
-      },
-      onError: (error) {
-        print('Error watching companions: $error');
-      }
-    );
+    on<CheckForUpdates>(_onCheckForUpdates);
   }
-
+  // Add a new event handler for checking updates
+  Future<void> _onCheckForUpdates(
+    CheckForUpdates event,
+    Emitter<CompanionState> emit,
+  ) async {
+    final currentState = state;
+    if (currentState is CompanionLoaded) {
+      final now = DateTime.now();
+      
+      // Check if we should sync (on app launch or daily)
+      final shouldSync = _lastSyncTime == null || 
+          now.difference(_lastSyncTime!) > const Duration(hours: 24);
+          
+      if (shouldSync) {
+        add(SyncCompanions());
+      }
+    }
+  }
   Future<void> _onLoadCompanions(
     LoadCompanions event,
     Emitter<CompanionState> emit,
   ) async {
     try {
       emit(CompanionLoading());
-      
+
+      // Initialize from previous sync time
+      _lastSyncTime = await _loadLastSyncTime();
+
       // Check if authenticated
       if (SupabaseClientManager().client.auth.currentSession == null) {
           emit(CompanionError('Not authenticated'));
@@ -56,21 +63,30 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
       if (_companionsBox!.isNotEmpty) {
         final localCompanions = _companionsBox!.values.toList();
         emit(CompanionLoaded(localCompanions));
-        add(SyncCompanions());
+        
+        // Only prefetch the first 10 companion images (most likely to be seen)
+        if (localCompanions.isNotEmpty) {
+          add(PreloadCompanionImages(localCompanions.take(10).toList()));
+        }
+        
+        // Check if we need to sync
+        add(CheckForUpdates());
+      } else {
+        // No local data, must fetch from server
+        final companions = await _repository.getAllCompanions();
+        
+        await _saveLocally(companions);
+        emit(CompanionLoaded(companions));
+        
+        // Set last sync time
+        _lastSyncTime = DateTime.now();
+        await _saveLastSyncTime(_lastSyncTime!);
+        
+        // Only prefetch first 10 images
+        if (companions.isNotEmpty) {
+          add(PreloadCompanionImages(companions.take(10).toList()));
+        }
       }
-
-      
-      // Get from Supabase
-      final companions = await _repository.getAllCompanions();
-      
-      // Update local storage
-      await _companionsBox!.clear();
-      for (var companion in companions) {
-        await _companionsBox!.put(companion.id, companion);
-      }
-
-      emit(CompanionLoaded(companions));
-
     } catch (e) {
       print('Error loading companions: $e');
       emit(CompanionError(e.toString()));
@@ -101,21 +117,48 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
         // Get current local companions
         final localCompanions = _companionsBox?.values.toList() ?? [];
         
-        // Fetch remote companions only if local box exists
-        if (_companionsBox != null) {        
-        final remoteCompanions = await _repository.getAllCompanions();
+        // Fetch remote companions
+        if (_companionsBox != null) {
+          final remoteCompanions = await _repository.getAllCompanions();
   
-        // Compare and update only if there are changes
-        if (_hasChanges(localCompanions, remoteCompanions)) {
-          await _saveLocally(remoteCompanions);
-          emit(CompanionLoaded(remoteCompanions));
-          print('Companions synced successfully: ${remoteCompanions.length} companions');
-        } 
+          // Compare and update only if there are changes
+          if (_hasChanges(localCompanions, remoteCompanions)) {
+            await _saveLocally(remoteCompanions);
+            emit(CompanionLoaded(remoteCompanions));
+            print('Companions synced successfully: ${remoteCompanions.length} companions');
+          } else {
+            emit(CompanionLoaded(currentState.companions, isSyncing: false));
+          }
+          
+          // Update last sync time
+          _lastSyncTime = DateTime.now();
+          
+          // Store sync time in SharedPreferences
+          await _saveLastSyncTime(_lastSyncTime!);
+        }
       }
-    }
     } catch (e) {
       print('Sync error: $e');
+      // Improve error handling with specific error state
+      if (state is CompanionLoaded) {
+        emit(CompanionLoaded((state as CompanionLoaded).companions, 
+          isSyncing: false, hasError: true));
+      } else {
+        emit(CompanionError('Failed to sync companions: $e'));
+      }
     }
+  }
+  
+  // Add method to save and load sync time
+  Future<void> _saveLastSyncTime(DateTime time) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_companion_sync', time.toIso8601String());
+  }
+  
+  Future<DateTime?> _loadLastSyncTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final timeString = prefs.getString('last_companion_sync');
+    return timeString != null ? DateTime.parse(timeString) : null;
   }
 
   // Add helper method to check for changes
@@ -124,17 +167,20 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
     
     // Create maps for faster comparison
     final localMap = {for (var c in local) c.id: c};
+    final remoteIds = remote.map((c) => c.id).toSet();
     
-    // Check for any differences
+    // Check for added or removed companions
+    if (!_setsEqual(localMap.keys.toSet(), remoteIds)) {
+      return true;
+    }
+    
+    // Use hash-based comparison for content changes
     for (final remoteCompanion in remote) {
       final localCompanion = localMap[remoteCompanion.id];
-      if (localCompanion == null) return true;
+      if (localCompanion == null) continue; // Already checked in set equality
       
-      // Compare relevant fields
-      if (localCompanion.name != remoteCompanion.name ||
-          localCompanion.description != remoteCompanion.description ||
-          !_listsEqual(localCompanion.personality.primaryTraits, 
-                      remoteCompanion.personality.primaryTraits)) {
+      // Compare only essential fields for change detection
+      if (_getCompanionHash(localCompanion) != _getCompanionHash(remoteCompanion)) {
         return true;
       }
     }
@@ -142,13 +188,21 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
     return false;
   }
 
-  bool _listsEqual(List a, List b) {
-    if (identical(a, b)) return true;
-    if (a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
+  // Helper for set comparison
+  bool _setsEqual<T>(Set<T> a, Set<T> b) {
+    return a.length == b.length && a.containsAll(b);
+  }
+
+  // Compute a simple hash for companion to detect changes
+  int _getCompanionHash(AICompanion companion) {
+    return Object.hash(
+      companion.name,
+      companion.description,
+      companion.avatarUrl,
+      Object.hashAll(companion.personality.primaryTraits),
+      Object.hashAll(companion.personality.secondaryTraits),
+      // Add more fields that would trigger a refresh when changed
+    );
   }
 
   Future<void> _onFilterCompanions(
@@ -183,9 +237,4 @@ class CompanionBloc extends Bloc<CompanionEvent, CompanionState> {
     }
   }
 
-  @override
-    Future<void> close() {
-      _companionSubscription?.cancel();
-      return super.close();
-    }
 }

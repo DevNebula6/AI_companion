@@ -1,3 +1,5 @@
+import 'dart:math' show min;
+
 import 'package:ai_companion/Views/AI_selection/companion_color.dart' show getPersonalityType;
 import 'package:ai_companion/Views/AI_selection/companion_details_sheet.dart';
 import 'package:ai_companion/Views/chat_screen/chat_input_field.dart';
@@ -16,11 +18,13 @@ import 'package:ai_companion/utilities/widgets/typing_indicator.dart';
 class ChatPage extends StatefulWidget {
   final AICompanion companion;
   final CustomAuthUser user;
+  final String conversationId;
 
   const ChatPage({
     super.key,
     required this.companion,
     required this.user,
+    required this.conversationId,
   });
   
   @override
@@ -46,25 +50,26 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    
-    // Load messages for this companion
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Load messages for this companion
     context.read<MessageBloc>().add(
       LoadMessagesEvent(
         userId: widget.user.id,
         companionId :widget.companion.id,
       )
     );
-    
-    // Show scroll button when not at bottom
-    _scrollController.addListener(() {
-      final showButton = _scrollController.hasClients && 
-        _scrollController.position.maxScrollExtent - 
-        _scrollController.position.pixels > 300;
-      
-      if (showButton != _showScrollToBottom) {
-        setState(() => _showScrollToBottom = showButton);
-      }
     });
+    
+
+    _scrollController.addListener(() {
+    if (_scrollController.hasClients) {
+      setState(() {
+        _showScrollToBottom = _scrollController.position.pixels <
+            _scrollController.position.maxScrollExtent - 300;
+      });
+    }
+  });
   }
   
   @override
@@ -94,6 +99,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         message: text,
         companionId: widget.companion.id,
+        conversationId: widget.conversationId,
         userId: widget.user.id,
         isBot: false,
         created_at: DateTime.now(),
@@ -153,10 +159,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         decoration: BoxDecoration(
           color: colorScheme.surface,
           image: const DecorationImage(
-            image: AssetImage('assets/backgrounds/pt2.png'),
+            image: AssetImage('assets/backgrounds/pt5.png'),
             opacity: 0.2,
-            repeat: ImageRepeat.repeat,
-          ),
+            fit: BoxFit.cover,),
         ),
         child: Column(
           children: [
@@ -170,59 +175,53 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                     Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
                   } else if (state is MessageReceiving) {
                     setState(() => _isTyping = true);
+                  } else if (state is MessageLoaded && state.messages.isNotEmpty) {
+                    // This is crucial - scroll to bottom when messages load initially
+                    print('MessageLoaded with ${state.messages.length} messages');
+                    Future.delayed(const Duration(milliseconds: 200), _scrollToBottom);
                   }
                 },
                 buildWhen: (previous, current) {
-                  // Optimize rebuilds
-                  if (previous is MessageLoaded && current is MessageLoaded) {
-                    return previous.currentMessages != current.currentMessages;
-                  }
-                  return true;
+                  if (current is MessageLoaded){
+                    return true;
+                    }
+                  return false;
                 },
                 builder: (context, state) {
+                      print('Building with state: ${state.runtimeType}');
+
                   if (state is MessageLoaded) {
-                    final messages = state.currentMessages;
-                    
+                    final messages = state.messages;
+                          print('Building UI with ${messages.length} messages');
+
                     if (messages.isEmpty) {
                       return _buildEmptyState();
                     }
                     
                     return Stack(
+                      fit: StackFit.expand,
                       children: [
                         // Main message list
-                        ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                          itemCount: messages.length + (_isTyping ? 1 : 0),
-                          itemBuilder: (context, index) {
-                            // Show typing indicator at the end if needed
-                            if (_isTyping && index == messages.length) {
-                              return Align(
-                                alignment: Alignment.centerLeft,
-                                child: TypingIndicator(
-                                  bubbleColor: colorScheme.surfaceVariant,
-                                  dotColor: colorScheme.onSurfaceVariant,
-                                ),
-                              );
-                            }
-                            
-                            final message = messages[index];
-                            final isUser = !message.isBot;
-                            final showAvatar = !isUser && (index == 0 || 
-                                messages[index - 1].isBot != message.isBot);
-                                
-                            return MessageBubble(
-                              message: message,
-                              isUser: isUser,
-                              showAvatar: showAvatar,
-                              companionAvatar: widget.companion.avatarUrl,
-                              animation: _sendAnimationController,
-                              isPreviousSameSender: index > 0 && 
-                                  messages[index - 1].isBot == message.isBot,
-                              isNextSameSender: index < messages.length - 1 && 
-                                  messages[index + 1].isBot == message.isBot,
-                            );
+                        RefreshIndicator(
+                          onRefresh: () async {
+                          context.read<MessageBloc>().add(RefreshMessages(
+                            userId: widget.user.id,
+                            companionId: widget.companion.id,
+                          ));
                           },
+                          child: ListView.builder(
+                            key: ValueKey("message_list_${messages.length}"),
+                            controller: _scrollController,
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                            itemCount: messages.length + (_isTyping ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              print('Rendering message index: $index');
+                        
+                              return RepaintBoundary(
+                                child: _buildMessageItem(context, index, messages),
+                              );
+                            },
+                          ),
                         ),
                         
                         // Scroll to bottom button
@@ -299,6 +298,35 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
   
+  Widget _buildMessageItem(BuildContext context, int index, List<Message> messages) {
+  // Show typing indicator at the end if needed
+    if (_isTyping && index == messages.length) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: TypingIndicator(
+          bubbleColor: Theme.of(context).colorScheme.surfaceVariant,
+          dotColor: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    
+    final message = messages[index];
+    final isUser = !message.isBot;
+    final showAvatar = !isUser && (index == 0 || 
+        messages[index - 1].isBot != message.isBot);
+        
+    return MessageBubble(
+      message: message,
+      isUser: isUser,
+      showAvatar: showAvatar,
+      companionAvatar: widget.companion.avatarUrl,
+      animation: _sendAnimationController,
+      isPreviousSameSender: index > 0 && 
+          messages[index - 1].isBot == message.isBot,
+      isNextSameSender: index < messages.length - 1 && 
+          messages[index + 1].isBot == message.isBot,
+    );
+  }
   // Empty state widget when no messages exist
   Widget _buildEmptyState() {
     return Center(
@@ -435,6 +463,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                   // Navigate to companion details page
                   CompanionDetailsSheet(
                     companion: widget.companion,
+                    user: widget.user,
                   );
                 },
               ),

@@ -1,14 +1,23 @@
+import 'dart:async';
+
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
+import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
+import 'package:ai_companion/auth/Bloc/auth_event.dart';
+import 'package:ai_companion/auth/custom_auth_user.dart';
+import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
+import 'package:ai_companion/chat/conversation/conversation_event.dart';
+import 'package:ai_companion/chat/conversation/conversation_state.dart';
 import 'package:ai_companion/utilities/constants/textstyles.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 class CompanionDetailsSheet extends StatefulWidget {
   final AICompanion companion;
-
-  const CompanionDetailsSheet({super.key, required this.companion});
+  final CustomAuthUser user;
+  const CompanionDetailsSheet({super.key, required this.companion,required this.user});
 
   @override
   State<CompanionDetailsSheet> createState() => _CompanionDetailsSheetState();
@@ -19,6 +28,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
   ScrollController? _scrollController;
   bool _isHeaderCollapsed = false;
   late int _currentTabIndex = 0;
+  String _conversationId = '';
 
   @override
   void initState() {
@@ -31,7 +41,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
           _currentTabIndex = _tabController.index;
         });
       }
-    });  
+    });
   }
   
   void _onScroll() {
@@ -83,7 +93,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
+                      color: Colors.black26,
                       blurRadius: 20,
                       spreadRadius: 5,
                       offset: const Offset(0, -4),
@@ -183,7 +193,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
   double _getTabHeight() {
     switch (_currentTabIndex) {
       case 0: // Profile tab
-        return 1200; 
+        return 1300; 
       case 2: // Interests tab
         return 1100;
       default:
@@ -328,9 +338,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
             icon: Icon(Icons.favorite_border, color: colorScheme.primary),
             onPressed: () {
               // Add favorite functionality
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Added to favorites!'))
-              );
+              
             },
           ),
         ],
@@ -1141,11 +1149,60 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               child: InkWell(
                 borderRadius: BorderRadius.circular(16),
                 onTap: () {
+                  String text = 'Starting conversation with ${widget.companion.name}';
                   HapticFeedback.mediumImpact();
-                  Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Starting conversation with ${widget.companion.name}!'))
+                    SnackBar(
+                      content: Text(text),
+                      duration: const Duration(seconds: 2),
+                      backgroundColor: colorScheme.secondary,
+                    )
                   );
+                  
+                  // Show loading indicator
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => const Center(child: CircularProgressIndicator()),
+                  );
+                  
+                  // Create conversation and listen for the result
+                  final conversationBloc = context.read<ConversationBloc>();
+                  late final StreamSubscription subscription;
+                  
+                  subscription = conversationBloc.stream.listen((state) {
+                    if (state is ConversationCreated) {
+                      subscription.cancel();
+                      
+                      // Now we have the conversation ID, so navigate
+                      final authBloc = BlocProvider.of<AuthBloc>(context);
+                      authBloc.add(AuthEventNavigateToChat(
+                        user: widget.user,
+                        companion: widget.companion,
+                        conversationId: state.conversationId,
+                      ));
+                      
+                      // Close the loading dialog
+                      Navigator.of(context).pop();
+                      
+                      // Close the details sheet
+                      Navigator.of(context).pop();
+                    } else if (state is ConversationError) {
+                      subscription.cancel();
+                      
+                      // Show error message
+                      Navigator.of(context).pop(); // Close loading dialog
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Error: ${state.message}'),
+                          backgroundColor: Colors.red,
+                        )
+                      );
+                    }
+                  });
+                  
+                  // Send the event to create the conversation
+                  conversationBloc.add(CreateConversation(widget.companion.id));
                 },
                 splashColor: Colors.white.withOpacity(0.1),
                 highlightColor: Colors.transparent,

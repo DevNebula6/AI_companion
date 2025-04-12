@@ -1,9 +1,12 @@
-
 import 'package:ai_companion/chat/conversation.dart';
 
 abstract class ConversationEvent {}
 
-class LoadConversations extends ConversationEvent {}
+class LoadConversations extends ConversationEvent {
+  final String userId;
+  
+  LoadConversations(this.userId);
+}
 
 class MarkConversationAsRead extends ConversationEvent {
   final String conversationId;
@@ -29,16 +32,21 @@ class CreateConversation extends ConversationEvent {
   
   CreateConversation(this.companionId);
 }
-
-// Internal events
-class _ConversationsUpdated extends ConversationEvent {
+class RefreshConversations extends ConversationEvent {
+  final String userId;
+  
+  RefreshConversations({
+    required this.userId,
+  });
+}
+class ConversationsUpdated extends ConversationEvent {
   final List<Conversation> conversations;
   
-  _ConversationsUpdated(this.conversations);
+  ConversationsUpdated(this.conversations);
 }
 
-class _ConversationError extends ConversationEvent {
+class ConversationErrorEvent extends ConversationEvent {
   final String message;
   
-  _ConversationError(this.message);
+  ConversationErrorEvent(this.message);
 }

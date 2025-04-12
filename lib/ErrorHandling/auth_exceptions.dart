@@ -17,6 +17,10 @@ class GenericAuthException implements Exception{}
 
 class UserNotLoggedInAuthException implements Exception{}
 
+// Update User Profile exception
+class UserProfileUpdateException implements Exception{}
+class UserProfileFetchException implements Exception{}
+
 // facebook login exception
 class FacebookLoginFailureException implements Exception{}
 

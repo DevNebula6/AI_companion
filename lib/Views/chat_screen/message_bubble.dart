@@ -45,8 +45,12 @@ class MessageBubble extends StatelessWidget {
       margin: EdgeInsets.only(
         top: isPreviousSameSender ? 2 : 8,
         bottom: isNextSameSender ? 2 : 8,
-        left: isUser ? 48 : showAvatar ? 8 : 20,
-        right: isUser ? 8 : 48,
+        // Fix: Reduce excessive margins that push content off screen
+        left: isUser ? 24 : showAvatar ? 8 : 12, 
+        right: isUser ? 8 : 24,
+      ),
+      constraints: const BoxConstraints(
+        maxWidth: 280, // Add constraint to prevent bubbles from being too wide
       ),
       decoration: BoxDecoration(
         color: isUser 
@@ -108,9 +112,7 @@ class MessageBubble extends StatelessWidget {
           curve: Curves.easeOutCubic,
         )),
         child: FadeTransition(
-          opacity: Tween<double>(begin: 0.0, end: 1.0).animate(
-            CurvedAnimation(parent: animation!, curve: Curves.easeIn),
-          ),
+          opacity: animation!,
           child: _buildRow(bubbleContent),
         ),
       );
@@ -120,20 +122,23 @@ class MessageBubble extends StatelessWidget {
   }
   
   Widget _buildRow(Widget bubbleContent) {
-    return Row(
-      mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        if (!isUser && showAvatar)
-          CircleAvatar(
-            radius: 16,
-            backgroundImage: NetworkImage(companionAvatar),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: Row(
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isUser && showAvatar)
+            CircleAvatar(
+              radius: 16,
+              backgroundImage: NetworkImage(companionAvatar),
+            ),
+          
+          Flexible(
+            child: bubbleContent,
           ),
-        
-        Flexible(
-          child: bubbleContent,
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

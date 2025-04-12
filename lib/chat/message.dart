@@ -25,6 +25,7 @@ class Message {
   final String message;
   final String userId;
   final String companionId;
+  final String conversationId;
   final bool isBot;
   final DateTime created_at;
   final MessageType type;
@@ -32,7 +33,6 @@ class Message {
   
   // AI specific fields
   final double? confidence;
-  final List<String>? references;
   final Map<String, dynamic>? aiContext;
   final String? intent;
   final Map<String, dynamic>? entities;
@@ -46,13 +46,13 @@ class Message {
     required this.id,
     required this.message,
     required this.userId,
-    required this.companionId, 
+    required this.companionId,
+    required this.conversationId,
     required this.isBot,
     required this.created_at,
     this.type = MessageType.text,
     this.metadata = const {},
     this.confidence,
-    this.references,
     this.aiContext,
     this.intent,
     this.entities,
@@ -69,6 +69,7 @@ class Message {
       message: json['message']?.toString() ?? '',
       userId: json['user_id']?.toString() ?? '',
       companionId: json['companion_id']?.toString() ?? '',
+      conversationId: json['conversation_id']?.toString() ?? '',
       isBot: json['is_bot'] ?? false,
       created_at: json['created_at'] != null 
           ? DateTime.parse(json['created_at']) 
@@ -76,7 +77,6 @@ class Message {
       type: MessageType.text,
       metadata: json['metadata'] as Map<String, dynamic>? ?? {},
       confidence: json['confidence']?.toDouble(),
-      references: (json['references'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       aiContext: json['ai_context'] as Map<String, dynamic>?,
       intent: json['intent']?.toString(),
       entities: json['entities'] as Map<String, dynamic>?,
@@ -94,9 +94,10 @@ class Message {
     // Return a default message on error
     return Message(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      message: 'Error loading message',
+      message: '',
       companionId:'',
       userId: '',
+      conversationId: '',
       isBot: false,
       created_at: DateTime.now(),
     );
@@ -110,12 +111,12 @@ class Message {
       'message': message,
       'user_id': userId,
       'companion_id': companionId,
+      'conversation_id': conversationId,
       'is_bot': isBot,
       'created_at': created_at.toIso8601String(),
       'type': type.toString(),
       'metadata': metadata,
       'confidence': confidence,
-      'references': references,
       'ai_context': aiContext,
       'intent': intent,
       'entities': entities,
@@ -139,12 +140,12 @@ class Message {
       message: text ?? message,
       userId: userId,
       companionId: companionId,
+      conversationId: conversationId,
       isBot: isBot,
       created_at: created_at,
       type: type,
       metadata: metadata ?? this.metadata,
       confidence: confidence ?? this.confidence,
-      references: references ?? this.references,
       aiContext: aiContext ?? this.aiContext,
       intent: intent ?? this.intent,
       entities: entities ?? this.entities,
