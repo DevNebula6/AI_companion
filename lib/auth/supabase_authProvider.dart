@@ -14,18 +14,24 @@ import 'auth_providers.dart';
 import 'custom_auth_user.dart';
 
 class SupabaseAuthProvider implements AuthProvider {
-  late final SupabaseClient _supabase;
+   SupabaseClient? _supabase;
   CustomAuthUser? _cachedUser;
   final _log = Logger('SupabaseAuthProvider');
 
   @override
   Future<void> initialize() async {
     try {
-      await SupabaseClientManager().initialize(
-        url: dotenv.env['SUPABASE_URL']!,
-        anonKey: dotenv.env['SUPABASE_KEY']!,
-      );
-      _supabase = SupabaseClientManager().client;
+      // Make sure the manager is initialized
+      final manager = SupabaseClientManager();
+      if (!manager.isInitialized) {
+        await manager.initialize(
+          url: dotenv.env['SUPABASE_URL']!,
+          anonKey: dotenv.env['SUPABASE_KEY']!,
+        );
+      }
+      
+      // Always get the client from the singleton after ensuring initialization
+      _supabase = manager.client;
     } catch (e) {
       _log.severe('Failed to initialize Supabase client: $e');
       throw SupabaseInitializationException();
@@ -41,11 +47,24 @@ class SupabaseAuthProvider implements AuthProvider {
     await Hive.openBox<AICompanion>('companions');
   }
 
+  SupabaseClient get _client {
+    if (_supabase == null) {
+      // Try to get it if already initialized
+      if (SupabaseClientManager().isInitialized) {
+        _supabase = SupabaseClientManager().client;
+      } else {
+        // If we reach here, something is wrong with initialization
+        _log.severe('Trying to use uninitialized Supabase client');
+        throw SupabaseInitializationException();
+      }
+    }
+    return _supabase!;
+  }
   @override
   CustomAuthUser? get currentUser {
     try {
       if (_cachedUser != null) return _cachedUser;
-      final user = _supabase.auth.currentUser;
+      final user = _client.auth.currentUser;
       if (user != null) {
         _cachedUser = CustomAuthUser.fromSupabase(user);
         return _cachedUser;
@@ -73,7 +92,7 @@ class SupabaseAuthProvider implements AuthProvider {
         'device_token': user.deviceToken,
       };
       
-      await _supabase
+      await _client
       .from('user_profiles')
       .upsert(userData);
         
@@ -91,7 +110,7 @@ class SupabaseAuthProvider implements AuthProvider {
   @override
   Future<void> logout() async {
     try {
-      await _supabase.auth.signOut();
+      await _client.auth.signOut();
       _cachedUser = null;
     } catch (e) {
       _log.warning('Error during logout: $e');
@@ -101,7 +120,7 @@ class SupabaseAuthProvider implements AuthProvider {
 
   Future<void> refreshSession() async {
     try {
-      await _supabase.auth.refreshSession();
+      await _client.auth.refreshSession();
     } catch (e) {
       _log.warning('Error refreshing session: $e');
       throw SessionRefreshException();
@@ -110,7 +129,7 @@ class SupabaseAuthProvider implements AuthProvider {
 
   Future<String?> getSignInMethod() async {
     try {
-      final user = _supabase.auth.currentUser;
+      final user = _client.auth.currentUser;
       if (user == null) return null;
       
       return user.appMetadata['provider'] as String? ?? 'email';
@@ -135,7 +154,7 @@ Future<CustomAuthUser> signInWithGoogle() async {
       
       // Sign out first to ensure clean state
       await googleSignIn.signOut();
-      await _supabase.auth.signOut();
+      await _client.auth.signOut();
 
       final googleUser = await googleSignIn.signIn();
       if (googleUser == null) {
@@ -151,7 +170,7 @@ Future<CustomAuthUser> signInWithGoogle() async {
         throw GoogleLoginFailureException();
       }
 
-      final response = await _supabase.auth.signInWithIdToken(
+      final response = await _client.auth.signInWithIdToken(
         provider: OAuthProvider.google,
         idToken: idToken,
         accessToken: accessToken,
@@ -186,7 +205,7 @@ Future<CustomAuthUser> signInWithGoogle() async {
   @override
   Future<CustomAuthUser> signInWithFacebook() async {
     try {
-      final response = await _supabase.auth.signInWithOAuth(
+      final response = await _client.auth.signInWithOAuth(
         OAuthProvider.facebook,
         redirectTo: 'io.supabase.flutterquickstart://login-callback/',
       );
@@ -196,7 +215,7 @@ Future<CustomAuthUser> signInWithGoogle() async {
       }
 
       final completer = Completer<AuthState>();
-      final subscription = _supabase.auth.onAuthStateChange.listen(
+      final subscription = _client.auth.onAuthStateChange.listen(
         (data) {
           if (data.session != null && !completer.isCompleted) {
             completer.complete(data);

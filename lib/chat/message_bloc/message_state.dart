@@ -37,11 +37,13 @@ class CompanionInitialized extends MessageState {
 }
 class MessageSent extends MessageState {}
 class MessageReceiving extends MessageState {
-  final String message;
-  const MessageReceiving(this.message);
+  final List<Message> messages;
+  final String pendingMessage;
+
+  const MessageReceiving(this.pendingMessage, {required this.messages});
   
   @override
-  List<Object?> get props => [message];
+  List<Object> get props => [pendingMessage, messages];
 }
 
 class LoadingMoreMessages extends MessageState {

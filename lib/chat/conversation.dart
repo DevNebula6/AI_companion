@@ -8,6 +8,7 @@ class Conversation {
   final int unreadCount;
   final DateTime lastUpdated;
   final bool isPinned;
+  final Map<String, dynamic> metadata; // Added metadata field
 
   const Conversation({
     required this.id,
@@ -17,6 +18,7 @@ class Conversation {
     this.unreadCount = 0,
     required this.lastUpdated,
     this.isPinned = false,
+    this.metadata = const {}, // Default to empty map
   });
 
   Conversation copyWith({
@@ -27,6 +29,7 @@ class Conversation {
     int? unreadCount,
     DateTime? lastUpdated,
     bool? isPinned,
+    Map<String, dynamic>? metadata,
   }) {
     return Conversation(
       id: id ?? this.id,
@@ -36,6 +39,7 @@ class Conversation {
       unreadCount: unreadCount ?? this.unreadCount,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       isPinned: isPinned ?? this.isPinned,
+      metadata: metadata ?? this.metadata,
     );
   }
 
@@ -51,6 +55,7 @@ class Conversation {
           ? DateTime.parse(json['last_updated']) 
           : DateTime.now(),
       isPinned: json['is_pinned'] ?? false,
+      metadata: json['metadata'] as Map<String, dynamic>? ?? {},
     );
   }
 
@@ -63,6 +68,13 @@ class Conversation {
       'unread_count': unreadCount,
       'last_updated': lastUpdated.toIso8601String(),
       'is_pinned': isPinned,
+      'metadata': metadata,
     };
   }
+  
+  // Helper to get relationship level
+  int get relationshipLevel => (metadata['relationship_level'] as int?) ?? 1;
+  
+  // Helper to get dominant emotion
+  String? get dominantEmotion => metadata['emotion'] as String?;
 }
