@@ -1,94 +1,238 @@
+import 'dart:async' show Completer;
 import 'dart:collection' show LinkedHashMap;
-
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
 import 'package:ai_companion/Companion/bloc/companion_state.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:ai_companion/chat/conversation.dart';
+import 'package:ai_companion/chat/gemini/gemini_service.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:ai_companion/services/hive_service.dart';
 import 'package:hive/hive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-class ChatRepository {
-  final _supabase = SupabaseClientManager().client;
-  final CompanionBloc? _companionBloc;
+/// Interface defining the contract for chat repository operations
+abstract class IChatRepository {
+  Future<void> sendMessage(Message message);
+  Future<List<Message>> getMessages(String userId, String companionId);
+  Future<void> deleteMessage(String messageId);
+  Future<List<Conversation>> getConversations(String userId);
+  Future<AICompanion?> getCompanion(String companionId);
+  Future<void> deleteConversation(String conversationId);
+  Future<String> getOrCreateConversation(String userId, String companionId);
+  Future<bool> hasConversations(String userId);
+  Future<void> updateConversation(String conversationId, {String? lastMessage, int? incrementUnread});
+  Future<void> deleteAllMessages({required String companionId});
+  Future<void> markConversationAsRead(String conversationId);
+  Future<void> togglePinConversation(String conversationId, bool isPinned);
+  // Other methods...
+}
+
+/// Factory for creating and accessing ChatRepository instances
+class ChatRepositoryFactory {
+  static ChatRepository? _instance;
+  static final Completer<ChatRepository> _instanceCompleter = Completer<ChatRepository>();
+  static bool _isInitializing = false;
+  
+  static Future<ChatRepository> getInstance({
+    SupabaseClient? supabase,
+    CompanionBloc? companionBloc,
+    GeminiService? geminiService,
+  }) async {
+    // Return existing instance if available
+    if (_instance != null) {
+      // Update dependencies if needed
+      if (companionBloc != null) {
+        _instance!.setCompanionBloc(companionBloc);
+      }
+      if (geminiService != null) {
+        _instance!.setGeminiService(geminiService);
+      }
+      return _instance!;
+    }
+    
+    // Wait for initialization if already in progress
+    if (_isInitializing) {
+      return _instanceCompleter.future;
+    }
+    
+    // Start initialization
+    _isInitializing = true;
+    
+    try {
+      // Check if Supabase is initialized
+      final supabaseManager = SupabaseClientManager();
+      if (!supabaseManager.isInitialized) {
+        await supabaseManager.initialize();
+      }
+      
+      // Create the repository
+      _instance = await ChatRepository.create(
+        supabase: supabase,
+        companionBloc: companionBloc,
+        geminiService: geminiService,
+      );
+      
+      // Complete the future
+      if (!_instanceCompleter.isCompleted) {
+        _instanceCompleter.complete(_instance);
+      }
+      
+      return _instance!;
+    } catch (e) {
+      _isInitializing = false;
+      if (!_instanceCompleter.isCompleted) {
+        _instanceCompleter.completeError(e);
+      }
+      // Create emergency instance as fallback
+      return ChatRepository.create(
+        supabase: SupabaseClientManager().client,
+      );
+    }
+  }
+}
+
+/// Implementation of the chat repository
+class ChatRepository implements IChatRepository {
+  late final SupabaseClient _supabase;
+  CompanionBloc? _companionBloc;
+  GeminiService? _geminiService;
   Box<AICompanion>? _companionsBox;
-
+  bool _isInitialized = false;
+  
+  // Cache configuration
+  static const int _maxCacheSize = 100;
+  final Map<String, DateTime> _cacheAccessTimes = {};
   final LinkedHashMap<String, AICompanion> _memoryCache = LinkedHashMap();
-
-  ChatRepository({CompanionBloc? companionBloc}) : 
-    _companionBloc = companionBloc {
-    _initializeCache();
+  
+  // Private constructor - use factory methods instead
+  ChatRepository._({
+    SupabaseClient? supabase,
+    CompanionBloc? companionBloc,  
+    GeminiService? geminiService, 
+  }) : _supabase = supabase ?? SupabaseClientManager().client{
+    _companionBloc = companionBloc;
+    _geminiService = geminiService;
   }
-  Future<void> _initializeCache() async {
-    // Initialize the box only once when repository is created
-    _companionsBox = await HiveService.getCompanionsBox();
+  
+  /// Creates and initializes a new ChatRepository instance
+  static Future<ChatRepository> create({
+    SupabaseClient? supabase,
+    CompanionBloc? companionBloc, 
+    GeminiService? geminiService,
+  }) async {
+    final repo = ChatRepository._(
+      supabase: supabase,
+      companionBloc: companionBloc,
+      geminiService: geminiService,
+    );
+    
+    await repo._initialize();
+    return repo;
   }
-
-  //Storing messages in supabase
+  
+  /// Initialize repository dependencies
+  Future<void> _initialize() async {
+    if (!_isInitialized) {
+      try {
+        _companionsBox = await HiveService.getCompanionsBox();
+        _isInitialized = true;
+      } catch (e) {
+        print('Error initializing ChatRepository: $e');
+        rethrow;
+      }
+    }
+  }
+  
+  /// Ensure repository is initialized before operations
+  Future<void> _ensureInitialized() async {
+    if (!_isInitialized) {
+      await _initialize();
+    }
+  }
+  
+  /// Manage cache size by removing least recently used items
+  void _manageCache() {
+    if (_memoryCache.length > _maxCacheSize) {
+      final entries = _cacheAccessTimes.entries.toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      
+      final toRemove = entries.take((entries.length * 0.2).ceil())
+        .map((e) => e.key).toList();
+        
+      for (final key in toRemove) {
+        _memoryCache.remove(key);
+        _cacheAccessTimes.remove(key);
+      }
+    }
+  }
+  
+  @override
+  Future<List<Message>> getMessages(String userId, String companionId) async {
+    await _ensureInitialized();
+    
+    try {
+      final conversationId = await getOrCreateConversation(userId, companionId);
+      
+      final response = await _supabase
+        .from('messages')
+        .select()
+        .eq('conversation_id', conversationId)
+        .order('created_at', ascending: true);
+      
+      return response.map((item) => Message.fromJson(item)).toList();
+    } catch (e) {
+      print('Error retrieving messages: $e');
+      return [];
+    }
+  }
+  
+  @override
   Future<void> sendMessage(Message message) async {
+    await _ensureInitialized();
+    
     await _supabase.from('messages').insert({
+      'id': message.id,
       'user_id': message.userId,
       'companion_id': message.companionId,
       'conversation_id': message.conversationId,
       'message': message.message,
       'created_at': message.created_at.toIso8601String(),
-      'is_bot': message.isBot
+      'is_bot': message.isBot,
+      'metadata': message.metadata
     });
   }
-
-  Future<List<Message>> getMessages(String userId, String companionId) async {
-    try {
-      // Get the conversation ID first
-      final conversationId = await getOrCreateConversation(userId, companionId);
-      
-      // Fetch messages directly
-    final response = await _supabase
-      .from('messages')
-      .select()
-      .eq('conversation_id', conversationId)
-      .order('created_at', ascending: true);
-    
-    return response.map((item) => Message.fromJson(item)).toList();
   
-    } catch (e) {
-      print('Error getting messages: $e');
-      return [];
-    }
-  }
-  
+  @override
   Future<void> deleteMessage(String messageId) async {
+    await _ensureInitialized();
+    
     await _supabase
-        .from('messages')
-        .delete()
-        .eq('id', messageId);
+      .from('messages')
+      .delete()
+      .eq('id', messageId);
   }
 
-  Future<void> deleteAllMessages({required String companionId}) async {
-    await _supabase
-        .from('messages')
-        .delete()
-        .eq('companion_id', companionId);
-  }
-
-  // Get all conversations for the user
-  Future<List<Conversation>> getConversations(String currentUserId) async {
-      try {
+  @override
+  Future<List<Conversation>> getConversations(String userId) async {
+    await _ensureInitialized();
+      
+    try {
       final data = await _supabase
         .from('conversations')
         .select()
-        .eq('user_id', currentUserId)
+        .eq('user_id', userId)
         .order('last_updated', ascending: false);
       
-      // Extract companion IDs
-      final companionIds = data
-        .map((item) => item['companion_id'].toString())
-        .toSet()
-        .toList();
+      // Process results in batches to optimize memory usage
+      final List<Conversation> conversations = [];
+      final Set<String> companionIds = data
+        .map<String>((item) => item['companion_id'].toString())
+        .toSet();
       
-      // Fetch companions
+      // Batch fetch companions
       final Map<String, AICompanion> companionsMap = {};
-      
       for (final id in companionIds) {
         final companion = await getCompanion(id);
         if (companion != null) {
@@ -97,59 +241,61 @@ class ChatRepository {
       }
       
       // Build conversation objects
-      final List<Conversation> conversations = [];
       for (final item in data) {
         final companionId = item['companion_id'].toString();
         if (companionsMap.containsKey(companionId)) {
           conversations.add(
-            Conversation(
-              id: item['id'],
-              userId: item['user_id'],
-              companionId: companionId,
-              lastMessage: item['last_message']?.toString() ?? '',
-              unreadCount: item['unread_count'] ?? 0,
-              lastUpdated: DateTime.parse(item['last_updated']),
-              isPinned: item['is_pinned'] ?? false,
-            )
+            Conversation.fromJson(item, companionsMap[companionId]!)
           );
         }
       }
+      
       return conversations;
     } catch (e) {
       print('Error getting conversations: $e');
       return [];
-    } 
+    }
   }
-
+  
+  @override
   Future<AICompanion?> getCompanion(String companionId) async {
-    // 1. Try to get from companionBloc first (most up-to-date)
+    await _ensureInitialized();
+    
+    // Update cache access time if found
+    if (_memoryCache.containsKey(companionId)) {
+      _cacheAccessTimes[companionId] = DateTime.now();
+      return _memoryCache[companionId];
+    }
+    
+    // Try to get from companionBloc
     if (_companionBloc != null) {
-      final state = _companionBloc.state;
+      final state = _companionBloc!.state;
       if (state is CompanionLoaded) {
         final companion = state.companions
-        .where((c) => c.id == companionId)
-        .firstOrNull;
+          .where((c) => c.id == companionId)
+          .firstOrNull;
         
-        // If found, update memory cache and return
         if (companion != null) {
           _memoryCache[companionId] = companion;
+          _cacheAccessTimes[companionId] = DateTime.now();
+          _manageCache();
           return companion;
         }
       }
     }
-    // 2. Check memory cache
-    if (_memoryCache.containsKey(companionId)) {
-      return _memoryCache[companionId];
-    }
-    // 3. Check Hive cache
+    
+    // Try Hive cache
     if (_companionsBox != null && _companionsBox!.containsKey(companionId)) {
       final companion = _companionsBox!.get(companionId);
       if (companion != null) {
         _memoryCache[companionId] = companion;
+        _cacheAccessTimes[companionId] = DateTime.now();
+        _manageCache();
         return companion;
       }
     }
-    // 4. Fallback to Supabase if necessary
+    
+    // Fallback to database
     try {
       final companionData = await _supabase
         .from('companions')
@@ -158,9 +304,12 @@ class ChatRepository {
         .single();
         
       final companion = AICompanion.fromJson(companionData);
-      // Add to caches
+      
+      // Save to caches
       _memoryCache[companionId] = companion;
+      _cacheAccessTimes[companionId] = DateTime.now();
       await _companionsBox?.put(companionId, companion);
+      _manageCache();
       
       return companion;
     } catch (e) {
@@ -169,79 +318,59 @@ class ChatRepository {
     }
   }
 
-  Future<bool> hasConversations(String userId) async {
+  @override
+  Future<void> deleteConversation(String conversationId) async {
+    await _ensureInitialized();
+    
     try {
-      final result = await _supabase
+      // Get conversation metadata
+      final conversation = await _supabase
         .from('conversations')
-        .select('id')
-        .eq('user_id', userId)
-        .limit(1)
-        .maybeSingle();
-      
-      return result != null;
-    } catch (e) {
-      print('Error checking for conversations: $e');
-      return false;
-    }
-  }
-  
-  // Mark conversation as read
-  Future<void> markConversationAsRead(String conversationId) async {
-    await _supabase
-      .from('conversations')
-      .update({'unread_count': 0})
-      .eq('id', conversationId);
-  }
-  
-  // Update conversation data when sending messages
-  Future<void> updateConversation(String conversationId, {
-  String? lastMessage, 
-  int? incrementUnread,
-  }) async {
-    final Map<String, dynamic> updateData = {
-      'last_updated': DateTime.now().toIso8601String(),
-    };
-    
-    if (lastMessage != null) {
-      updateData['last_message'] = lastMessage;
-    }
-    
-    // Instead of using a non-existent RPC function, we'll use a two-step approach
-    if (incrementUnread != null) {
-      // First, get the current unread count
-      final response = await _supabase
-        .from('conversations')
-        .select('unread_count')
+        .select('companion_id, user_id')
         .eq('id', conversationId)
         .single();
       
-      // Calculate the new unread count
-      final currentUnread = response['unread_count'] as int? ?? 0;
-      final newUnread = currentUnread + incrementUnread;
+      final companionId = conversation['companion_id'];
+      final userId = conversation['user_id'];
       
-      // Add to the update data
-      updateData['unread_count'] = newUnread;
+      // Use transaction to ensure atomic operations
+      await Future.wait([
+        // Delete messages
+        _supabase
+          .from('messages')
+          .delete()
+          .eq('conversation_id', conversationId),
+        
+        // Delete conversation
+        _supabase
+          .from('conversations')
+          .delete()
+          .eq('id', conversationId),
+      ]);
+      
+      // Clear memory state if GeminiService is available
+      if (_geminiService != null) {
+        await _geminiService!.clearCompanionState(userId, companionId);
+      }
+      
+      // Clear companion memory from shared preferences
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'companion_memory_${userId}_$companionId';
+      await prefs.remove(key);
+      
+      print('Successfully deleted conversation $conversationId');
+    } catch (e) {
+      print('Error deleting conversation: $e');
+      throw Exception('Failed to delete conversation: $e');
     }
-    
-    // Perform the update operation
-    await _supabase
-      .from('conversations')
-      .update(updateData)
-      .eq('id', conversationId);
-  }
-  
-  // Toggle pinned status
-  Future<void> togglePinConversation(String conversationId, bool isPinned) async {
-    await _supabase
-      .from('conversations')
-      .update({'is_pinned': isPinned})
-      .eq('id', conversationId);
   }
 
-  // Create new conversation
-  Future<String> getOrCreateConversation(String userId,String companionId) async {
+  @override
+  Future<String> getOrCreateConversation(String userId, String companionId) async {
+    await _ensureInitialized();
+    
     try {
-      // Try to find existing conversation
+      // Check for existing conversation
       final response = await _supabase
         .from('conversations')
         .select('id')
@@ -250,6 +379,7 @@ class ChatRepository {
         .limit(1)
         .maybeSingle();
       
+      // Return existing conversation ID if found
       if (response != null && response['id'] != null) {
         return response['id'];
       }
@@ -263,7 +393,8 @@ class ChatRepository {
           'unread_count': 0,
           'last_message': 'Start a conversation',
           'last_updated': DateTime.now().toIso8601String(),
-          'is_pinned': false
+          'is_pinned': false,
+          'metadata': {'relationship_level': 1}
         })
         .select('id')
         .single();
@@ -271,11 +402,132 @@ class ChatRepository {
       return newConversation['id'];
     } catch (e) {
       print('Error finding/creating conversation: $e');
-      // Create a fallback ID if needed
       return 'fallback-$companionId-${DateTime.now().millisecondsSinceEpoch}';
     }
   }
-}
-extension IterableExtension<T> on Iterable<T> {
-    T? get firstOrNull => isEmpty ? null : first;
+  
+  @override
+  Future<bool> hasConversations(String userId) async {
+    await _ensureInitialized();
+    
+    try {
+      final response = await _supabase
+        .from('conversations')
+        .select('id')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle();
+      
+      return response != null && response['id'] != null;
+    } catch (e) {
+      print('Error checking conversations: $e');
+      return false;
+    }
   }
+  
+  @override
+  Future<void> updateConversation(String conversationId, {String? lastMessage, int? incrementUnread}) async {
+    await _ensureInitialized();
+    
+    final Map<String, dynamic> updates = {};
+    if (lastMessage != null) {
+      updates['last_message'] = lastMessage;
+    }
+    
+    if (incrementUnread != null) {
+      // Get current unread count first
+      try {
+        final conversation = await _supabase
+          .from('conversations')
+          .select('unread_count')
+          .eq('id', conversationId)
+          .single();
+          
+        final currentUnread = conversation['unread_count'] ?? 0;
+        updates['unread_count'] = currentUnread + incrementUnread;
+      } catch (e) {
+        print('Error getting current unread count: $e');
+        // Set directly if we can't get current count
+        updates['unread_count'] = incrementUnread > 0 ? incrementUnread : 0;
+      }
+    }
+    
+    // Add last updated timestamp
+    updates['last_updated'] = DateTime.now().toIso8601String();
+    
+    if (updates.isNotEmpty) {
+      await _supabase
+        .from('conversations')
+        .update(updates)
+        .eq('id', conversationId);
+    }
+  }
+
+  @override
+  Future<void> deleteAllMessages({required String companionId}) async {
+    await _ensureInitialized();
+    
+    try {
+      // Delete all messages for a specific companion
+      await _supabase
+        .from('messages')
+        .delete()
+        .eq('companion_id', companionId);
+      
+      print('Successfully deleted all messages for companion $companionId');
+    } catch (e) {
+      print('Error deleting messages: $e');
+      throw Exception('Failed to delete messages: $e');
+    }
+  }
+
+  @override
+  Future<void> markConversationAsRead(String conversationId) async {
+    await _ensureInitialized();
+    
+    try {
+      await _supabase
+        .from('conversations')
+        .update({
+          'unread_count': 0,
+          'last_updated': DateTime.now().toIso8601String()
+        })
+        .eq('id', conversationId);
+    } catch (e) {
+      print('Error marking conversation as read: $e');
+      throw Exception('Failed to mark conversation as read: $e');
+    }
+  }
+
+  @override
+  Future<void> togglePinConversation(String conversationId, bool isPinned) async {
+    await _ensureInitialized();
+    try {
+      await _supabase
+        .from('conversations')
+        .update({
+          'is_pinned': isPinned,
+          'last_updated': DateTime.now().toIso8601String()
+        })
+        .eq('id', conversationId);
+    } catch (e) {
+      print('Error updating pin status: $e');
+      throw Exception('Failed to update pin status: $e');
+    }
+  }
+
+  // Set the CompanionBloc instance
+  void setCompanionBloc(CompanionBloc bloc) {
+    _companionBloc = bloc;
+  }
+
+  // Set the GeminiService instance
+  void setGeminiService(GeminiService service) {
+    _geminiService = service;
+  }
+  // Other methods with similar improvements...
+}
+
+extension IterableExtension<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
+}

@@ -8,7 +8,7 @@ import 'conversation_state.dart';
 class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
   final ChatRepository _repository;
   StreamSubscription? _conversationSubscription;
-  
+
   ConversationBloc(this._repository) : super(ConversationInitial()) {
     on<LoadConversations>(_onLoadConversations);
     on<MarkConversationAsRead>(_onMarkAsRead);
@@ -87,19 +87,19 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
   }
   
   Future<void> _onDeleteConversation(
-    DeleteConversation event,
-    Emitter<ConversationState> emit,
+  DeleteConversation event,
+  Emitter<ConversationState> emit,
   ) async {
     try {
-      // Implement deletion logic here
-      // For now just emit loading and success states
       final currentState = state;
       if (currentState is ConversationLoaded) {
         emit(ConversationLoading());
-        // Later add actual deletion code here when you have the database structure ready
-        // await _repository.deleteConversation(event.conversationId);
         
-        // Remove the conversation from the lists
+        // Delete the conversation from the repository
+        await _repository.deleteConversation(
+          event.conversationId,
+        );
+        // Update the UI state
         final updatedConversations = currentState.conversations
             .where((c) => c.id != event.conversationId)
             .toList();
@@ -111,6 +111,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         ));
       }
     } catch (e) {
+      print('Error in _onDeleteConversation: $e');
       emit(ConversationError('Failed to delete conversation: $e'));
     }
   }
@@ -165,4 +166,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       emit(ConversationError('Failed to refresh conversations: $e'));
     }
   }
+}
+extension ConversationBlocExtension on ConversationBloc {
+  getRepository() => _repository;
 }

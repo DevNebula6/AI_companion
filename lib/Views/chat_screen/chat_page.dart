@@ -1,520 +1,638 @@
-import 'dart:math' show min;
-
-import 'package:ai_companion/Views/AI_selection/companion_color.dart' show getPersonalityType;
-import 'package:ai_companion/Views/AI_selection/companion_details_sheet.dart';
+import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/Views/AI_selection/companion_color.dart';
 import 'package:ai_companion/Views/chat_screen/chat_input_field.dart';
 import 'package:ai_companion/Views/chat_screen/message_bubble.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:ai_companion/chat/message_bloc/message_bloc.dart';
 import 'package:ai_companion/chat/message_bloc/message_event.dart';
 import 'package:ai_companion/chat/message_bloc/message_state.dart';
-import 'package:ai_companion/utilities/constants/textstyles.dart';
-import 'package:ai_companion/utilities/widgets/typing_indicator.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shimmer/shimmer.dart';
+import 'dart:async';
 
 class ChatPage extends StatefulWidget {
   final AICompanion companion;
-  final CustomAuthUser user;
   final String conversationId;
-
+  
   const ChatPage({
     super.key,
     required this.companion,
-    required this.user,
     required this.conversationId,
   });
-  
+
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
 
 class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
-  final ScrollController _scrollController = ScrollController();
-  final TextEditingController _textController = TextEditingController();
+  final TextEditingController _messageController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  bool _showScrollToBottom = false;
+  final ScrollController _scrollController = ScrollController();
   bool _isTyping = false;
-  
-  // Add animation controllers for message animations
-  late final AnimationController _sendAnimationController;
+  String? _currentUserId;
+  late ColorScheme _companionColors;
+  late AnimationController _profilePanelController;
+  bool _showProfilePanel = false;
+  StreamSubscription? _typingSubscription;
   
   @override
   void initState() {
     super.initState();
-        
-    // Initialize animation controller
-    _sendAnimationController = AnimationController(
+    _profilePanelController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Load messages for this companion
-    context.read<MessageBloc>().add(
-      LoadMessagesEvent(
-        userId: widget.user.id,
-        companionId :widget.companion.id,
-      )
-    );
-    });
     
-
-    _scrollController.addListener(() {
-    if (_scrollController.hasClients) {
-      setState(() {
-        _showScrollToBottom = _scrollController.position.pixels <
-            _scrollController.position.maxScrollExtent - 300;
-      });
-    }
-  });
+    _companionColors = getCompanionColorScheme(widget.companion);
+    _loadChat();
+    
+    final messageBloc = context.read<MessageBloc>();
+    _typingSubscription = messageBloc.typingStream.listen((isTyping) {
+      if (mounted) {
+        setState(() {
+          _isTyping = isTyping;
+        });
+      }
+    });
   }
   
   @override
   void dispose() {
-    _scrollController.dispose();
-    _textController.dispose();
+    _messageController.dispose();
     _focusNode.dispose();
-    _sendAnimationController.dispose();
+    _scrollController.dispose();
+    _profilePanelController.dispose();
+    _typingSubscription?.cancel();
     super.dispose();
+  }
+  
+  Future<void> _loadChat() async {
+    final user = await CustomAuthUser.getCurrentUser();
+    if (user != null) {
+      setState(() {
+        _currentUserId = user.id;
+      });
+      
+      context.read<MessageBloc>().add(InitializeCompanionEvent(
+        companion: widget.companion,
+        userId: user.id,
+        user: user,
+      ));
+      
+      context.read<MessageBloc>().add(LoadMessagesEvent(
+        userId: user.id,
+        companionId: widget.companion.id,
+      ));
+    }
+  }
+  
+  void _sendMessage() {
+    if (_messageController.text.trim().isEmpty || _currentUserId == null) {
+      return;
+    }
+    
+    final userMessage = Message(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      message: _messageController.text.trim(),
+      userId: _currentUserId!,
+      companionId: widget.companion.id,
+      conversationId: widget.conversationId,
+      isBot: false,
+      created_at: DateTime.now(),
+    );
+    
+    context.read<MessageBloc>().add(SendMessageEvent(message: userMessage));
+    _messageController.clear();
+    
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _scrollToBottom();
+    });
   }
   
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 400),
+        duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
     }
   }
   
-  void _handleSendMessage() {
-    final text = _textController.text.trim();
-    if (text.isNotEmpty) {
-      // Create and send the message
-      final message = Message(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        message: text,
-        companionId: widget.companion.id,
-        conversationId: widget.conversationId,
-        userId: widget.user.id,
-        isBot: false,
-        created_at: DateTime.now(),
+  Widget _buildMessageList(List<Message> messages) {
+    if (messages.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 40,
+              backgroundImage: NetworkImage(widget.companion.avatarUrl),
+            ).animate().scale(
+              duration: 600.ms,
+              curve: Curves.easeOutBack,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Start a conversation with ${widget.companion.name}',
+              style: TextStyle(
+                fontSize: 16,
+                color: Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
+              ),
+              textAlign: TextAlign.center,
+            ).animate().fadeIn(
+              duration: 600.ms,
+              delay: 300.ms,
+            ),
+          ],
+        ),
       );
-      
-      // Trigger animation
-      _sendAnimationController.forward(from: 0);
-      
-      // Send through bloc
-      context.read<MessageBloc>().add(SendMessageEvent(
-        message: message,
-      ));
-      
-      // Clear input
-      _textController.clear();
-      
-      // Set typing indicator
-      setState(() => _isTyping = true);
-      
-      // Scroll to bottom after a short delay
-      Future.delayed(const Duration(milliseconds: 500), _scrollToBottom);
     }
+    
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.all(16),
+      reverse: false,
+      itemCount: messages.length,
+      itemBuilder: (context, index) {
+        final message = messages[index];
+        final isUser = !message.isBot;
+        
+        bool isPreviousSameSender = false;
+        bool isNextSameSender = false;
+        
+        if (index > 0) {
+          isPreviousSameSender = messages[index - 1].isBot == message.isBot;
+        }
+        if (index < messages.length - 1) {
+          isNextSameSender = messages[index + 1].isBot == message.isBot;
+        }
+        
+        final messageWidget = MessageBubble(
+          key: ValueKey(message.id),
+          message: message,
+          isUser: isUser,
+          companionAvatar: widget.companion.avatarUrl,
+          showAvatar: !isPreviousSameSender,
+          isPreviousSameSender: isPreviousSameSender,
+          isNextSameSender: isNextSameSender,
+          animation: null,
+        );
+        
+        if (index == 0 || !_isSameDay(messages[index - 1].created_at, message.created_at)) {
+          return Column(
+            children: [
+              _buildDateDivider(message.created_at),
+              messageWidget,
+            ],
+          );
+        }
+        
+        return messageWidget;
+      },
+    );
+  }
+  
+  Widget _buildDateDivider(DateTime date) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        children: [
+          Expanded(child: Divider(
+            color: Theme.of(context).colorScheme.onBackground.withOpacity(0.1),
+          )),
+          const SizedBox(width: 8),
+          Text(
+            _formatDate(date),
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onBackground.withOpacity(0.5),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Divider(
+            color: Theme.of(context).colorScheme.onBackground.withOpacity(0.1),
+          )),
+        ],
+      ),
+    );
+  }
+  
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final messageDate = DateTime(date.year, date.month, date.day);
+    
+    if (messageDate == today) {
+      return "Today";
+    } else if (messageDate == yesterday) {
+      return "Yesterday";
+    } else if (now.difference(date).inDays < 7) {
+      return _getDayName(date.weekday);
+    } else {
+      return "${date.day}/${date.month}/${date.year}";
+    }
+  }
+  
+  String _getDayName(int weekday) {
+    switch (weekday) {
+      case 1: return "Monday";
+      case 2: return "Tuesday";
+      case 3: return "Wednesday";
+      case 4: return "Thursday";
+      case 5: return "Friday";
+      case 6: return "Saturday";
+      case 7: return "Sunday";
+      default: return "";
+    }
+  }
+  
+  bool _isSameDay(DateTime date1, DateTime date2) {
+    return date1.year == date2.year && 
+           date1.month == date2.month && 
+           date1.day == date2.day;
+  }
+  
+  Widget _buildTypingIndicator() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(left: 16, bottom: 16, right: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceVariant,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 40,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned(
+                    left: 0,
+                    child: _buildDot(delay: 0),
+                  ),
+                  _buildDot(delay: 150),
+                  Positioned(
+                    right: 0,
+                    child: _buildDot(delay: 300),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 200.ms);
+  }
+  
+  Widget _buildDot({required int delay}) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: _companionColors.primary,
+        shape: BoxShape.circle,
+      ),
+    ).animate(
+      onPlay: (controller) => controller.repeat(),
+    ).fadeIn(
+      duration: 600.ms,
+    ).animate(
+      delay: Duration(milliseconds: delay),
+    ).scaleXY(
+      begin: 0.4,
+      end: 1.0,
+      duration: 600.ms,
+    ).then().scaleXY(
+      begin: 1.0,
+      end: 0.4,
+      duration: 600.ms,
+    );
+  }
+  
+  Widget _buildProfilePanel() {
+    return AnimatedBuilder(
+      animation: _profilePanelController,
+      builder: (context, child) {
+        final slideAnimation = Tween<Offset>(
+          begin: const Offset(0, -1),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(
+          parent: _profilePanelController,
+          curve: Curves.easeOutCubic,
+        ));
+        
+        return SlideTransition(
+          position: slideAnimation,
+          child: child,
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _companionColors.primary.withOpacity(0.05),
+          border: Border(
+            bottom: BorderSide(
+              color: _companionColors.primary.withOpacity(0.2),
+              width: 1,
+            ),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundImage: NetworkImage(widget.companion.avatarUrl),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.companion.name,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: _companionColors.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.companion.personality.primaryTraits.join(', '),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: widget.companion.personality.interests
+                  .take(5)
+                  .map((interest) => _buildInterestChip(interest))
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildInterestChip(String interest) {
+    return Chip(
+      label: Text(
+        interest,
+        style: TextStyle(
+          fontSize: 12,
+          color: _companionColors.onPrimary,
+        ),
+      ),
+      backgroundColor: _companionColors.primary,
+      avatar: Icon(
+        getInterestIcon(interest),
+        size: 14,
+        color: _companionColors.onPrimary,
+      ),
+      padding: const EdgeInsets.all(4),
+    );
   }
   
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
-        centerTitle: false,
+        centerTitle: true,
+        backgroundColor: _companionColors.primary,
+        foregroundColor: _companionColors.onPrimary,
+        elevation: 0,
         title: Row(
           children: [
-            // Use hero animation for smooth transition
             Hero(
-              tag: 'companion-avatar-${widget.companion.id}',
+              tag: 'avatar_${widget.companion.id}',
               child: CircleAvatar(
-                radius: 18,
+                radius: 16,
                 backgroundImage: NetworkImage(widget.companion.avatarUrl),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             Text(
               widget.companion.name,
-              style: AppTextStyles.appBarTitle,
+              style: TextStyle(
+                color: _companionColors.onPrimary,
+                fontSize: 18,
+              ),
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () => _showOptionsMenu(context),
+            icon: Icon(
+              _showProfilePanel ? Icons.info : Icons.info_outline,
+              color: _companionColors.onPrimary,
+            ),
+            onPressed: () {
+              setState(() {
+                _showProfilePanel = !_showProfilePanel;
+                if (_showProfilePanel) {
+                  _profilePanelController.forward();
+                } else {
+                  _profilePanelController.reverse();
+                }
+              });
+            },
           ),
-        ],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          color: colorScheme.surface,
-          image: const DecorationImage(
-            image: AssetImage('assets/backgrounds/pt5.png'),
-            opacity: 0.2,
-            fit: BoxFit.cover,),
-        ),
-        child: Column(
-          children: [
-            // Message List
-            Expanded(
-              child: BlocConsumer<MessageBloc, MessageState>(
-                listener: (context, state) {
-                  // Auto-scroll and handle typing indicator
-                  if (state is MessageSent) {
-                    setState(() => _isTyping = false);
-                    Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
-                  } else if (state is MessageReceiving) {
-                    setState(() => _isTyping = true);
-                  } else if (state is MessageLoaded && state.messages.isNotEmpty) {
-                    // This is crucial - scroll to bottom when messages load initially
-                    print('MessageLoaded with ${state.messages.length} messages');
-                    Future.delayed(const Duration(milliseconds: 200), _scrollToBottom);
-                  }
-                },
-                buildWhen: (previous, current) {
-                  if (current is MessageLoaded){
-                    return true;
-                    }
-                  return false;
-                },
-                builder: (context, state) {
-                      print('Building with state: ${state.runtimeType}');
-
-                  if (state is MessageLoaded) {
-                    final messages = state.messages;
-                          print('Building UI with ${messages.length} messages');
-
-                    if (messages.isEmpty) {
-                      return _buildEmptyState();
-                    }
-                    
-                    return Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // Main message list
-                        RefreshIndicator(
-                          onRefresh: () async {
-                          context.read<MessageBloc>().add(RefreshMessages(
-                            userId: widget.user.id,
-                            companionId: widget.companion.id,
-                          ));
-                          },
-                          child: ListView.builder(
-                            key: ValueKey("message_list_${messages.length}"),
-                            controller: _scrollController,
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                            itemCount: messages.length + (_isTyping ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              print('Rendering message index: $index');
-                        
-                              return RepaintBoundary(
-                                child: _buildMessageItem(context, index, messages),
-                              );
-                            },
-                          ),
-                        ),
-                        
-                        // Scroll to bottom button
-                        if (_showScrollToBottom)
-                          Positioned(
-                            right: 16,
-                            bottom: 24,
-                            child: FloatingActionButton.small(
-                              onPressed: _scrollToBottom,
-                              backgroundColor: colorScheme.primaryContainer,
-                              child: Icon(
-                                Icons.arrow_downward,
-                                color: colorScheme.onPrimaryContainer,
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
-                  } else if (state is MessageLoading) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const CircularProgressIndicator(),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Loading conversation...',
-                            style: AppTextStyles.bodyMedium,
-                          ),
-                        ],
-                      ),
-                    );
-                  } else if (state is MessageError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Failed to load messages',
-                            style: AppTextStyles.bodyMedium,
-                          ),
-                          const SizedBox(height: 24),
-                          ElevatedButton(
-                            onPressed: () => context.read<MessageBloc>().add(
-                              LoadMessagesEvent(
-                                userId: widget.user.id,
-                                companionId: widget.companion.id,
-                              )
-                            ),
-                            child: const Text('Try Again'),
-                          ),
-                        ],
-                      ),
-                    );
-                  } else {
-                    return const SizedBox();
-                  }
-                },
-              ),
+          PopupMenuButton(
+            color: Theme.of(context).colorScheme.surface,
+            icon: Icon(
+              Icons.more_vert,
+              color: _companionColors.onPrimary,
             ),
-            
-            // Input field
-            ChatInputField(
-              controller: _textController,
-              focusNode: _focusNode,
-              onSend: _handleSendMessage,
-              isTyping: _isTyping,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildMessageItem(BuildContext context, int index, List<Message> messages) {
-  // Show typing indicator at the end if needed
-    if (_isTyping && index == messages.length) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: TypingIndicator(
-          bubbleColor: Theme.of(context).colorScheme.surfaceVariant,
-          dotColor: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      );
-    }
-    
-    final message = messages[index];
-    final isUser = !message.isBot;
-    final showAvatar = !isUser && (index == 0 || 
-        messages[index - 1].isBot != message.isBot);
-        
-    return MessageBubble(
-      message: message,
-      isUser: isUser,
-      showAvatar: showAvatar,
-      companionAvatar: widget.companion.avatarUrl,
-      animation: _sendAnimationController,
-      isPreviousSameSender: index > 0 && 
-          messages[index - 1].isBot == message.isBot,
-      isNextSameSender: index < messages.length - 1 && 
-          messages[index + 1].isBot == message.isBot,
-    );
-  }
-  // Empty state widget when no messages exist
-  Widget _buildEmptyState() {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Companion avatar
-            Hero(
-              tag: 'companion-avatar-${widget.companion.id}',
-              child: CircleAvatar(
-                radius: 48,
-                backgroundImage: NetworkImage(widget.companion.avatarUrl),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Start chatting with ${widget.companion.name}',
-              style: AppTextStyles.displayMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              widget.companion.description,
-              style: AppTextStyles.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 36),
-            _buildSuggestionChips(),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  // Quick suggestion chips for starting conversations
-  Widget _buildSuggestionChips() {
-    // Generate suggestions based on companion personality
-    final List<String> suggestions;
-    
-    switch (getPersonalityType(widget.companion)) {
-      case 'friendly':
-        suggestions = [
-          "Hi, nice to meet you!",
-          "What's your story?",
-          "How can you help me today?",
-          "Tell me something interesting"
-        ];
-        break;
-      case 'philosophical':
-        suggestions = [
-          "What is consciousness?",
-          "How can I find meaning in life?",
-          "What's your view on happiness?",
-          "Tell me about the nature of reality"
-        ];
-        break;
-      case 'professional':
-        suggestions = [
-          "How can I be more productive?",
-          "What skills should I develop?",
-          "Help me with personal growth",
-          "Tell me about your expertise"
-        ];
-        break;
-      default:
-        suggestions = [
-          "Hi, nice to meet you!",
-          "Tell me about yourself",
-          "What can we talk about?",
-          "How are you today?"
-        ];
-    }
-    
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      alignment: WrapAlignment.center,
-      children: suggestions.map((text) {
-        return ActionChip(
-          label: Text(text),
-          onPressed: () {
-            _textController.text = text;
-            _handleSendMessage();
-          },
-        );
-      }).toList(),
-    );
-  }
-  
-  // Chat options menu
-  void _showOptionsMenu(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 20,
-                      backgroundImage: NetworkImage(widget.companion.avatarUrl),
-                    ),
-                    const SizedBox(width: 16),
-                    Text(
-                      widget.companion.name,
-                      style: AppTextStyles.appBarTitle,
-                    ),
-                  ],
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                child: ListTile(
+                  leading: const Icon(Icons.refresh),
+                  title: const Text('Clear Conversation'),
+                  contentPadding: EdgeInsets.zero,
                 ),
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.delete_outline),
-                title: const Text('Clear conversation'),
                 onTap: () {
-                  Navigator.pop(context);
-                  _showClearConfirmation(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: const Text('View companion details'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Navigate to companion details page
-                  CompanionDetailsSheet(
-                    companion: widget.companion,
-                    user: widget.user,
+                  Future.delayed(
+                    const Duration(milliseconds: 100),
+                    () => _showClearConfirmation(),
                   );
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.settings_outlined),
-                title: const Text('Chat settings'),
+              PopupMenuItem(
+                child: ListTile(
+                  leading: const Icon(Icons.report_outlined),
+                  title: const Text('Report Issue'),
+                  contentPadding: EdgeInsets.zero,
+                ),
                 onTap: () {
-                  Navigator.pop(context);
-                  // Navigate to chat settings page
-                  // To be implemented
                 },
               ),
             ],
           ),
-        );
-      },
+        ],
+      ),
+      body: BlocConsumer<MessageBloc, MessageState>(
+        listener: (context, state) {
+          if (state is MessageLoaded) {
+            Future.delayed(const Duration(milliseconds: 100), () {
+              _scrollToBottom();
+            });
+          }
+        },
+        builder: (context, state) {
+
+          final List<Message> currentMessages = state is MessageLoaded 
+          ? state.messages 
+          : context.read<MessageBloc>().currentMessages; 
+          
+          return Column(
+            children: [
+              if (_showProfilePanel) _buildProfilePanel(),
+              
+              Expanded(
+                child: Stack(
+                  children: [
+                    if (currentMessages.isNotEmpty)
+                      _buildMessageList(currentMessages),
+                    if (state is MessageLoading)
+                      _buildLoadingMessages(),
+                    if (state is MessageError)
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Something went wrong',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            ElevatedButton(
+                              onPressed: _loadChat,
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    
+                    if (_isTyping)
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: _buildTypingIndicator(),
+                      ),
+                  ],
+                ),
+              ),
+              
+              ChatInputField(
+                controller: _messageController,
+                focusNode: _focusNode,
+                onSend: _sendMessage,
+                isTyping: _isTyping,
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
   
-  // Confirmation dialog for clearing chat history
-  void _showClearConfirmation(BuildContext context) {
-    showDialog(
+  Widget _buildLoadingMessages() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: ListView.builder(
+        itemCount: 6,
+        padding: const EdgeInsets.all(16),
+        itemBuilder: (_, index) {
+          final isUser = index % 2 == 0;
+          return Align(
+            alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+            child: Container(
+              width: 200,
+              height: 50,
+              margin: EdgeInsets.only(
+                top: 8,
+                bottom: 8,
+                left: isUser ? 80 : 16,
+                right: isUser ? 16 : 80,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+  
+  Future<void> _showClearConfirmation() async {
+    final result = await showDialog<bool>(
       context: context,
-      builder: (context) {
+      builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Clear Conversation'),
-          content: Text(
-            'Are you sure you want to clear your conversation with ${widget.companion.name}? '
-            'This cannot be undone.',
+          title: const Text("Clear Conversation"),
+          content: const Text(
+            "Are you sure you want to clear this conversation? This action cannot be undone."
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('CANCEL'),
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text("Cancel"),
             ),
-            FilledButton(
-              onPressed: () {
-                context.read<MessageBloc>().add(ClearConversation(
-                  userId: widget.user.id,
-                  companionId: widget.companion.id,
-                ));
-                Navigator.pop(context);
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.red,
-              ),
-              child: const Text('CLEAR'),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text("Clear"),
             ),
           ],
         );
       },
     );
+    
+    if (result == true && _currentUserId != null) {
+      context.read<MessageBloc>().add(ClearConversation(
+        userId: _currentUserId!,
+        companionId: widget.companion.id,
+      ));
+      
+    }
   }
 }

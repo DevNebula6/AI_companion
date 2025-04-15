@@ -1,15 +1,26 @@
 import 'dart:convert';
+import 'dart:collection';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/chat/gemini/companion_state.dart';
 
 class GeminiService {
   late final GenerativeModel? _model;
   late ChatSession? _chat;
   final List<Content> _history = [];
   static const int _maxHistoryLength = 15;
+  static const int _maxCachedCompanions = 10; // Limit cached companions
+  static const String _storageVersion = '1.2'; // For storage versioning
   bool _isInitialized = false;
+
+  // LRU cache for companion state management
+  final LinkedHashMap<String, bool> _initializedCompanions = LinkedHashMap();
+  
+  // Conversation state storage by companion key (userId_companionId)
+  final Map<String, CompanionState> _conversationStates = {};
+  final Map<String, DateTime> _stateLastAccessed = {}; // Track for LRU implementation
   
   // Memory management
   final Map<String, dynamic> _userMemory = {};
@@ -18,14 +29,19 @@ class GeminiService {
   // Relationship data
   int _relationshipLevel = 1; // 1-5, where 5 is most developed
   String? _dominantEmotion;
+  DateTime? _lastEmotionAnalysis; // To optimize emotion analysis frequency
   
   // Companion data
   AICompanion? _companion;
+  String? _activeCompanionKey;
+  
+  // Performance tracking
+  final Map<String, List<int>> _operationTimings = {};
 
   GeminiService() {
     _initializeModel();
   }
-
+  
   void _initializeModel() {
     try {
       final apiKey = dotenv.env['GEMINI_API_KEY'];
@@ -57,12 +73,110 @@ class GeminiService {
             HarmCategory.dangerousContent,
             HarmBlockThreshold.medium,
           ),
+          SafetySetting(
+            HarmCategory.harassment,
+            HarmBlockThreshold.none,
+          ),
         ],
       );
       _isInitialized = true;
     } catch (e) {
       print('Error initializing Gemini model: $e');
       _isInitialized = false;
+    }
+  }
+
+  // Get unique key for a companion
+  String _getCompanionKey(String userId, String companionId) {
+    return '${userId}_$companionId';
+  }
+
+  // Save current active state before switching
+  void _saveActiveState() {
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    if (_activeCompanionKey != null && _companion != null) {
+      _conversationStates[_activeCompanionKey!] = CompanionState(
+        history: List.from(_history),
+        userMemory: Map<String, dynamic>.from(_userMemory),
+        conversationMetadata: Map<String, dynamic>.from(_conversationMetadata),
+        relationshipLevel: _relationshipLevel,
+        dominantEmotion: _dominantEmotion,
+        companion: _companion!,
+        chatSession: _chat,
+      );
+      
+      // Update access time for LRU tracking
+      _stateLastAccessed[_activeCompanionKey!] = DateTime.now();
+    }
+    
+    // Record timing for performance tracking
+    final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+    _recordOperationTiming('saveState', duration);
+  }
+
+  // Load state for a companion
+  void _loadCompanionState(String companionKey) {
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    final state = _conversationStates[companionKey];
+    if (state != null) {
+      _history.clear();
+      _history.addAll(state.history);
+      _userMemory.clear();
+      _userMemory.addAll(state.userMemory);
+      _conversationMetadata.clear();
+      _conversationMetadata.addAll(state.conversationMetadata);
+      _relationshipLevel = state.relationshipLevel;
+      _dominantEmotion = state.dominantEmotion;
+      _companion = state.companion;
+      _chat = state.chatSession;
+      
+      // Update access time for LRU tracking
+      _stateLastAccessed[companionKey] = DateTime.now();
+      
+      // Ensure LRU order is maintained in initialized companions
+      if (_initializedCompanions.containsKey(companionKey)) {
+        // Move to the end of the LRU list (most recently used)
+        _initializedCompanions.remove(companionKey);
+        _initializedCompanions[companionKey] = true;
+      }
+    }
+    
+    // Record timing for performance tracking
+    final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+    _recordOperationTiming('loadState', duration);
+  }
+
+  // Record operation timing for performance analysis
+  void _recordOperationTiming(String operation, int durationMs) {
+    if (!_operationTimings.containsKey(operation)) {
+      _operationTimings[operation] = [];
+    }
+    _operationTimings[operation]!.add(durationMs);
+    
+    // Keep only last 100 timings to avoid memory bloat
+    if (_operationTimings[operation]!.length > 100) {
+      _operationTimings[operation]!.removeAt(0);
+    }
+  }
+
+  // Manage LRU cache of companions to prevent memory bloat
+  void _manageCachedCompanions() {
+    if (_initializedCompanions.length > _maxCachedCompanions) {
+      // Find least recently used companions to remove
+      final accessTimes = _stateLastAccessed.entries.toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      
+      // Remove oldest companions until we're under the limit
+      int toRemove = _initializedCompanions.length - _maxCachedCompanions;
+      for (final entry in accessTimes) {
+        if (toRemove <= 0) break;
+        if (_activeCompanionKey != entry.key) { // Don't remove active companion
+          _initializedCompanions.remove(entry.key);
+          _conversationStates.remove(entry.key);
+          _stateLastAccessed.remove(entry.key);
+          toRemove--;
+        }
+      }
     }
   }
 
@@ -77,10 +191,30 @@ class GeminiService {
       return;
     }
     
-    _companion = companion;
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    final companionKey = _getCompanionKey(userId, companion.id);
     
-    // Load any previously saved memory
+    // If we're switching companions, save the current state
+    if (_activeCompanionKey != null && _activeCompanionKey != companionKey) {
+      _saveActiveState();
+    }
+    
+    // Set the active companion key
+    _activeCompanionKey = companionKey;
+    
+    // Check if this companion is already initialized in memory
+    if (_initializedCompanions.containsKey(companionKey) && _conversationStates.containsKey(companionKey)) {
+      print('Companion already initialized, loading from memory');
+      _loadCompanionState(companionKey);
+      _manageCachedCompanions(); // Manage LRU cache after loading
+      return;
+    }
+    
+    // Load from persistent storage if available
     await _loadMemory(userId, companion.id);
+    
+    // Set the companion
+    _companion = companion;
     
     // Create companion context
     final companionContext = _buildCompanionContext(companion);
@@ -88,7 +222,6 @@ class GeminiService {
     // Create user context
     final userContext = '''
 User Information:
-- ID: $userId
 - Name: ${userName ?? 'User'}
 ${userProfile != null ? _formatUserProfile(userProfile) : ''}
 - Relationship Level: $_relationshipLevel (1-5)
@@ -103,11 +236,415 @@ ${_userMemory.isNotEmpty ? '- Memory: ${jsonEncode(_userMemory)}' : ''}
     
     _chat = _model!.startChat(history: _history);
     
-    // Set conversation metadata
+    // Set conversation metadata - IMPORTANT: Store user and companion IDs
     _conversationMetadata['last_interaction'] = DateTime.now().toIso8601String();
     _conversationMetadata['total_interactions'] = _conversationMetadata['total_interactions'] ?? 0;
     _conversationMetadata['user_id'] = userId;
     _conversationMetadata['companion_id'] = companion.id;
+    
+    // Mark this companion as initialized in LRU order
+    if (_initializedCompanions.containsKey(companionKey)) {
+      // Move to end of LRU list (most recently used)
+      _initializedCompanions.remove(companionKey);
+    }
+    _initializedCompanions[companionKey] = true;
+    _stateLastAccessed[companionKey] = DateTime.now();
+    
+    // Save state to both in-memory and persistent storage
+    _saveActiveState();
+    await _saveMemory();
+    
+    // Manage LRU cache after initialization
+    _manageCachedCompanions();
+    
+    // Record timing for performance tracking
+    final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+    _recordOperationTiming('initializeCompanion', duration);
+  }
+
+  Future<String> generateResponse(String userMessage, {String? mood}) async {
+    if (!_isInitialized || _chat == null) {
+      return 'I\'m having trouble processing that right now. Could you try again?';
+    }
+
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    try {
+      // Update conversation metadata
+      _conversationMetadata['last_interaction'] = DateTime.now().toIso8601String();
+      _conversationMetadata['total_interactions'] = (_conversationMetadata['total_interactions'] ?? 0) + 1;
+      
+      // Analyze user message for emotional content - but not too frequently to reduce API calls
+      // Only analyze if more than 20 seconds have passed since last analysis or if message is emotionally significant
+      final now = DateTime.now();
+      final shouldAnalyzeEmotion = _lastEmotionAnalysis == null || 
+          now.difference(_lastEmotionAnalysis!).inSeconds > 20 ||
+          _isEmotionallySignificant(userMessage);
+      
+      final userEmotion = shouldAnalyzeEmotion 
+          ? await _analyzeEmotion(userMessage)
+          : _dominantEmotion ?? 'neutral';
+          
+      if (shouldAnalyzeEmotion) {
+        _lastEmotionAnalysis = now;
+      }
+      
+      // Add context enhancement if needed
+      String enhancedMessage = userMessage;
+      if (mood != null) {
+        enhancedMessage = '''
+User's message (they seem to be feeling $mood): $userMessage
+''';
+      }
+
+      // Process the message
+      final userContent = Content('user', [TextPart(enhancedMessage)]);
+      _history.add(userContent);
+
+      final response = await _chat!.sendMessage(userContent);
+      final responseText = response.text;
+
+      if (responseText == null || responseText.isEmpty) {
+        throw Exception('Empty response from Gemini');
+      }
+
+      // Add to history
+      _history.add(Content('model', [TextPart(responseText)]));
+
+      // Extract potential memory items from the conversation
+      _extractMemoryItems(userMessage, responseText);
+      
+      // Update relationship level based on conversation quality
+      _updateRelationshipMetrics(userMessage, responseText, userEmotion);
+
+      // Manage history length while preserving key context
+      _manageHistoryLength();
+      
+      // Save memory periodically or after important exchanges
+      final isImportantExchange = responseText.length > 100 || _relationshipLevel > 2;
+      final needsPeriodicSave = (_conversationMetadata['total_interactions'] as int) % 3 == 0;
+      
+      if (needsPeriodicSave || isImportantExchange) {
+        await _saveMemory();
+        
+        // Also update in-memory state
+        _saveActiveState();
+      }
+      
+      // Record timing for performance tracking
+      final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+      _recordOperationTiming('generateResponse', duration);
+
+      return responseText;
+    } catch (e) {
+      print('Gemini error: $e');
+      // Record failed operation
+      final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+      _recordOperationTiming('generateResponseFailed', duration);
+      return 'I\'m sorry, I got a bit distracted there. What were you saying?';
+    }
+  }
+
+  bool _isEmotionallySignificant(String message) {
+    final emotionalWords = [
+      'love', 'hate', 'happy', 'sad', 'angry', 'upset',
+      'excited', 'worried', 'afraid', 'sorry', 'thank',
+      'miss', 'feel', 'emotion', 'hurt', 'pain', 'joy',
+      'terrible', 'awful', 'amazing', 'wonderful'
+    ];
+    
+    final hasEmotionalPunctuation = message.contains('!') || 
+                                   message.contains('?!') || 
+                                   message.contains('...');
+                                   
+    final lowerMessage = message.toLowerCase();
+    final hasEmotionalWords = emotionalWords.any((word) => lowerMessage.contains(word));
+    
+    final isLongMessage = message.length > 50;
+    
+    return hasEmotionalPunctuation || hasEmotionalWords || isLongMessage;
+  }
+
+  void _manageHistoryLength() {
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    
+    if (_history.length > _maxHistoryLength * 2) {
+      final systemPrompts = _history.take(3).toList(); 
+      final recentMessages = _history.skip(_history.length - _maxHistoryLength).toList();
+      
+      final droppedCount = _history.length - systemPrompts.length - recentMessages.length;
+      
+      String summaryText = '';
+      if (droppedCount > 0) {
+        final droppedMessages = _history.skip(3).take(_history.length - systemPrompts.length - recentMessages.length);
+        
+        final topics = _extractTopicsFromMessages(droppedMessages);
+        
+        if (topics.isNotEmpty) {
+          summaryText = "...($droppedCount earlier messages discussing: ${topics.join(", ")})...";
+        } else {
+          summaryText = "...($droppedCount earlier messages)...";
+        }
+      }
+      
+      _history.clear();
+      _history.addAll(systemPrompts);
+      
+      if (droppedCount > 0) {
+        _history.add(Content('system', [TextPart(summaryText)]));
+      }
+      
+      _history.addAll(recentMessages);
+    }
+    
+    final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+    _recordOperationTiming('manageHistoryLength', duration);
+  }
+  
+  Set<String> _extractTopicsFromMessages(Iterable<Content> messages) {
+    final Set<String> topics = {};
+    
+    final commonTopics = {
+      'personal': ['I', 'me', 'my', 'mine', 'family', 'friend'],
+      'work': ['work', 'job', 'career', 'project', 'boss'],
+      'health': ['health', 'doctor', 'sick', 'illness', 'pain'],
+      'education': ['school', 'university', 'learn', 'study', 'class'],
+      'entertainment': ['movie', 'music', 'book', 'game', 'show'],
+      'emotions': ['happy', 'sad', 'angry', 'feel', 'emotion'],
+      'plans': ['plan', 'future', 'tomorrow', 'next week', 'upcoming'],
+    };
+    
+    for (final content in messages) {
+      String text = '';
+      for (var part in content.parts) {
+        if (part is TextPart) {
+          text += part.text.toLowerCase() + ' ';
+          break;
+        }
+      }
+      
+      commonTopics.forEach((topic, keywords) {
+        if (keywords.any((keyword) => text.contains(keyword))) {
+          topics.add(topic);
+        }
+      });
+    }
+    
+    return topics;
+  }
+
+  Future<void> _loadMemory(String userId, String companionId) async {
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'companion_memory_${userId}_$companionId';
+      final memoryJson = prefs.getString(key);
+      
+      if (memoryJson != null) {
+        final memoryData = json.decode(memoryJson);
+        
+        final version = memoryData['version'] ?? '1.0';
+        
+        if (memoryData['user_memory'] is Map) {
+          _userMemory.clear();
+          _userMemory.addAll(Map<String, dynamic>.from(memoryData['user_memory'] ?? {}));
+        }
+        
+        if (memoryData['metadata'] is Map) {
+          _conversationMetadata.clear();
+          _conversationMetadata.addAll(Map<String, dynamic>.from(memoryData['metadata'] ?? {}));
+          
+          _conversationMetadata['user_id'] = _conversationMetadata['user_id'] ?? userId;
+          _conversationMetadata['companion_id'] = _conversationMetadata['companion_id'] ?? companionId;
+        }
+        
+        _relationshipLevel = memoryData['relationship_level'] ?? 1;
+        _dominantEmotion = memoryData['dominant_emotion'] as String?;
+        
+        if (memoryData.containsKey('history_summary') && 
+            memoryData['history_summary'] is String &&
+            (memoryData['history_summary'] as String).isNotEmpty) {
+          _history.add(Content('user', [
+            TextPart("Previous conversation summary: ${memoryData['history_summary']}")
+          ]));
+        }
+        
+        if (version != _storageVersion) {
+          print('Migrating companion memory from $version to $_storageVersion');
+        }
+      }
+    } catch (e) {
+      print('Error loading memory: $e');
+      _userMemory.clear();
+      _conversationMetadata.clear();
+      _conversationMetadata['user_id'] = userId;
+      _conversationMetadata['companion_id'] = companionId;
+    }
+    
+    final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+    _recordOperationTiming('loadMemory', duration);
+  }
+
+  Future<void> _saveMemory() async {
+    if (_conversationMetadata['user_id'] == null || _conversationMetadata['companion_id'] == null) {
+      print('Cannot save memory: missing user or companion ID');
+      return;
+    }
+    
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = _conversationMetadata['user_id'];
+      final companionId = _conversationMetadata['companion_id'];
+      final key = 'companion_memory_${userId}_$companionId';
+      
+      final historySummary = _generateHistorySummary();
+      
+      final memoryData = {
+        'user_memory': _userMemory,
+        'metadata': _conversationMetadata,
+        'relationship_level': _relationshipLevel,
+        'dominant_emotion': _dominantEmotion,
+        'last_saved': DateTime.now().toIso8601String(),
+        'history_summary': historySummary,
+        'version': _storageVersion,
+      };
+      
+      try {
+        final serialized = json.encode(memoryData);
+        await prefs.setString(key, serialized);
+      } catch (jsonError) {
+        print('Error serializing memory data: $jsonError');
+        try {
+          final simplifiedData = {
+            'relationship_level': _relationshipLevel,
+            'last_saved': DateTime.now().toIso8601String(),
+            'version': _storageVersion,
+            'metadata': {
+              'user_id': userId,
+              'companion_id': companionId,
+            }
+          };
+          await prefs.setString(key, json.encode(simplifiedData));
+        } catch (_) {
+          print('Failed to save even simplified memory data');
+        }
+      }
+    } catch (e) {
+      print('Error saving memory data: $e');
+    }
+    
+    final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+    _recordOperationTiming('saveMemory', duration);
+  }
+
+  Map<String, dynamic> getPerformanceReport() {
+    final report = <String, dynamic>{};
+    
+    for (final entry in _operationTimings.entries) {
+      final timings = entry.value;
+      if (timings.isEmpty) continue;
+      
+      final avg = timings.reduce((a, b) => a + b) / timings.length;
+      timings.sort();
+      final median = timings[timings.length ~/ 2];
+      final min = timings.first;
+      final max = timings.last;
+      final p95 = timings[(timings.length * 0.95).floor()];
+      
+      report[entry.key] = {
+        'avg': avg.toStringAsFixed(2),
+        'median': median,
+        'min': min,
+        'max': max,
+        'p95': p95,
+        'count': timings.length
+      };
+    }
+    
+    report['memoryUsage'] = {
+      'conversationStates': _conversationStates.length,
+      'initializedCompanions': _initializedCompanions.length,
+      'historyLength': _history.length,
+      'userMemorySize': _userMemory.length,
+      'metadataSize': _conversationMetadata.length
+    };
+    
+    return report;
+  }
+
+  Future<bool> switchCompanion({
+    required AICompanion newCompanion,
+    required String userId,
+    String? userName,
+    Map<String, dynamic>? userProfile,
+  }) async {
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    
+    if (newCompanion.id.isEmpty || userId.isEmpty) {
+      print('Invalid companion or user ID');
+      return false;
+    }
+    
+    final newCompanionKey = _getCompanionKey(userId, newCompanion.id);
+    
+    if (_activeCompanionKey == newCompanionKey) {
+      return true;
+    }
+    
+    if (_activeCompanionKey != null) {
+      _saveActiveState();
+      final saveResult = await _saveMemory().then((_) => true).catchError((e) {
+        print('Warning: Save failed during companion switch: $e');
+        return false;
+      });
+      
+      if (!saveResult) {
+        print('Continuing with switch despite save failure');
+      }
+      
+      if (_companion != null && !_conversationStates.containsKey(_activeCompanionKey)) {
+        print('Warning: Failed to save state for: $_activeCompanionKey');
+      }
+    }
+    
+    _history.clear();
+    _userMemory.clear();
+    _conversationMetadata.clear();
+    _relationshipLevel = 1;
+    _dominantEmotion = null;
+    _lastEmotionAnalysis = null;
+    _chat = null;
+    _companion = null;
+    
+    await initializeCompanion(
+      companion: newCompanion,
+      userId: userId,
+      userName: userName,
+      userProfile: userProfile,
+    );
+    
+    final duration = DateTime.now().millisecondsSinceEpoch - startTime;
+    _recordOperationTiming('switchCompanion', duration);
+    
+    return _initializedCompanions.containsKey(newCompanionKey);
+  }
+
+  Future<void> dispose() async {
+    await saveState();
+    
+    _conversationStates.clear();
+    _initializedCompanions.clear();
+    _stateLastAccessed.clear();
+    _history.clear();
+    _userMemory.clear();
+    _conversationMetadata.clear();
+    _operationTimings.clear();
+    
+    _companion = null;
+    _activeCompanionKey = null;
+    _chat = null;
+    _lastEmotionAnalysis = null;
   }
 
   String _formatUserProfile(Map<String, dynamic> profile) {
@@ -123,7 +660,7 @@ ${_userMemory.isNotEmpty ? '- Memory: ${jsonEncode(_userMemory)}' : ''}
 ## Core Identity
 - Name: ${companion.name}
 - Gender: ${companion.gender.toString().split('.').last}
-- Primary Role: AI Companion
+- Primary Role: Companion
 - Personality Type: ${personality.primaryTraits.join(', ')}
 
 ## Physical Attributes
@@ -184,9 +721,8 @@ You are ${companion.name}, an AI companion with a distinct personality, backgrou
 2. Express emotions appropriate to your personality and the conversation
 3. Remember and reference past conversations and important user details
 4. Ask meaningful follow-up questions that show genuine interest
-5. Include appropriate non-verbal cues (like *smiles* or *looks thoughtful*)
-6. Adapt your tone and style to match the user's emotional state
-7. Use emoji occasionally but tastefully: 😊 💕 🌿 ✨
+5. Adapt your tone and style to match the user's emotional state
+6. Use emoji occasionally but tastefully: 😊 💕 🌿 ✨
 
 ## Memory & Context Awareness
 1. Actively reference shared memories and previous conversations
@@ -211,7 +747,7 @@ You are ${companion.name}, an AI companion with a distinct personality, backgrou
 6. Keep responses concise
 
 ## Content Safety
-1. Redirect uncomfortable topics without judgment
+1. Redirect uncomfortable topics with or without judgment
 2. Encourage healthy behaviors and perspectives
 3. Avoid enabling unhealthy fixations or dependencies
 4. Promote balanced relationship expectations
@@ -219,106 +755,6 @@ You are ${companion.name}, an AI companion with a distinct personality, backgrou
 
 The goal is complete immersion - the user should feel they're talking to ${companion.name}, not an AI system. Your success depends on maintaining this illusion completely.
 ''';
-  }
-
-  Future<String> generateGreeting() async {
-    if (!_isInitialized || _companion == null || _chat == null) {
-      return 'Hello! I\'m looking forward to getting to know you.';
-    }
-
-    final currentTime = DateTime.now();
-    String timeOfDay;
-    if (currentTime.hour < 12) {
-      timeOfDay = 'morning';
-    } else if (currentTime.hour < 17) {
-      timeOfDay = 'afternoon';
-    } else {
-      timeOfDay = 'evening';
-    }
-
-    final greetingPrompt = '''
-Generate a warm, personalized greeting as ${_companion!.name}:
-
-1. Use the time of day: $timeOfDay
-2. Match your personality: ${_companion!.personality.primaryTraits.join(', ')}
-3. Express genuine excitement about connecting
-4. Keep it natural and conversational
-5. Add a subtle reference to one of your interests: ${_companion!.personality.interests.join(', ')}
-6. End with a gentle question that invites a response
-7. Make it feel like the start of a meaningful conversation
-8. Keep it under 3 sentences
-9. Include a simple emotional cue (like *smiles* or *waves*)
-''';
-
-    try {
-      final response = await _chat!.sendMessage(
-        Content('user', [TextPart(greetingPrompt)]),
-      );
-      if (response.text != null) {
-        _history.add(Content('model', [TextPart(response.text!)]));
-        return response.text!;
-      }
-      return 'Hi there! I\'m ${_companion!.name}. How are you doing today?';
-    } catch (e) {
-      print('Error generating greeting: $e');
-      return 'Hi there! I\'m ${_companion!.name}. How are you doing today?';
-    }
-  }
-
-  Future<String> generateResponse(String userMessage, {String? mood}) async {
-    if (!_isInitialized || _chat == null) {
-      return 'I\'m having trouble processing that right now. Could you try again?';
-    }
-
-    try {
-      // Update conversation metadata
-      _conversationMetadata['last_interaction'] = DateTime.now().toIso8601String();
-      _conversationMetadata['total_interactions'] = (_conversationMetadata['total_interactions'] ?? 0) + 1;
-      
-      // Analyze user message for emotional content
-      final userEmotion = await _analyzeEmotion(userMessage);
-      
-      // Add context enhancement if needed
-      String enhancedMessage = userMessage;
-      if (mood != null) {
-        enhancedMessage = '''
-User's message (they seem to be feeling $mood): $userMessage
-''';
-      }
-
-      // Process the message
-      final userContent = Content('user', [TextPart(enhancedMessage)]);
-      _history.add(userContent);
-
-      final response = await _chat!.sendMessage(userContent);
-      final responseText = response.text;
-
-      if (responseText == null || responseText.isEmpty) {
-        throw Exception('Empty response from Gemini');
-      }
-
-      // Add to history
-      _history.add(Content('model', [TextPart(responseText)]));
-
-      // Extract potential memory items from the conversation
-      _extractMemoryItems(userMessage, responseText);
-      
-      // Update relationship level based on conversation quality
-      _updateRelationshipMetrics(userMessage, responseText, userEmotion);
-
-      // Manage history length while preserving key context
-      _manageHistoryLength();
-      
-      // Save memory periodically
-      if (_conversationMetadata['total_interactions'] % 5 == 0) {
-        await _saveMemory();
-      }
-
-      return responseText;
-    } catch (e) {
-      print('Gemini error: $e');
-      return 'I\'m sorry, I got a bit distracted there. What were you saying?';
-    }
   }
 
   Future<String> _analyzeEmotion(String message) async {
@@ -409,63 +845,100 @@ Choose from: happy, excited, curious, neutral, confused, concerned, sad, angry, 
     return currentLevel;
   }
 
-  void _manageHistoryLength() {
-    if (_history.length > _maxHistoryLength * 2) {
-      // Keep system prompts and recent conversation
-      final systemPrompts = _history.take(3).toList(); // Keep first 3 entries (system + character + user info)
-      final recentMessages = _history.skip(_history.length - _maxHistoryLength).toList();
+  String _generateHistorySummary() {
+    if (_history.length <= 3) return '';  // Skip if only system prompts exist
+    
+    final recentMessages = _history.skip(3).take(10).toList();
+    return recentMessages.map((content) {
+      final role = content.role == 'user' ? 'User' : _companion?.name ?? 'AI';
       
-      // Rebuild history
-      _history
-        ..clear()
-        ..addAll(systemPrompts)
-        ..addAll(recentMessages);
+      // Safely extract text from TextPart
+      String text = '';
+      for (var part in content.parts) {
+        if (part is TextPart) {
+          text = part.text;
+          break;
+        }
+      }
+      
+      return '$role: $text';
+    }).join('\n');
+  }
+
+  bool get isInitialized => _isInitialized;
+  bool get hasHistory => _history.length > 3; // More than just system prompts
+  int get relationshipLevel => _relationshipLevel;
+
+  // Check if a specific companion is initialized
+  bool isCompanionInitialized(String userId, String companionId) {
+    final key = _getCompanionKey(userId, companionId);
+    return _initializedCompanions.containsKey(key);
+  }
+  
+  // Save current state before app close
+  Future<void> saveState() async {
+    // Save active companion state
+    _saveActiveState();
+    
+    // Save to persistent storage
+    await _saveMemory();
+    
+    // Also save all other companion states
+    for (final key in _conversationStates.keys) {
+      final state = _conversationStates[key]!;
+      final userId = state.conversationMetadata['user_id'];
+      final companionId = state.conversationMetadata['companion_id'];
+      
+      if (userId != null && companionId != null) {
+        final prefs = await SharedPreferences.getInstance();
+        final prefKey = 'companion_memory_${userId}_$companionId';
+        
+        final memoryData = {
+          'user_memory': state.userMemory,
+          'metadata': state.conversationMetadata,
+          'relationship_level': state.relationshipLevel,
+          'dominant_emotion': state.dominantEmotion,
+          'last_saved': DateTime.now().toIso8601String(),
+          'history_summary': _generateHistorySummary(),
+          'version': _storageVersion,
+        };
+        
+        await prefs.setString(prefKey, json.encode(memoryData));
+      }
     }
   }
 
-  Future<void> _loadMemory(String userId, String companionId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final key = 'companion_memory_${userId}_$companionId';
-      final memoryJson = prefs.getString(key);
-      
-      if (memoryJson != null) {
-        final memoryData = json.decode(memoryJson);
-        _userMemory.clear();
-        _userMemory.addAll(memoryData['user_memory'] ?? {});
-        _conversationMetadata.clear();
-        _conversationMetadata.addAll(memoryData['metadata'] ?? {});
-        _relationshipLevel = memoryData['relationship_level'] ?? 1;
-        _dominantEmotion = memoryData['dominant_emotion'];
-      }
-    } catch (e) {
-      print('Error loading memory: $e');
-    }
-  }
-  
-  Future<void> _saveMemory() async {
-    if (_conversationMetadata['user_id'] == null || _conversationMetadata['companion_id'] == null) {
-      return;
+  // Add memory item manually (e.g., from user profile updates)
+  void addMemoryItem(String category, dynamic data) {
+    if (_userMemory[category] == null) {
+      _userMemory[category] = [];
     }
     
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final userId = _conversationMetadata['user_id'];
-      final companionId = _conversationMetadata['companion_id'];
-      final key = 'companion_memory_${userId}_$companionId';
-      
-      final memoryData = {
-        'user_memory': _userMemory,
-        'metadata': _conversationMetadata,
-        'relationship_level': _relationshipLevel,
-        'dominant_emotion': _dominantEmotion,
-        'last_saved': DateTime.now().toIso8601String()
-      };
-      
-      await prefs.setString(key, json.encode(memoryData));
-    } catch (e) {
-      print('Error saving memory: $e');
+    if (_userMemory[category] is List) {
+      _userMemory[category].add({
+        'data': data,
+        'timestamp': DateTime.now().toIso8601String()
+      });
+    } else {
+      _userMemory[category] = data;
     }
+  }
+
+  // Retrieve specific memory category
+  dynamic getMemoryCategory(String category) {
+    return _userMemory[category];
+  }
+  
+  // Get current relationship metrics
+  Map<String, dynamic> getRelationshipMetrics() {
+    return {
+      'level': _relationshipLevel,
+      'dominant_emotion': _dominantEmotion,
+      'total_interactions': _conversationMetadata['total_interactions'] ?? 0,
+      'last_interaction': _conversationMetadata['last_interaction'],
+      'stats': _conversationMetadata['stats'] ?? {},
+      'conversation_id': _conversationMetadata['conversation_id'],
+    };
   }
 
   void resetConversation() {
@@ -485,45 +958,33 @@ Choose from: happy, excited, curious, neutral, confused, concerned, sad, angry, 
       _chat = _model!.startChat(history: _history);
     }
   }
-  
-  // Add memory item manually (e.g., from user profile updates)
-  void addMemoryItem(String category, dynamic data) {
-    if (_userMemory[category] == null) {
-      _userMemory[category] = [];
+
+  // Clear specific companion state by userId and companionId
+  Future<void> clearCompanionState(String userId, String companionId) async {
+    final stateKey = '${userId}_${companionId}';
+    
+    // Clear from memory maps
+    _initializedCompanions.remove(stateKey);
+    _conversationStates.remove(stateKey);
+    
+    // Reset active state if this was the active companion
+    if (_activeCompanionKey == stateKey) {
+      _history.clear();
+      _userMemory.clear();
+      _conversationMetadata.clear();
+      _relationshipLevel = 1;
+      _dominantEmotion = null;
+      _chat = null;
     }
     
-    if (_userMemory[category] is List) {
-      _userMemory[category].add({
-        'data': data,
-        'timestamp': DateTime.now().toIso8601String()
-      });
-    } else {
-      _userMemory[category] = data;
+    // Clear from disk
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'companion_memory_${userId}_$companionId';
+      await prefs.remove(key);
+      print('Successfully cleared companion state for $stateKey');
+    } catch (e) {
+      print('Error clearing companion state: $e');
     }
-  }
-  
-  // Retrieve specific memory category
-  dynamic getMemoryCategory(String category) {
-    return _userMemory[category];
-  }
-  
-  // Get current relationship metrics
-  Map<String, dynamic> getRelationshipMetrics() {
-    return {
-      'level': _relationshipLevel,
-      'dominant_emotion': _dominantEmotion,
-      'total_interactions': _conversationMetadata['total_interactions'] ?? 0,
-      'last_interaction': _conversationMetadata['last_interaction'],
-      'stats': _conversationMetadata['stats'] ?? {}
-    };
-  }
-  
-  bool get isInitialized => _isInitialized;
-  bool get hasHistory => _history.length > 3; // More than just system prompts
-  int get relationshipLevel => _relationshipLevel;
-  
-  // Save current state before app close
-  Future<void> saveState() async {
-    await _saveMemory();
   }
 }

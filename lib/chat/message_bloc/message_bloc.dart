@@ -39,7 +39,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     
     _setupPeriodicSync();
   }
-  
+
+  List<Message> get currentMessages => List<Message>.from(_currentMessages);
+
   void _setupPeriodicSync() {
     _syncTimer?.cancel();
     _syncTimer = Timer.periodic(
@@ -59,7 +61,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
     }
   }
-  
+
+  bool isLocalId(String id) {
+    return id.startsWith('fallback-');
+  }
+
   Future<void> _onInitializeCompanion(
     InitializeCompanionEvent event, 
     Emitter<MessageState> emit
@@ -72,6 +78,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       _currentCompanion = event.companion;
       _currentUser = event.user;
       
+      // Check if switching companions and save previous state
+      if (_geminiService.isInitialized) {
+        await _geminiService.saveState();
+      }
+      
       // Initialize the AI companion with user information
       await _geminiService.initializeCompanion(
         companion: event.companion,
@@ -83,14 +94,20 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       emit(CompanionInitialized(event.companion));
     } catch (e) {
       print('Error initializing companion: $e');
-      emit(MessageError(error: e as Exception));
+      emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
     }
   }
   
   Future<void> _onSendMessage(SendMessageEvent event, Emitter<MessageState> emit) async {
     try {
       final userMessage = event.message;
-
+      
+      // Update conversation identifier in GeminiService metadata to ensure
+      // proper conversation tracking in memory storage
+      final metrics = _geminiService.getRelationshipMetrics();
+      if (!metrics.containsKey('conversation_id')) {
+        _geminiService.addMemoryItem('conversation_id', userMessage.conversationId);
+      }
 
       // 1. Optimistic update for immediate UI feedback
       _currentMessages.add(userMessage);
@@ -110,7 +127,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       
       // 5. Show typing indicator
       _typingSubject.add(true);
-      emit(MessageReceiving(userMessage.message));
+      emit(MessageReceiving(userMessage.message, messages: _currentMessages));
       
       // 6. Generate AI response
       final String aiResponse = await _geminiService.generateResponse(
@@ -124,7 +141,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       _typingSubject.add(false);
       
       // 8. Create AI message
-      final metrics = _geminiService.getRelationshipMetrics();
       final aiMessage = Message(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         message: aiResponse,
@@ -203,66 +219,33 @@ Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit
       final user = await CustomAuthUser.getCurrentUser();
       _currentUser = user;
       
-      // 5. Initialize AI companion if not initialised
-      
+      // 5. Initialize AI companion if not initialized
       await _geminiService.initializeCompanion(
         companion: companion,
         userId: event.userId,
         userName: user?.fullName,
         userProfile: user?.toAIFormat(),
       );
-          
-      // 6. Handle welcome message if needed
+      
+      // Create conversation if needed, but don't generate automatic welcome message
       if (_currentMessages.isEmpty) {
-        // Generate greeting and create welcome message
-        final greeting = await _geminiService.generateGreeting();
-        
-        // Get conversation ID
-        final conversationId = await _repository.getOrCreateConversation(
+        // Just ensure conversation exists in database
+        await _repository.getOrCreateConversation(
           event.userId, 
           event.companionId
         );
-        
-        final welcomeMessage = Message(
-          id: "welcome-${DateTime.now().millisecondsSinceEpoch}",
-          message: greeting,
-          userId: event.userId,
-          companionId: event.companionId,
-          conversationId: conversationId,
-          isBot: true,
-          created_at: DateTime.now(),
-          metadata: {
-            'is_greeting': true,
-            'relationship_level': _geminiService.relationshipLevel,
-          },
-        );
-        
-        // Add to local state first
-        _currentMessages = [welcomeMessage];
-        await _cacheService.cacheMessages(event.userId, _currentMessages);
-        
-        // Update UI with local state
-        emit(MessageLoaded(messages: _currentMessages));
-        
-        // Then send to database
-        await _repository.sendMessage(welcomeMessage);
-        await _repository.updateConversation(
-          conversationId,
-          lastMessage: welcomeMessage.message,
-          incrementUnread: 1,
-        );
-      } else {
-        // Just emit loaded state with messages
-        emit(MessageLoaded(messages: _currentMessages));
       }
+      
+      // Emit loaded state with messages (may be empty array)
+      emit(MessageLoaded(messages: _currentMessages));
     } catch (e) {
       print('Error loading messages: $e');
       
       // Fallback to cached messages
       if (_currentMessages.isNotEmpty) {
-        emit(MessageLoaded(messages:_currentMessages));
+        emit(MessageLoaded(messages: _currentMessages));
       } else {
-        emit(MessageError(error: e as Exception));
+        emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
       }
     }
   }
@@ -283,6 +266,20 @@ Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit
       
       _repository.deleteAllMessages(companionId: event.companionId);
       
+      //get conversation id
+      final conversationId = await _repository.getOrCreateConversation(
+        event.userId, 
+        event.companionId
+      );
+
+      // Update Conversation from database
+      await _repository.updateConversation(
+        conversationId,
+        lastMessage: '',
+        incrementUnread: 0,
+      );
+
+
       emit(MessageLoaded(
         messages: _currentMessages,
       ));
@@ -368,7 +365,12 @@ Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit
   Future<void> close() async {
     _syncTimer?.cancel();
     await _typingSubject.close();
-    await _geminiService.saveState();
+    
+    // Important: Always save AI state before closing
+    if (_currentUserId != null && _currentCompanionId != null) {
+      await _geminiService.saveState();
+    }
+    
     return super.close();
   }
 }

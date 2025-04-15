@@ -98,7 +98,7 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   Future<void> _checkForConversations() async {
     final user = await CustomAuthUser.getCurrentUser();
     if (user != null) {
-      final chatRepository = ChatRepository();
+      final chatRepository = await ChatRepositoryFactory.getInstance();
       final hasConversations = await chatRepository.hasConversations(user.id);
       setState(() {
         _hasConversations = hasConversations;

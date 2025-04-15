@@ -6,8 +6,9 @@ import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/auth_providers.dart';
 
 class AuthBloc extends Bloc<AuthEvents, AuthState> {
+  final bool isInitialized;
 
-  AuthBloc(AuthProvider provider)
+  AuthBloc(AuthProvider provider, {this.isInitialized = false})
       : super(const AuthStateUninitialized(isLoading: true)) {
     // log out
     on<AuthEventLogOut>((event, emit) async {
@@ -57,8 +58,8 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       isLoading: false,
     ));
 
-    // Check if user has any conversations
-    final chatRepository = ChatRepository();
+    // Use factory to get repository instance
+    final chatRepository = await ChatRepositoryFactory.getInstance();
     final hasConversations = await chatRepository.hasConversations(currentUser.id);
     
     if (!hasConversations) {
@@ -126,7 +127,9 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
   
   // initialize
   on<AuthEventInitialise>((event, emit) async {
-      await provider.initialize();
+    if (!isInitialized) {
+        await provider.initialize();
+      }
     final user = await CustomAuthUser.getCurrentUser(); 
       if (user == null) {
         emit(
