@@ -2,6 +2,8 @@ import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
 import 'package:ai_companion/Views/chat_screen/chat_input_field.dart';
 import 'package:ai_companion/Views/chat_screen/message_bubble.dart';
+import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
+import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:ai_companion/chat/message_bloc/message_bloc.dart';
@@ -37,6 +39,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   late AnimationController _profilePanelController;
   bool _showProfilePanel = false;
   StreamSubscription? _typingSubscription;
+  CustomAuthUser? user ;
   
   @override
   void initState() {
@@ -70,20 +73,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
   
   Future<void> _loadChat() async {
-    final user = await CustomAuthUser.getCurrentUser();
+    user = await CustomAuthUser.getCurrentUser();
     if (user != null) {
       setState(() {
-        _currentUserId = user.id;
+        _currentUserId = user!.id;
       });
       
       context.read<MessageBloc>().add(InitializeCompanionEvent(
         companion: widget.companion,
-        userId: user.id,
+        userId: user!.id,
         user: user,
       ));
       
       context.read<MessageBloc>().add(LoadMessagesEvent(
-        userId: user.id,
+        userId: user!.id,
         companionId: widget.companion.id,
       ));
     }
@@ -95,7 +98,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
     
     final userMessage = Message(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
       message: _messageController.text.trim(),
       userId: _currentUserId!,
       companionId: widget.companion.id,
@@ -423,6 +425,15 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
+        leading: BackButton(
+          color: _companionColors.onPrimary,
+          onPressed: () {
+            context.read<AuthBloc>().add(AuthEventNavigateToHome(
+               user: user!,
+            ));
+            Navigator.of(context).pop();
+          },
+        ),
         centerTitle: true,
         backgroundColor: _companionColors.primary,
         foregroundColor: _companionColors.onPrimary,
@@ -432,7 +443,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             Hero(
               tag: 'avatar_${widget.companion.id}',
               child: CircleAvatar(
-                radius: 16,
+                radius: 20,
                 backgroundImage: NetworkImage(widget.companion.avatarUrl),
               ),
             ),
@@ -629,6 +640,10 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     
     if (result == true && _currentUserId != null) {
       context.read<MessageBloc>().add(ClearConversation(
+        userId: _currentUserId!,
+        companionId: widget.companion.id,
+      ));
+      context.read<MessageBloc>().add(RefreshMessages(
         userId: _currentUserId!,
         companionId: widget.companion.id,
       ));
