@@ -193,7 +193,6 @@ class ChatRepository implements IChatRepository {
     await _ensureInitialized();
     
     await _supabase.from('messages').insert({
-      'id': message.id,
       'user_id': message.userId,
       'companion_id': message.companionId,
       'conversation_id': message.conversationId,

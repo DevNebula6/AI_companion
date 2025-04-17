@@ -21,7 +21,7 @@ enum MessageStatus {
 
 @immutable
 class Message {
-  final String id;
+  final String? id;
   final String message;
   final String userId;
   final String companionId;
@@ -43,7 +43,7 @@ class Message {
   final Map<String, dynamic>? mediaMetadata;
 
   const Message({
-    required this.id,
+    this.id,
     required this.message,
     required this.userId,
     required this.companionId,
