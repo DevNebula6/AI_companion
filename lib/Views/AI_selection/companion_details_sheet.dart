@@ -17,7 +17,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 class CompanionDetailsSheet extends StatefulWidget {
   final AICompanion companion;
   final CustomAuthUser user;
-  const CompanionDetailsSheet({super.key, required this.companion,required this.user});
+  const CompanionDetailsSheet({super.key, required this.companion, required this.user});
 
   @override
   State<CompanionDetailsSheet> createState() => _CompanionDetailsSheetState();
@@ -43,7 +43,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       }
     });
   }
-  
+
   void _onScroll() {
     // Only use _scrollController if it's not null
     if (_scrollController != null) {
@@ -69,7 +69,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
   @override
   Widget build(BuildContext context) {
     final colorScheme = getCompanionColorScheme(widget.companion);
-    
+
     return DraggableScrollableSheet(
       initialChildSize: 0.92,
       minChildSize: 0.65,
@@ -102,81 +102,79 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: // Content
-                  CustomScrollView(
-                    controller: scrollController,
-                    physics: const BouncingScrollPhysics(),
-                    slivers: [
-                      // Expandable Header
-                      _buildSliverHeader(),
-                      
-                      // Tabs
-                      SliverPersistentHeader(
-                        pinned: true,
-                        delegate: _SliverTabBarDelegate(
-                          TabBar(
-                            controller: _tabController,
-                            indicatorColor: colorScheme.primary,
-                            indicatorWeight: 3,
-                            labelColor: colorScheme.primary,
-                            unselectedLabelColor: Colors.grey,
-                            labelStyle: AppTextStyles.buttonMedium.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: colorScheme.primary,
+                    CustomScrollView(
+                  controller: scrollController,
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    // Expandable Header
+                    _buildSliverHeader(),
+
+                    // Tabs
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _SliverTabBarDelegate(
+                        TabBar(
+                          controller: _tabController,
+                          indicatorColor: colorScheme.primary,
+                          indicatorWeight: 3,
+                          labelColor: colorScheme.primary,
+                          unselectedLabelColor: Colors.grey,
+                          labelStyle: AppTextStyles.buttonMedium.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.primary,
+                          ),
+                          tabs: const [
+                            Tab(
+                              icon: Icon(Icons.person_outline),
+                              text: 'Profile',
                             ),
-                            tabs: const [
-                              Tab(
-                                icon: Icon(Icons.person_outline),
-                                text: 'Profile',
-                              ),
-                              Tab(
-                                icon: Icon(Icons.auto_stories_outlined),
-                                text: 'Story',
-                              ),
-                              Tab(
-                                icon: Icon(Icons.favorite_outline),
-                                text: 'Interests',
-                              ),
-                              Tab(
-                                icon: Icon(Icons.style_outlined),
-                                text: 'Voice',
-                              ),
-                            ],
-                          ),
-                          backgroundColor: Colors.white,
+                            Tab(
+                              icon: Icon(Icons.auto_stories_outlined),
+                              text: 'Story',
+                            ),
+                            Tab(
+                              icon: Icon(Icons.favorite_outline),
+                              text: 'Interests',
+                            ),
+                            Tab(
+                              icon: Icon(Icons.style_outlined),
+                              text: 'Voice',
+                            ),
+                          ],
+                        ),
+                        backgroundColor: Colors.white,
+                      ),
+                    ),
+
+                    // Tab Content
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: _getTabHeight(),
+                        child: TabBarView(
+                          controller: _tabController,
+                          children: [
+                            _buildProfileTab(colorScheme),
+                            _buildStoryTab(colorScheme),
+                            _buildInterestsTab(colorScheme),
+                            _buildVoiceTab(colorScheme),
+                          ],
                         ),
                       ),
-                      
-                      // Tab Content
-                      SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: _getTabHeight(),
-                          child: TabBarView(
-                            controller: _tabController,
-                            children: [
-                              _buildProfileTab(colorScheme),
-                              _buildStoryTab(colorScheme),
-                              _buildInterestsTab(colorScheme),
-                              _buildVoiceTab(colorScheme),
-                            ],
-                          ),
-                        ),
-                      ),
-                      
-                    ],
-                  ),
+                    ),
+                  ],
+                ),
               ),
-              
+
               // Floating Header when collapsed
-              if (_isHeaderCollapsed)
-                _buildFloatingHeader(colorScheme),
-                  
+              if (_isHeaderCollapsed) _buildFloatingHeader(colorScheme),
+
               // Close button
               Positioned(
                 top: 16,
                 right: 16,
                 child: _buildCloseButton(),
               ),
-                  
+
               // Bottom Action Button
               Positioned(
                 bottom: 16,
@@ -190,16 +188,18 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       },
     );
   }
+
   double _getTabHeight() {
     switch (_currentTabIndex) {
       case 0: // Profile tab
-        return 1300; 
+        return 1300;
       case 2: // Interests tab
         return 1100;
       default:
         return 850;
     }
   }
+
   Widget _buildSliverHeader() {
     return SliverToBoxAdapter(
       child: Stack(
@@ -213,20 +213,17 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               child: CachedNetworkImage(
                 imageUrl: widget.companion.avatarUrl,
                 fit: BoxFit.cover,
-                placeholder: (context, url) => 
-                    Container(
-                      color:Colors.transparent,
-                      ),
-                errorWidget: (context, url, error) => 
-                    Container(
-                      color: 
-                        Colors.transparent,
-                      child: const Icon(Icons.person, size: 150, color: Colors.black26),
-                    ),
+                placeholder: (context, url) => Container(
+                  color: Colors.transparent,
+                ),
+                errorWidget: (context, url, error) => Container(
+                  color: Colors.transparent,
+                  child: const Icon(Icons.person, size: 150, color: Colors.black26),
+                ),
               ),
             ),
           ),
-          
+
           // Gradient overlay
           Container(
             height: 530,
@@ -242,7 +239,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               ),
             ),
           ),
-          
+
           // Name and Info
           Positioned(
             bottom: 24,
@@ -258,7 +255,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                     color: Colors.white,
                   ),
                 ),
-                
+
                 // Age and short description
                 Text(
                   '${widget.companion.physical.age} • ${widget.companion.physical.style}',
@@ -267,9 +264,9 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                     letterSpacing: 0.2,
                   ),
                 ),
-                
+
                 const SizedBox(height: 12),
-                
+
                 // Personality type indicator
                 _buildPersonalityTypeChip(),
               ],
@@ -279,7 +276,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       ),
     );
   }
-  
+
   Widget _buildFloatingHeader(ColorScheme colorScheme) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -317,12 +314,12 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                 errorWidget: (context, url, error) => CircleAvatar(
                   backgroundColor: colorScheme.primary.withOpacity(0.5),
                   child: const Icon(Icons.person, color: Colors.white),
+                ),
               ),
             ),
-            )
           ),
           const SizedBox(width: 12),
-          
+
           // Name
           Text(
             widget.companion.name,
@@ -330,15 +327,14 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               color: Colors.black87,
             ),
           ),
-          
+
           const Spacer(),
-          
+
           // Like button
           IconButton(
             icon: Icon(Icons.favorite_border, color: colorScheme.primary),
             onPressed: () {
               // Add favorite functionality
-              
             },
           ),
         ],
@@ -349,7 +345,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
   Widget _buildPersonalityTypeChip() {
     final type = getPersonalityType(widget.companion);
     final color = getTraitColor(widget.companion.personality.primaryTraits.first, context);
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -429,9 +425,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               ],
             ),
           ),
-          
           const SizedBox(height: 16),
-          
           _buildSectionCard(
             title: 'Distinguishing Features',
             icon: Icons.auto_awesome,
@@ -444,9 +438,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   .toList(),
             ),
           ),
-          
           const SizedBox(height: 16),
-          
           _buildSectionCard(
             title: 'Personality Traits',
             icon: Icons.psychology,
@@ -460,9 +452,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               ],
             ),
           ),
-          
           const SizedBox(height: 16),
-          
           _buildSectionCard(
             title: 'Core Values',
             icon: Icons.volunteer_activism,
@@ -475,7 +465,6 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   .toList(),
             ),
           ),
-          
           // Space for bottom action button
           const SizedBox(height: 20),
         ],
@@ -504,9 +493,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   .toList(),
             ),
           ),
-          
           const SizedBox(height: 16),
-          
           _buildSectionCard(
             title: 'Skills & Abilities',
             icon: Icons.workspace_premium,
@@ -519,7 +506,6 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   .toList(),
             ),
           ),
-          
           // Space for bottom action button
           const SizedBox(height: 20),
         ],
@@ -541,16 +527,13 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
             color: colorScheme.primary,
             child: _buildInterestsGrid(colorScheme),
           ),
-          
           const SizedBox(height: 16),
-          
           _buildSectionCard(
             title: 'Conversation Topics',
             icon: Icons.chat_bubble_outline,
             color: colorScheme.secondary,
             child: _buildConversationTopics(colorScheme),
           ),
-          
           // Space for bottom action button
           const SizedBox(height: 20),
         ],
@@ -578,9 +561,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   .toList(),
             ),
           ),
-          
           const SizedBox(height: 16),
-          
           _buildSectionCard(
             title: 'Voice Sample',
             icon: Icons.graphic_eq,
@@ -610,15 +591,13 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                     }),
                   ),
                 ),
-                
                 const SizedBox(height: 16),
-                
                 // Play button
                 ElevatedButton.icon(
                   onPressed: () {
                     HapticFeedback.mediumImpact();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Voice sample coming soon!'))
+                      const SnackBar(content: Text('Voice sample coming soon!')),
                     );
                   },
                   icon: const Icon(Icons.play_arrow),
@@ -632,14 +611,13 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               ],
             ),
           ),
-          
           // Space for bottom action button
           const SizedBox(height: 20),
         ],
       ),
     );
   }
-  
+
   Widget _buildSectionCard({
     required String title,
     required IconData icon,
@@ -691,10 +669,8 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               ],
             ),
           ),
-          
           // Divider
           Divider(height: 1, thickness: 1, color: Colors.grey.shade100),
-          
           // Content
           Padding(
             padding: const EdgeInsets.all(16),
@@ -704,7 +680,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
       ),
     );
   }
-  
+
   Widget _buildAttributeRow(String label, String value, IconData icon) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -729,14 +705,14 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
             child: Text(
               value,
               style: AppTextStyles.attributeValue,
-              textAlign: TextAlign.end,  // Right-align the text
+              textAlign: TextAlign.end, // Right-align the text
             ),
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildFeatureChip(String feature, ColorScheme colorScheme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -857,9 +833,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                 ),
             ],
           ),
-          
           const SizedBox(width: 12),
-          
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -954,15 +928,14 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   ),
                 ),
               ),
-              
               // Content
               Padding(
                 padding: const EdgeInsets.only(
-                    left: 12,
-                    right: 8,
-                    top: 12,
-                    bottom: 12,
-                    ),
+                  left: 12,
+                  right: 8,
+                  top: 12,
+                  bottom: 12,
+                ),
                 child: Row(
                   children: [
                     Icon(
@@ -1011,9 +984,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: i % 2 == 0
-                  ? Colors.white
-                  : Colors.grey.shade50,
+              color: i % 2 == 0 ? Colors.white : Colors.grey.shade50,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: Colors.grey.shade200,
@@ -1030,9 +1001,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
               children: [
                 Icon(
                   getConversationIcon(topics[i]),
-                  color: i % 2 == 0
-                      ? colorScheme.secondary
-                      : colorScheme.primary,
+                  color: i % 2 == 0 ? colorScheme.secondary : colorScheme.primary,
                   size: 20,
                 ),
                 const SizedBox(width: 12),
@@ -1098,9 +1067,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
             child: Icon(
               getVoiceIcon(attribute, index),
               size: 18,
-              color: index % 2 == 0
-                  ? colorScheme.primary
-                  : colorScheme.secondary,
+              color: index % 2 == 0 ? colorScheme.primary : colorScheme.secondary,
             ),
           ),
           const SizedBox(width: 12),
@@ -1156,51 +1123,53 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                       content: Text(text),
                       duration: const Duration(seconds: 2),
                       backgroundColor: colorScheme.secondary,
-                    )
+                    ),
                   );
-                  
+
                   // Show loading indicator
                   showDialog(
                     context: context,
                     barrierDismissible: false,
                     builder: (context) => const Center(child: CircularProgressIndicator()),
                   );
-                  
+
                   // Create conversation and listen for the result
                   final conversationBloc = context.read<ConversationBloc>();
                   late final StreamSubscription subscription;
-                  
+
                   subscription = conversationBloc.stream.listen((state) {
                     if (state is ConversationCreated) {
                       subscription.cancel();
-                      
-                      // Now we have the conversation ID, so navigate
-                      final authBloc = BlocProvider.of<AuthBloc>(context);
-                      authBloc.add(AuthEventNavigateToChat(
-                        user: widget.user,
-                        companion: widget.companion,
-                        conversationId: state.conversationId,
-                      ));
-                      
+
+                      // Now we have the conversation ID
+                      context.read<AuthBloc>().add(
+                        AuthEventNavigateToChat(
+                          user: widget.user,
+                          conversationId: state.conversationId,
+                          companion: widget.companion,
+                          navigationSource: 'companion_selection', // Add this parameter
+                        ),
+                      );
+
                       // Close the loading dialog
                       Navigator.of(context).pop();
-                      
+
                       // Close the details sheet
                       Navigator.of(context).pop();
                     } else if (state is ConversationError) {
                       subscription.cancel();
-                      
+
                       // Show error message
                       Navigator.of(context).pop(); // Close loading dialog
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Error: ${state.message}'),
                           backgroundColor: Colors.red,
-                        )
+                        ),
                       );
                     }
                   });
-                  
+
                   // Send the event to create the conversation
                   conversationBloc.add(CreateConversation(widget.companion.id));
                 },
@@ -1250,7 +1219,7 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   double get minExtent => tabBar.preferredSize.height;
-  
+
   @override
   double get maxExtent => tabBar.preferredSize.height;
 

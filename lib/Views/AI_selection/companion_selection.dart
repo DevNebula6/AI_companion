@@ -5,6 +5,7 @@ import 'package:ai_companion/Companion/bloc/companion_state.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
 import 'package:ai_companion/Views/AI_selection/companion_details_sheet.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
+import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/utilities/constants/textstyles.dart';
@@ -43,6 +44,23 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor:Color(0xFFE6F0F5),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () {
+            context.read<AuthBloc>().add(AuthEventNavigateToHome(user: user));
+          },
+        ),
+        title: Text(
+        'Choose Your Companion',
+        style: AppTextStyles.displayMedium.copyWith(
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+        ),
+        centerTitle: true,
+      ),
       body: BlocConsumer<CompanionBloc, CompanionState>(
         listener: (context, state) {
           if (state is CompanionError) {
@@ -65,7 +83,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                 SafeArea(
                   child: Column(
                     children: [
-                      _buildHeader(),
+                      // _buildHeader(),
                       Expanded(
                         child: 
                           (state.companions.toList().isNotEmpty)?

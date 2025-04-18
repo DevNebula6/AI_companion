@@ -1,4 +1,5 @@
 import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
+import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/companion_repository.dart';
 import 'package:ai_companion/Views/Home/home_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
@@ -22,117 +23,92 @@ import 'package:ai_companion/auth/supabase_authProvider.dart';
 import 'package:ai_companion/chat/message_bloc/message_bloc.dart';
 import 'package:ai_companion/chat/chat_cache_manager.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
-import 'package:ai_companion/chat/gemini/gemini_service.dart';
 import 'package:ai_companion/themes/theme.dart';
 import 'package:ai_companion/utilities/Loading/loading_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> main() async {
-
   WidgetsFlutterBinding.ensureInitialized();
-
   await dotenv.load(fileName: ".env");
-
   runApp(const AppLoadingScreen());
-
-  // Initialize core services asynchronously
   await _initializeCoreServices();
-  
 }
 
 Future<void> _initializeCoreServices() async {
-
   try {
+    _setupLogging();
 
-  // Set up logging
-  _setupLogging();
+    // Initialize Supabase client
+    final supabaseManager = SupabaseClientManager();
+    await supabaseManager.initialize();
 
-  // Initialize Supabase client
-  final supabaseManager = SupabaseClientManager();
-  await supabaseManager.initialize();
+    final prefs = await SharedPreferences.getInstance();
 
-  final prefs = await SharedPreferences.getInstance();
-  
-  // Initialize Hive in parallel
-  final hiveInitFuture = HiveService.initHive()
-    .then((_) => HiveService.getCompanionsBox())
-    .catchError((e) { 
+    // Initialize Hive in parallel
+    final hiveInitFuture = HiveService.initHive()
+        .then((_) => HiveService.getCompanionsBox())
+        .catchError((e) {
       throw HiveError('Hive initialization error: $e');
-      });
-  
-  // Create essential services
-  final geminiService = GeminiService();
-  
-  // Wait for all parallel operations to complete
-  await hiveInitFuture;
-  
-  // Initialize repository with a delay to prevent UI freezing
-  final chatRepository = await ChatRepositoryFactory.getInstance();
+    });
 
-  
-  runApp(
-    MultiProvider(
-      providers: [
-        // Provide base services
-        Provider<GeminiService>.value(value: geminiService),
-        Provider<ChatRepository>.value(value: chatRepository),
+    // Wait for Hive to complete
+    await hiveInitFuture;
 
-        // Create other providers as needed
-        BlocProvider<AuthBloc>(
-          create: (context) {
-            // Make sure you're using the already-initialized SupabaseAuthProvider
-            final authProvider = SupabaseAuthProvider();
-            // Initialize it right away
-            authProvider.initialize();
-            return AuthBloc(
-              authProvider,
-              isInitialized: true,
-          )..add(const AuthEventInitialise());
-          },
-        ),
+    // Initialize repository (factory handles initialization)
+    final chatRepository = await ChatRepositoryFactory.getInstance();
 
-        
-        BlocProvider<CompanionBloc>(
-          create: (context) {
-            // Get the initialized Supabase client from AuthBloc
-            final supabase = SupabaseClientManager().client;
-            final companionRepository = AICompanionRepository(supabase);
-            return CompanionBloc(companionRepository);
-          },
-        ),
-        BlocProvider<ConversationBloc>(
-          create: (context) {
-            final companionBloc = context.read<CompanionBloc>();
-            final geminiService = context.read<GeminiService>();
-            // Use setters instead of direct field access
-            chatRepository.setCompanionBloc(companionBloc);
-            chatRepository.setGeminiService(geminiService);
-    
-            return ConversationBloc(chatRepository);
-          },
-        ),
-        BlocProvider<MessageBloc>(
-          create: (context) {
-            final geminiService = context.read<GeminiService>();
-            
-            // Ensure GeminiService is set
-            chatRepository.setGeminiService(geminiService);
-            
-            return MessageBloc(
-              chatRepository,
-              geminiService,
-              ChatCacheService(prefs),
-            );
-          },
-        ),
-      ],
-      child: const MainApp(),
-    ),
-  );
-  } catch (e) {
-    print("Error during initialization: $e");
-    // Show error screen
+    // Create ChatCacheService instance
+    final chatCacheService = ChatCacheService(prefs);
+
+    runApp(
+      MultiProvider(
+        providers: [
+          // Provide ChatRepository instance
+          Provider<ChatRepository>.value(value: chatRepository),
+          // Provide ChatCacheService
+          Provider<ChatCacheService>.value(value: chatCacheService),
+          // --- BLoC Providers ---
+          BlocProvider<AuthBloc>(
+            create: (context) {
+              final authProvider = SupabaseAuthProvider();
+              authProvider.initialize();
+              return AuthBloc(
+                authProvider,
+                isInitialized: true,
+              )..add(const AuthEventInitialise());
+            },
+          ),
+          BlocProvider<CompanionBloc>(
+            create: (context) {
+              final supabase = SupabaseClientManager().client;
+              final companionRepository = AICompanionRepository(supabase);
+              // Load companions immediately after creation
+              return CompanionBloc(companionRepository)..add(LoadCompanions());
+            },
+          ),
+          BlocProvider<ConversationBloc>(
+            create: (context) {
+              final repo = context.read<ChatRepository>();
+              // Ensure dependencies are set if needed
+              repo.setCompanionBloc(context.read<CompanionBloc>());
+              return ConversationBloc(repo);
+            },
+          ),
+          BlocProvider<MessageBloc>(
+            create: (context) {
+              final repo = context.read<ChatRepository>();
+              final cache = context.read<ChatCacheService>();
+              // MessageBloc accesses GeminiService singleton directly
+              return MessageBloc(repo, cache);
+            },
+          ),
+        ],
+        child: const MainApp(),
+      ),
+    );
+  } catch (e, stackTrace) {
+    print("Error during initialization: $e\n$stackTrace");
     runApp(AppErrorScreen(error: e.toString()));
   }
 }
@@ -140,7 +116,13 @@ Future<void> _initializeCoreServices() async {
 void _setupLogging() {
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((LogRecord rec) {
-    print('Log -${rec.level.name}: ${rec.time}: ${rec.message}');
+    print('${rec.level.name}: ${rec.time}: ${rec.loggerName}: ${rec.message}');
+    if (rec.error != null) {
+      print('ERROR: ${rec.error}');
+    }
+    if (rec.stackTrace != null) {
+      print('STACKTRACE: ${rec.stackTrace}');
+    }
   });
 }
 
@@ -151,16 +133,16 @@ class MainApp extends StatelessWidget {
   Widget build(BuildContext context) {
     //Default color scheme
     final defaultColorScheme = ColorScheme.fromSeed(
-        seedColor: const Color(0xFF4A6FA5),  // Modern blue as base
-        brightness: Brightness.light,
-      );
+      seedColor: const Color(0xFF4A6FA5), // Modern blue as base
+      brightness: Brightness.light,
+    );
     return MaterialApp(
       title: 'Ai_Companion',
       debugShowCheckedModeBanner: false,
       theme: createAppTheme(defaultColorScheme),
       home: BlocConsumer<AuthBloc, AuthState>(
-        listenWhen: (previous, current) => 
-          previous.isLoading != current.isLoading,
+        listenWhen: (previous, current) =>
+            previous.isLoading != current.isLoading,
         listener: (context, state) {
           if (state.isLoading) {
             LoadingScreen().show(
@@ -175,44 +157,52 @@ class MainApp extends StatelessWidget {
       ),
     );
   }
-  
+
   Widget _buildHome(BuildContext context, AuthState state) {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return FadeTransition(opacity: animation, child: child);
+      },
       child: _buildHomeContent(context, state),
     );
   }
 
   Widget _buildHomeContent(BuildContext context, AuthState state) {
     if (state is AuthStateUninitialized) {
-      return AppLoadingScreen();
+      return AppLoadingScreen(key: const ValueKey('Uninitialized'));
     } else if (state is AuthStateLoggedIn) {
       return HomeScreen();
     } else if (state is AuthStateLoggedOut) {
-      return _buildLoggedOutView(state.intendedView);
+      return _buildLoggedOutView(state.intendedView,
+          key: ValueKey('LoggedOut_${state.intendedView}'));
     } else if (state is AuthStateUserProfile) {
-      return const UserProfilePage();
+      return UserProfilePage(key: ValueKey('UserProfile_${state.user.id}'));
     } else if (state is AuthStateSelectCompanion) {
-      return const CompanionSelectionPage();
+      return CompanionSelectionPage(
+          key: ValueKey('SelectCompanion_${state.user.id}'));
     } else if (state is AuthStateChatPage) {
       return ChatPage(
+        key: ValueKey('ChatPage_${state.conversationId}'),
         conversationId: state.conversationId,
         companion: state.companion,
+        navigationSource: state.navigationSource, // Pass the navigation source
       );
-    }  else {
+    } else {
       return Scaffold(
-        body: Center(child: Text("$state")),
+        key: const ValueKey('ErrorState'),
+        body: Center(child: Text("Unknown Auth State: $state")),
       );
     }
   }
 
-  Widget _buildLoggedOutView(AuthView view) {
+  Widget _buildLoggedOutView(AuthView view, {Key? key}) {
     switch (view) {
       case AuthView.signIn:
-        return const SignInView();
+        return SignInView(key: key);
       case AuthView.onboarding:
       default:
-        return const OnboardingScreenView();
+        return OnboardingScreenView(key: key);
     }
   }
 }
@@ -220,9 +210,9 @@ class MainApp extends StatelessWidget {
 // Error screen for initialization failures
 class AppErrorScreen extends StatelessWidget {
   final String error;
-  
+
   const AppErrorScreen({super.key, required this.error});
-  
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -248,7 +238,6 @@ class AppErrorScreen extends StatelessWidget {
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () {
-                    // Restart app
                     _initializeCoreServices();
                   },
                   child: const Text('Retry'),

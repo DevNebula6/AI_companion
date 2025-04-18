@@ -47,14 +47,18 @@ class AuthStateChatPage extends AuthState {
   final CustomAuthUser user;
   final AICompanion companion;
   final String conversationId;
+  final String? navigationSource; // Add this parameter
+  
   const AuthStateChatPage({
     required this.conversationId,
     required this.user,
-    required this.companion, required super.isLoading,
+    required this.companion, 
+    required super.isLoading,
+    this.navigationSource,
   });
   
   
-  List<Object?> get props => [user, companion, isLoading];
+  List<Object?> get props => [user, companion, isLoading, navigationSource];
 }
 
 class AuthStateSelectCompanion extends AuthState {
