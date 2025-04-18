@@ -9,7 +9,6 @@ import 'package:ai_companion/chat/gemini/companion_relationship_tracker.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
 import 'package:ai_companion/chat/conversation/conversation_event.dart';
 import 'package:ai_companion/chat/conversation/conversation_state.dart';
-import 'package:ai_companion/chat/gemini/gemini_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -37,9 +36,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _searchController = TextEditingController();
-    _relationshipTracker = CompanionRelationshipTracker(
-      context.read<GeminiService>()
-    );
+    _relationshipTracker = CompanionRelationshipTracker();
     // Initialize the user
     Future.microtask(() async {
       _user = await CustomAuthUser.getCurrentUser();
@@ -162,6 +159,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           // Navigate to companion selection
+          context.read<AuthBloc>().add(
+                AuthEventNavigateToCompanion(user: _user!)
+              );
         },
         backgroundColor: colorScheme.primary,
         child: const Icon(Icons.add, color: Colors.white),

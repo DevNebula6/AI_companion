@@ -87,10 +87,19 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
   });
 
   on<AuthEventNavigateToHome>((event, emit) {
-    emit(AuthStateLoggedIn(
+    try {
+      print('Navigating to home');
+      emit(AuthStateLoggedIn(
       user: event.user,
       isLoading: false,
     ));
+    } catch (e) {
+      emit(AuthStateLoggedIn(
+        user: event.user,
+        isLoading: false,
+        exception: e as Exception,
+      ));
+    }
   });
   
   on<AuthEventNavigateToCompanion>((event, emit) {
@@ -106,6 +115,7 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       companion: event.companion,
       conversationId: event.conversationId,
       isLoading: false,
+      navigationSource: event.navigationSource, // Pass the navigation source
     ));
   });
   //navigate to sign in

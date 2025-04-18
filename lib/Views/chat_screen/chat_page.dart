@@ -1,5 +1,6 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
+import 'package:ai_companion/Views/Home/home_screen.dart';
 import 'package:ai_companion/Views/chat_screen/chat_input_field.dart';
 import 'package:ai_companion/Views/chat_screen/message_bubble.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
@@ -18,11 +19,13 @@ import 'dart:async';
 class ChatPage extends StatefulWidget {
   final AICompanion companion;
   final String conversationId;
+  final String? navigationSource; // Add this parameter to track where we came from
   
   const ChatPage({
     super.key,
     required this.companion,
     required this.conversationId,
+    this.navigationSource,
   });
 
   @override
@@ -50,7 +53,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
     
     _companionColors = getCompanionColorScheme(widget.companion);
-    _loadChat();
+    _loadChatAndInitializeCompanion();
     
     final messageBloc = context.read<MessageBloc>();
     _typingSubscription = messageBloc.typingStream.listen((isTyping) {
@@ -72,7 +75,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     super.dispose();
   }
   
-  Future<void> _loadChat() async {
+  Future<void> _loadChatAndInitializeCompanion() async {
     user = await CustomAuthUser.getCurrentUser();
     if (user != null) {
       setState(() {
@@ -83,8 +86,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         companion: widget.companion,
         userId: user!.id,
         user: user,
-      ));
-      
+       ));
       context.read<MessageBloc>().add(LoadMessagesEvent(
         userId: user!.id,
         companionId: widget.companion.id,
@@ -428,10 +430,28 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         leading: BackButton(
           color: _companionColors.onPrimary,
           onPressed: () {
-            context.read<AuthBloc>().add(AuthEventNavigateToHome(
-               user: user!,
-            ));
-            Navigator.of(context).pop();
+            print('Back button pressed');
+            
+            // Always navigate to home screen regardless of source
+            // This prevents navigation stack issues
+            if (user != null) {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (context) => HomeScreen(),
+                ),
+              );
+              // After UI is updated, update the auth state
+              Future.microtask(() {
+                if (user != null) {
+                  context.read<AuthBloc>().add(AuthEventNavigateToHome(
+                    user: user!,
+                  ));
+                }
+              });
+            } else {
+              // If user is somehow null, just try to go back
+              Navigator.of(context).pop();
+            }
           },
         ),
         centerTitle: true,
@@ -553,7 +573,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                             ),
                             const SizedBox(height: 8),
                             ElevatedButton(
-                              onPressed: _loadChat,
+                              onPressed: _loadChatAndInitializeCompanion,
                               child: const Text('Retry'),
                             ),
                           ],
