@@ -1,15 +1,21 @@
 import 'dart:convert';
+import 'package:ai_companion/chat/conversation.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ChatCacheService {
-  // Updated key structure to support companion-specific caching
+  // Existing constants for message caching
   static const String _cacheKeyPrefix = 'chat_messages_';
   static const String _lastSyncKey = 'last_sync_';
   static const String _cacheVersionKey = 'cache_version';
-  static const String _currentVersion = '2.0'; // Increment version to force cache refresh
-  static const int _maxCacheSize = 1000; // messages
+  static const String _currentVersion = '2.0';
+  static const int _maxCacheSize = 1000;
   static const Duration _cacheValidityDuration = Duration(hours: 12);
+  
+  // New constants for conversation caching
+  static const String _conversationCacheKeyPrefix = 'conversations_';
+  static const String _conversationLastSyncKey = 'conversation_last_sync_';
+  static const int _maxConversationCacheSize = 50;
   
   final SharedPreferences _prefs;
   
@@ -44,14 +50,14 @@ class ChatCacheService {
       
       // If version upgrade, clear all existing caches to avoid format issues
       if (version != null && version != _currentVersion) {
-        await _clearAllCaches();
+        await clearAllCaches();
         print('Cache version updated from $version to $_currentVersion, cleared old caches');
       }
     }
   }
 
-  // New method to clear all chat caches
-  Future<void> _clearAllCaches() async {
+  // method to clear all chat caches
+  Future<void> clearAllCaches() async {
     final allKeys = _prefs.getKeys();
     final chatKeys = allKeys.where((key) => 
       key.startsWith(_cacheKeyPrefix) || key.startsWith(_lastSyncKey));
@@ -59,9 +65,10 @@ class ChatCacheService {
     for (final key in chatKeys) {
       await _prefs.remove(key);
     }
+    print('Cleared all chat caches');
   }
 
-  // UPDATED: Cache messages for a specific user and companion
+  // Cache messages for a specific user and companion
   Future<void> cacheMessages(String userId, List<Message> messages, {String? companionId}) async {
     try {
       // Ensure messages don't exceed max cache size
@@ -94,7 +101,7 @@ class ChatCacheService {
     }
   }
 
-  // UPDATED: Get cached messages, filtered by companion if specified
+  // Get cached messages, filtered by companion if specified
   List<Message> getCachedMessages(String userId, {String? companionId}) {
     try {
       if (companionId != null) {
@@ -254,5 +261,153 @@ class ChatCacheService {
       return _prefs.containsKey(_getUserCacheKey(userId)) ||
              _findCompanionCacheKeys(userId).isNotEmpty;
     }
+  }
+
+  // ===== NEW CONVERSATION CACHING METHODS =====
+
+  /// Cache all conversations for a user
+  Future<void> cacheConversations(String userId, List<Conversation> conversations) async {
+    try {
+      // Ensure conversations don't exceed max cache size
+      if (conversations.length > _maxConversationCacheSize) {
+        conversations = conversations.sublist(conversations.length - _maxConversationCacheSize);
+      }
+      
+      final key = _getConversationCacheKey(userId);
+      final data = conversations.map((c) => c.toJson()).toList();
+      await _prefs.setString(key, jsonEncode(data));
+      await _updateConversationLastSync(userId);
+      
+      // Store companion IDs separately for quick reference
+      final companionIds = conversations.map((c) => c.companionId).toSet().toList();
+      await _prefs.setStringList('${key}_companion_ids', companionIds);
+      
+      print('Cached ${conversations.length} conversations for user $userId');
+    } catch (e) {
+      print('Error caching conversations: $e');
+    }
+  }
+  
+  /// Get cached conversations for a user
+  List<Conversation> getCachedConversations(String userId) {
+    try {
+      final key = _getConversationCacheKey(userId);
+      final data = _prefs.getString(key);
+      
+      if (data == null || data.isEmpty) {
+        return [];
+      }
+      
+      final List<dynamic> jsonList = jsonDecode(data);
+      final conversations = <Conversation>[];
+      
+      // Need to handle the fact that Conversation.fromJson requires an AICompanion
+      // We'll need to reconstruct partial conversations with null companions
+      // (they'll be populated later when AICompanions are loaded)
+      for (var json in jsonList) {
+        try {
+          // Create a basic conversation without companion data
+          final conversationMap = json as Map<String, dynamic>;
+          final conversation = Conversation(
+            id: conversationMap['id'] ?? '',
+            userId: conversationMap['user_id'] ?? '',
+            companionId: conversationMap['companion_id'] ?? '',
+            lastMessage: conversationMap['last_message'],
+            unreadCount: conversationMap['unread_count'] ?? 0,
+            lastUpdated: conversationMap['last_updated'] != null 
+                ? DateTime.parse(conversationMap['last_updated']) 
+                : DateTime.now(),
+            isPinned: conversationMap['is_pinned'] ?? false,
+            metadata: conversationMap['metadata'] as Map<String, dynamic>? ?? {},
+          );
+          conversations.add(conversation);
+        } catch (e) {
+          print('Error parsing cached conversation: $e');
+        }
+      }
+      
+      return conversations;
+    } catch (e) {
+      print('Error getting cached conversations: $e');
+      return [];
+    }
+  }
+
+  /// Check if conversation cache needs syncing
+  bool conversationsNeedSync(String userId) {
+    final lastSync = _getConversationLastSync(userId);
+    return lastSync == null || 
+           DateTime.now().difference(lastSync) > _cacheValidityDuration;
+  }
+  
+  /// Update a single conversation in the cache
+  Future<void> updateCachedConversation(String userId, Conversation updatedConversation) async {
+    try {
+      final conversations = getCachedConversations(userId);
+      final index = conversations.indexWhere((c) => c.id == updatedConversation.id);
+      
+      if (index >= 0) {
+        conversations[index] = updatedConversation;
+        await cacheConversations(userId, conversations);
+      } else {
+        // If conversation doesn't exist in cache, add it
+        conversations.add(updatedConversation);
+        await cacheConversations(userId, conversations);
+      }
+    } catch (e) {
+      print('Error updating cached conversation: $e');
+    }
+  }
+  
+  /// Remove a conversation from the cache
+  Future<void> removeCachedConversation(String userId, String conversationId) async {
+    try {
+      final conversations = getCachedConversations(userId);
+      final filteredConversations = conversations.where((c) => c.id != conversationId).toList();
+      
+      if (filteredConversations.length < conversations.length) {
+        await cacheConversations(userId, filteredConversations);
+      }
+    } catch (e) {
+      print('Error removing cached conversation: $e');
+    }
+  }
+  
+  /// Clear all conversations for a user
+  Future<void> clearConversationsCache(String userId) async {
+    try {
+      final key = _getConversationCacheKey(userId);
+      await _prefs.remove(key);
+      await _prefs.remove('${key}_companion_ids');
+      await _prefs.remove(_getConversationLastSyncKey(userId));
+      print('Cleared conversations cache for user $userId');
+    } catch (e) {
+      print('Error clearing conversations cache: $e');
+    }
+  }
+  
+  /// Helper to update last sync time for conversations
+  Future<void> _updateConversationLastSync(String userId) async {
+    final key = _getConversationLastSyncKey(userId);
+    await _prefs.setString(
+      key,
+      DateTime.now().toIso8601String(),
+    );
+  }
+  
+  /// Helper to get last sync time for conversations
+  DateTime? _getConversationLastSync(String userId) {
+    final key = _getConversationLastSyncKey(userId);
+    final timestamp = _prefs.getString(key);
+    return timestamp != null ? DateTime.parse(timestamp) : null;
+  }
+  
+  /// Helper for generating conversation cache keys
+  String _getConversationCacheKey(String userId) => '$_conversationCacheKeyPrefix$userId';
+  String _getConversationLastSyncKey(String userId) => '$_conversationLastSyncKey$userId';
+  
+  /// Check if we have any cached conversations
+  bool hasCachedConversations(String userId) {
+    return _prefs.containsKey(_getConversationCacheKey(userId));
   }
 }

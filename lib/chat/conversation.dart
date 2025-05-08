@@ -4,6 +4,7 @@ class Conversation {
   final String id;
   final String userId;
   final String companionId;
+  final String? companionName; 
   final String? lastMessage;
   final int unreadCount;
   final DateTime lastUpdated;
@@ -14,6 +15,7 @@ class Conversation {
     required this.id,
     required this.userId,
     required this.companionId,
+    this.companionName,
     this.lastMessage,
     this.unreadCount = 0,
     required this.lastUpdated,
@@ -24,6 +26,7 @@ class Conversation {
   Conversation copyWith({
     String? id,
     String? companionId,
+    String? companionName,
     String? userId,
     String? lastMessage,
     int? unreadCount,
@@ -35,6 +38,7 @@ class Conversation {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       companionId: companionId ?? this.companionId,
+      companionName: companionName ?? this.companionName,
       lastMessage: lastMessage ?? this.lastMessage,
       unreadCount: unreadCount ?? this.unreadCount,
       lastUpdated: lastUpdated ?? this.lastUpdated,
@@ -49,6 +53,7 @@ class Conversation {
       id: json['id'],
       userId: json['user_id'],
       companionId: json['companion_id'] ?? companion.id,
+      companionName: json['companion_name'] ?? companion.name,
       lastMessage: json['last_message']?.toString(),
       unreadCount: json['unread_count'] ?? 0,
       lastUpdated: json['last_updated'] != null 
@@ -64,6 +69,7 @@ class Conversation {
       'id': id,
       'user_id': userId,
       'companion_id': companionId,
+      'companion_name': companionName,
       'last_message': lastMessage,
       'unread_count': unreadCount,
       'last_updated': lastUpdated.toIso8601String(),

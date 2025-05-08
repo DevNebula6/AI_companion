@@ -1,52 +1,116 @@
 import 'package:ai_companion/chat/conversation.dart';
+import 'package:equatable/equatable.dart';
 
-abstract class ConversationEvent {}
+abstract class ConversationEvent extends Equatable {
+  const ConversationEvent();
+  
+  @override
+  List<Object?> get props => [];
+}
 
 class LoadConversations extends ConversationEvent {
   final String userId;
   
-  LoadConversations(this.userId);
+  const LoadConversations(this.userId);
+  
+  @override
+  List<Object> get props => [userId];
 }
 
 class MarkConversationAsRead extends ConversationEvent {
   final String conversationId;
   
-  MarkConversationAsRead(this.conversationId);
+  const MarkConversationAsRead(this.conversationId);
+  
+  @override
+  List<Object> get props => [conversationId];
 }
 
 class PinConversation extends ConversationEvent {
   final String conversationId;
   final bool isPinned;
   
-  PinConversation(this.conversationId, this.isPinned);
+  const PinConversation(this.conversationId, this.isPinned);
+  
+  @override
+  List<Object> get props => [conversationId, isPinned];
 }
 
 class DeleteConversation extends ConversationEvent {
   final String conversationId;
   
-  DeleteConversation(this.conversationId);
+  const DeleteConversation(this.conversationId);
+  
+  @override
+  List<Object> get props => [conversationId];
 }
 
 class CreateConversation extends ConversationEvent {
   final String companionId;
   
-  CreateConversation(this.companionId);
+  const CreateConversation(this.companionId);
+  
+  @override
+  List<Object> get props => [companionId];
 }
+
 class RefreshConversations extends ConversationEvent {
   final String userId;
   
-  RefreshConversations({
+  const RefreshConversations({
     required this.userId,
   });
+  
+  @override
+  List<Object> get props => [userId];
 }
+
 class ConversationsUpdated extends ConversationEvent {
   final List<Conversation> conversations;
   
-  ConversationsUpdated(this.conversations);
+  const ConversationsUpdated(this.conversations);
+  
+  @override
+  List<Object> get props => [conversations];
 }
 
 class ConversationErrorEvent extends ConversationEvent {
   final String message;
   
-  ConversationErrorEvent(this.message);
+  const ConversationErrorEvent(this.message);
+  
+  @override
+  List<Object> get props => [message];
+}
+
+class UpdateConversationMetadata extends ConversationEvent {
+  final String conversationId;
+  final String? lastMessage;
+  final DateTime? lastUpdated;
+  final int? unreadCount;
+  
+  const UpdateConversationMetadata({
+    required this.conversationId,
+    this.lastMessage,
+    this.lastUpdated,
+    this.unreadCount,
+  });
+  
+  @override
+  List<Object?> get props => [conversationId, lastMessage, lastUpdated, unreadCount];
+}
+
+class ClearAllCacheForUser extends ConversationEvent {
+  
+  const ClearAllCacheForUser();
+  
+}
+
+class ConnectivityChangedEvent extends ConversationEvent {
+  final bool isOnline;
+  
+  const ConnectivityChangedEvent(this.isOnline);
+  
+  @override
+  List<Object> get props => [isOnline];
 }

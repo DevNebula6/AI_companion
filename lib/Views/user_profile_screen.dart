@@ -34,13 +34,17 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   bool _interestsChanged = false;
   bool _barAnimationsComplete = false;
   bool _hasConversations = false;
+  bool _dailyCheckIns = true;
+bool _personalizedSuggestions = true;
+bool _messageNotifications = true;
 
 
-  // Remove static style definitions as we'll use AppTextStyles
   
   final List<String> _personalityTraits = [
     'Introverted', 'Extroverted', 'Analytical', 'Creative',
-    'Empathetic', 'Logical', 'Adventurous', 'Practical'
+    'Empathetic', 'Logical', 'Adventurous', 'Practical',
+    'Spontaneous', 'Organized','Curious',
+    'Confident', 'Optimistic',
   ];
 
   final List<String> _interests = [
@@ -50,7 +54,7 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   ];
 
   final List<String> _languages = [
-    'English', 'Spanish', 'French', 'German', 'Chinese',
+    'English','Hinglish','Russian','Spanish', 'French', 'German', 'Chinese',
     'Japanese', 'Korean', 'Hindi'
   ];
 
@@ -160,11 +164,9 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
         }
       },
       child:PopScope(
-        // Allow popping only if user has conversations
-        canPop: _hasConversations,
         onPopInvoked: (didPop) {
-          if (!didPop && _hasConversations) {
-            // If back button is pressed and user has conversations
+          if (!didPop) {
+            // If back button is pressed 
             context.read<AuthBloc>().add(
               AuthEventNavigateToHome(user: _currentUser!)
             );
@@ -182,8 +184,7 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   PreferredSizeWidget _buildAppBar(ColorScheme colors) {
     return AppBar(
       elevation: 0,
-      leading: _hasConversations 
-      ? BackButton(
+      leading:BackButton(
           color: Colors.white,
           onPressed: () {
             // Navigate to home screen using AuthBloc
@@ -191,8 +192,7 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
               AuthEventNavigateToHome(user: _currentUser!)
             );
           },
-        )
-      : null,
+        ),
       backgroundColor: colors.primary,
       foregroundColor: Colors.white,
       title: Text(
@@ -962,12 +962,12 @@ Widget _buildAnimatedChip({
                       ),
                     ),
                     // Interest categories chart
-                    // SizedBox(
-                    //   height: 70,
-                    //   child: Row(
-                    //     children: _buildInterestCategories(colors),
-                    //   ),
-                    // ),
+                    SizedBox(
+                      height: 70,
+                      child: Row(
+                        children: _buildInterestCategories(colors),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1174,9 +1174,11 @@ Widget _buildAnimatedChip({
               _buildSwitchSetting(
                 title: 'Daily Check-ins',
                 subtitle: 'Receive daily conversation reminders',
-                value: true,
+                value: _dailyCheckIns,
                 onChanged: (value) {
-                  // Implement functionality
+                  // toggle daily check-ins ui
+                  setState(() => _dailyCheckIns = value);
+                  
                   HapticFeedback.lightImpact();
                 },
                 colors: colors,
@@ -1188,8 +1190,10 @@ Widget _buildAnimatedChip({
               _buildSwitchSetting(
                 title: 'Personalized Suggestions',
                 subtitle: 'Get companion recommendations based on your profile',
-                value: true,
+                value: _personalizedSuggestions,
                 onChanged: (value) {
+                  // toggle personalized suggestions ui
+                  setState(() => _personalizedSuggestions = value);
                   // Implement functionality
                   HapticFeedback.lightImpact();
                 },
@@ -1202,9 +1206,10 @@ Widget _buildAnimatedChip({
               _buildSwitchSetting(
                 title: 'Message Notifications',
                 subtitle: 'Receive alerts for new messages',
-                value: true,
+                value: _messageNotifications,
                 onChanged: (value) {
                   // Implement functionality
+                  setState(() => _messageNotifications = value);
                   HapticFeedback.lightImpact();
                 },
                 colors: colors,

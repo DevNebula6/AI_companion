@@ -4,6 +4,7 @@ import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
 import 'package:ai_companion/Companion/bloc/companion_state.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
+import 'package:ai_companion/chat/chat_cache_manager.dart';
 import 'package:ai_companion/chat/conversation.dart';
 import 'package:ai_companion/chat/gemini/gemini_service.dart';
 import 'package:ai_companion/chat/message.dart';
@@ -26,6 +27,8 @@ abstract class IChatRepository {
   Future<void> deleteAllMessages({required String companionId});
   Future<void> markConversationAsRead(String conversationId);
   Future<void> togglePinConversation(String conversationId, bool isPinned);
+  Future<void> updateConversationMetadata(String conversationId, {required Map<String, dynamic> updates});
+  Future<void> clearMessageCache({required String userId, required String companionId});
   // Other methods...
 }
 
@@ -330,7 +333,7 @@ class ChatRepository implements IChatRepository {
         _supabase.from('conversations').delete().eq('id', conversationId),
       ]);
 
-      // Clear memory state using GeminiService singleton
+      // Clear companion memory from GeminiService
       await _geminiService.clearCompanionState(userId, companionId);
 
       // Clear companion memory from shared preferences
@@ -494,6 +497,49 @@ class ChatRepository implements IChatRepository {
       print('Error updating pin status: $e');
       throw Exception('Failed to update pin status: $e');
     }
+  }
+
+  @override
+  Future<void> updateConversationMetadata(
+    String conversationId,
+    { required Map<String, dynamic> updates}
+  ) async {
+    await _ensureInitialized();
+    
+    try {
+      await _supabase
+          .from('conversations')
+          .update(updates)
+          .eq('id', conversationId);
+    } catch (e) {
+      print('Error updating conversation metadata: $e');
+      throw Exception('Failed to update conversation metadata: $e');
+    }
+  }
+
+  @override
+  Future<void> clearMessageCache({
+    required String userId, 
+    required String companionId
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      // Get cache service instance
+      final cacheService = await _getCacheService();
+      
+      // Clear messages from cache
+      await cacheService.clearCache(userId, companionId: companionId);
+      
+      print('Cleared message cache for user $userId and companion $companionId');
+    } catch (e) {
+      print('Error clearing message cache: $e');
+    }
+  }
+  
+  Future<ChatCacheService> _getCacheService() async {
+    final prefs = await SharedPreferences.getInstance();
+    return ChatCacheService(prefs);
   }
 
   // Set the CompanionBloc instance

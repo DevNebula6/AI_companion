@@ -9,6 +9,7 @@ class MessageBubble extends StatelessWidget {
   final Animation<double>? animation;
   final bool isPreviousSameSender;
   final bool isNextSameSender;
+  final bool isPending; // Add new property for pending state
   
   const MessageBubble({
     super.key,
@@ -19,6 +20,7 @@ class MessageBubble extends StatelessWidget {
     this.animation,
     this.isPreviousSameSender = false,
     this.isNextSameSender = false,
+    this.isPending = false, // Default to not pending
   });
 
   @override
@@ -103,7 +105,7 @@ class MessageBubble extends StatelessWidget {
     
     // Apply animation if provided
     if (animation != null) {
-      return SlideTransition(
+      bubbleContent = SlideTransition(
         position: Tween<Offset>(
           begin: Offset(isUser ? 0.2 : -0.2, 0.0),
           end: Offset.zero,
@@ -113,8 +115,28 @@ class MessageBubble extends StatelessWidget {
         )),
         child: FadeTransition(
           opacity: animation!,
-          child: _buildRow(bubbleContent),
+          child: bubbleContent,
         ),
+      );
+    }
+    
+    // Add a pending indicator if the message is waiting to be sent
+    if (isPending && isUser) {
+      // Show pending indicator for user messages
+      return Stack(
+        children: [
+          _buildRow(bubbleContent),
+          Positioned(
+            bottom: 0,
+            right: isUser ? 8 : null,
+            left: isUser ? null : 8,
+            child: Icon(
+              Icons.access_time,
+              size: 12,
+              color: theme.colorScheme.primary.withOpacity(0.7),
+            ),
+          ),
+        ],
       );
     }
     

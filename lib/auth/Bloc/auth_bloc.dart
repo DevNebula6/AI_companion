@@ -33,10 +33,10 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
     final currentUser = event.user;
     try {
       
-      emit(AuthStateLoggedIn(
-        user: currentUser,
-        isLoading: false,
-      ));
+      emit(AuthStateSelectCompanion(
+      user: currentUser,
+      isLoading: false,
+    ));
     } catch (e) {
       emit(AuthStateSelectCompanion(
         user: currentUser,
@@ -84,6 +84,22 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       ));
     }
       
+  });
+
+  //navigate to user profile
+  on<AuthEventNavigateToUserProfile>((event, emit) {
+    try {
+        emit(AuthStateUserProfile(
+        user: event.user,
+        isLoading: false,
+      ));
+    } catch (e) {
+      emit(AuthStateUserProfile(
+        user: event.user,
+        isLoading: false,
+        exception: e as Exception,
+      ));
+    }
   });
 
   on<AuthEventNavigateToHome>((event, emit) {
