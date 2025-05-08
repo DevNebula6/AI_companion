@@ -30,14 +30,66 @@ AI Companion offers a unique platform where users can:
 - **Cultural Exploration**: Learn about different cultures through companions with diverse backgrounds
 - **Privacy-Focused**: Your conversations remain private and secure
 
+## Application Screenshots
+
+### Onboarding & Authentication
+<div align="center">
+  <img src="assets/screenshots/onboarding1.jpg" alt="Onboarding Screen 1" width="250" />
+  <img src="assets/screenshots/onboarding2.jpg" alt="Onboarding Screen 2" width="250" />
+  <img src="assets/screenshots/onboarding3.jpg" alt="Onboarding Screen 3" width="250" />
+  <img src="assets/screenshots/onboarding4.jpg" alt="Onboarding Screen 4" width="250" />
+  <img src="assets/screenshots/signin.jpg" alt="Sign In Options" width="250" />
+  <img src="assets/screenshots/user profile.jpg" alt="Profile Setup" width="250" />
+</div>
+
+### Home Screen & Navigation
+View your conversations, pin favorites, and explore a well-designed navigation experience.
+
+<div align="center">
+  <img src="assets/screenshots/home screen.jpg" alt="Home Screen" width="250" />
+</div>
+
+### Companion Selection
+Discover a diverse range of AI companions, each with unique personalities and characteristics.
+
+<div align="center">
+  <img src="assets/screenshots/companion selection2.jpg" alt="Companion Selection" width="250" />
+  <img src="assets/screenshots/companion detail profile.jpg" alt="Companion Details" width="250" />
+</div>
+
+### Chat Experience
+Engage in natural conversations with emotional expression and relationship development.
+
+<div align="center">
+  <img src="assets/screenshots/chat page 1.jpg" alt="Chat Screen" width="250" />
+  <img src="assets/screenshots/chat page 2.jpg" alt="Chat Screen" width="250" />
+</div>
+
+### User Profile & Settings
+Customize your experience and manage your personal information.
+
+<div align="center">
+  <img src="assets/screenshots/user profile interests.jpg" alt="User Profile" width="250" />
+</div>
+
 ## Technical Stack
 
 - **Frontend**: Flutter for cross-platform mobile experience
 - **Backend**: Supabase for authentication, data storage, and real-time features
 - **AI**: Google's Gemini AI for natural language processing and conversation generation
 - **State Management**: BLoC pattern for efficient state management
-- **Data Caching**: Advanced caching system for offline access
-- **Authentication**: Secure authentication through Google, Facebook, or email
+- **Data Caching**: Hybrid caching system(Hive + shared preference) for offline access
+- **Authentication**: Secure authentication through Google
+
+## Caching
+
+AI Companion features a robust Caching and offline system that:
+
+- Caches conversation history for seamless offline viewing
+- Stores companion data locally for access without internet
+- Queues messages sent while offline and sends them when connectivity is restored
+- Synchronizes conversations between device and server automatically
+- Provides visual indicators for pending messages
 
 ## Project Structure
 
@@ -51,25 +103,6 @@ The project follows a structured architecture:
 - `lib/services/`: Core services like caching and API communication
 - `lib/themes/`: App styling and theming
 
-## Offline Capabilities
-
-AI Companion features a robust offline system that:
-
-- Caches conversation history for seamless offline viewing
-- Stores companion data locally for access without internet
-- Queues messages sent while offline and sends them when connectivity is restored
-- Synchronizes conversations between device and server automatically
-- Provides visual indicators for pending messages
-
-## Screenshots
-
-| Home Screen | Chat Screen | Companion Selection |
-|-------------|-------------|---------------------|
-| ![Home](assets/screenshots/home.png) | ![Chat](assets/screenshots/chat.png) | ![Selection](assets/screenshots/selection.png) |
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgements
 
