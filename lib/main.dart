@@ -90,9 +90,10 @@ Future<void> _initializeCoreServices() async {
           BlocProvider<ConversationBloc>(
             create: (context) {
               final repo = context.read<ChatRepository>();
+              final cacheService = context.read<ChatCacheService>();
               // Ensure dependencies are set if needed
               repo.setCompanionBloc(context.read<CompanionBloc>());
-              return ConversationBloc(repo);
+              return ConversationBloc(repo, cacheService);
             },
           ),
           BlocProvider<MessageBloc>(
@@ -133,7 +134,7 @@ class MainApp extends StatelessWidget {
   Widget build(BuildContext context) {
     //Default color scheme
     final defaultColorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF4A6FA5), // Modern blue as base
+      seedColor: const Color(0xFF3B82F6), // Modern minimalist blue - clean and trustworthy
       brightness: Brightness.light,
     );
     return MaterialApp(

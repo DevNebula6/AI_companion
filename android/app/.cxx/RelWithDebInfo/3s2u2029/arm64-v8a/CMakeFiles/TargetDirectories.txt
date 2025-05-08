@@ -1,0 +1,2 @@
+E:/dev/New folder/AI_companion/android/app/.cxx/RelWithDebInfo/3s2u2029/arm64-v8a/CMakeFiles/edit_cache.dir
+E:/dev/New folder/AI_companion/android/app/.cxx/RelWithDebInfo/3s2u2029/arm64-v8a/CMakeFiles/rebuild_cache.dir

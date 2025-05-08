@@ -28,7 +28,6 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
   final List<ParticleModel> _particles = [];
   final double blur = 10.0;
 
-
   @override
   void initState() {
     super.initState();
@@ -40,7 +39,7 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(seconds: 1),
     )..repeat();
-    
+
     _animationController.addListener(_updateParticles);
   }
 
@@ -63,21 +62,20 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
           _random.nextDouble() * size.height,
         ),
         velocity: Offset(
-          (_random.nextDouble() ) * 5,
+          (_random.nextDouble()) * 5,
           (_random.nextDouble()) * 5,
         ),
         scale: baseParticleSize + _random.nextDouble() * 1,
         maxSpeed: 2 + _random.nextDouble(),
         rotationSpeed: (_random.nextBool() ? 1 : -1) * _random.nextDouble() * 0.05,
-
       ));
     }
   }
 
-   void _updateParticles() {
+  void _updateParticles() {
     if (!mounted) return;
     final size = MediaQuery.of(context).size;
-    
+
     setState(() {
       for (var particle in _particles) {
         particle.update(size);
@@ -98,12 +96,11 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
     String message = '';
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        
         if (state is AuthStateLoggedOut && state.exception != null) {
-        setState(() {
-          _isLoading = false; // Reset loading state on any state change
-        });
-        message = ErrorTranslator.translate(state.exception!);        
+          setState(() {
+            _isLoading = false; // Reset loading state on any state change
+          });
+          message = ErrorTranslator.translate(state.exception!);
         }
         if (message.isNotEmpty) {
           showMessage(
@@ -115,18 +112,25 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
         }
       },
       child: Scaffold(
-      body: Stack(
-        children: [
-          _buildAnimatedBackground(),
-          _buildParticles(),
-          BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-            child:RepaintBoundary(child: _buildGlassCard()),
-          ),
-          
-        ],
+        body: Stack(
+          children: [
+            _buildAnimatedBackground(),
+            _buildParticles(),
+            BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+              child: RepaintBoundary(child: _buildGlassCard()),
+            ),
+            _buildAppLogo(),
+
+            // Add back button at the top left
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              left: 16,
+              child: _buildBackButton(),
+            ),
+          ],
+        ),
       ),
-    )
     );
   }
 
@@ -149,34 +153,62 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
     return RepaintBoundary(
       child: Stack(
         children: _particles.map((particle) => AnimatedPositioned(
-          duration: const Duration(milliseconds: 20),
-          left: particle.position.dx,
-          top: particle.position.dy,
-          child:Transform.rotate(
-            angle: particle.rotation,
-            child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 300),
-            opacity: particle.opacity,
-            child: Transform.scale(
-              scale: particle.scale,
-              child: Lottie.asset(
-                'assets/animation/orange gradient.json',
-                width: 100,
-                height: 100,
-                fit: BoxFit.cover,
+              duration: const Duration(milliseconds: 20),
+              left: particle.position.dx,
+              top: particle.position.dy,
+              child: Transform.rotate(
+                angle: particle.rotation,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 300),
+                  opacity: particle.opacity,
+                  child: Transform.scale(
+                    scale: particle.scale,
+                    child: Lottie.asset(
+                      'assets/animation/blue gradient.json',
+                      width: 100,
+                      height: 100,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
               ),
+            )).toList(),
+      ),
+    );
+  }
+
+  Widget _buildAppLogo() {
+    final size = MediaQuery.of(context).size;
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + size.height * 0.1,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          width: 160,
+          height: 160,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFFF9D6C).withOpacity(0.3),
+              ),
+            ],
+          ),
+          child: ClipOval(
+            child: Image.asset(
+              'assets/images/logo4.png',
+              fit: BoxFit.cover,
             ),
           ),
-          )
-        )).toList(),
-        
+        ),
       ),
     );
   }
 
   Widget _buildGlassCard() {
     final size = MediaQuery.of(context).size;
-    
+
     return Align(
       alignment: const Alignment(0, 0.95), // Moves card lower
       child: SingleChildScrollView(
@@ -201,7 +233,6 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
                   color: Colors.black,
                   width: 2.5,
                 ),
-            
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -254,12 +285,6 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
           () => _handleSocialSignIn(const AuthEventGoogleSignIn()),
         ),
         const SizedBox(height: 16),
-        _buildSocialButton(
-          'Continue with Facebook',
-          'assets/icons/facebook.svg',
-          const Color(0xFF1877F2),
-          () => _handleSocialSignIn(const AuthEventSignInWithFacebook()),
-        ),
       ],
     );
   }
@@ -285,14 +310,14 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
                 width: 2,
               ),
               borderRadius: BorderRadius.circular(12),
-              
             ),
             child: ElevatedButton(
               onPressed: _isLoading ? null : onPressed,
               style: ElevatedButton.styleFrom(
                 backgroundColor: backgroundColor,
-                foregroundColor: backgroundColor == Colors.white ? 
-                    Colors.black87 : Colors.white,
+                foregroundColor: backgroundColor == Colors.white
+                    ? Colors.black87
+                    : Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -340,6 +365,29 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildBackButton() {
+    return Material(
+      color: Colors.black.withOpacity(0.0),
+      borderRadius: BorderRadius.circular(30),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(30),
+        onTap: () {
+          // Navigate back to onboarding screen
+          context.read<AuthBloc>().add(const AuthEventNavigateToOnboarding());
+        },
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          
+          child: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: Colors.black,
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _handleSocialSignIn(AuthEvents event) {
     if (_isLoading) return;
     setState(() => _isLoading = true);
@@ -367,7 +415,7 @@ class ParticleModel {
   });
   void update(Size bounds) {
     position += velocity;
-    
+
     // Update rotation
     rotation += rotationSpeed;
 
@@ -376,7 +424,7 @@ class ParticleModel {
       velocity = Offset(-velocity.dx * 0.8, velocity.dy);
       position = Offset(
         position.dx <= 0 ? 0 : bounds.width,
-        position.dy
+        position.dy,
       );
     }
 
@@ -384,7 +432,7 @@ class ParticleModel {
       velocity = Offset(velocity.dx, -velocity.dy * 0.8);
       position = Offset(
         position.dx,
-        position.dy <= 0 ? 0 : bounds.height
+        position.dy <= 0 ? 0 : bounds.height,
       );
     }
 

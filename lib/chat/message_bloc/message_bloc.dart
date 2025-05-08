@@ -1,6 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/message_bloc/message_event.dart';
 import 'package:ai_companion/chat/message_bloc/message_state.dart';
@@ -9,6 +10,7 @@ import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/chat/gemini/gemini_service.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:rxdart/rxdart.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final ChatRepository _repository;
@@ -19,6 +21,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   String? _currentCompanionId;
   Timer? _syncTimer;
   List<Message> _currentMessages = [];
+  
+  // Offline support
+  bool IsOnline = true;
+  StreamSubscription? _connectivitySubscription;
+  final List<Message> _pendingMessages = [];
+  final String _pendingMessagesKey = 'pending_messages';
 
   // Add a BehaviorSubject for typing indicators
   final BehaviorSubject<bool> _typingSubject = BehaviorSubject.seeded(false);
@@ -34,11 +42,156 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<RetryChatRequest>(_onRetryChatRequest);
     on<InitializeCompanionEvent>(_onInitializeCompanion);
     on<RefreshMessages>(_onRefreshMessages);
+    on<ConnectivityChangedEvent>(_onConnectivityChanged);
+    on<ProcessPendingMessagesEvent>(_onProcessPendingMessages);
 
     _setupPeriodicSync();
+    _setupConnectivityListener();
+    _loadPendingMessages();
   }
 
   List<Message> get currentMessages => List<Message>.from(_currentMessages);
+
+  // Setup connectivity monitoring
+  void _setupConnectivityListener() {
+    try {
+      _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
+        final isOnline = result != ConnectivityResult.none;
+        if (isOnline != IsOnline) {
+          IsOnline = isOnline;
+          add(ConnectivityChangedEvent(isOnline));
+          
+          // Process any pending messages when coming back online
+          if (isOnline && _pendingMessages.isNotEmpty) {
+            add(ProcessPendingMessagesEvent());
+          }
+        }
+      }, onError: (e) {
+        print('Connectivity stream error: $e');
+        // Assume online if connectivity check fails
+        if (!IsOnline) {
+          IsOnline = true;
+          add(ConnectivityChangedEvent(true));
+        }
+      });
+      
+      // Check initial connectivity
+      Connectivity().checkConnectivity().then((result) {
+        IsOnline = result != ConnectivityResult.none;
+      }).catchError((e) {
+        print('Initial connectivity check failed: $e');
+        IsOnline = true; // Assume online if check fails
+      });
+    } catch (e) {
+      print('Failed to setup connectivity listener: $e');
+      IsOnline = true; // Assume online if setup fails
+    }
+  }
+
+  // Handle connectivity changes
+  Future<void> _onConnectivityChanged(
+    ConnectivityChangedEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    IsOnline = event.isOnline;
+    print('Message connectivity changed, online: $IsOnline');
+    
+    // Process pending messages when back online
+    if (IsOnline && _pendingMessages.isNotEmpty) {
+      add(ProcessPendingMessagesEvent());
+    }
+  }
+
+  // Process messages that were sent while offline
+  Future<void> _onProcessPendingMessages(
+    ProcessPendingMessagesEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    if (_pendingMessages.isEmpty || !IsOnline) return;
+    
+    print('Processing ${_pendingMessages.length} pending messages');
+    
+    // Process one message at a time to maintain order
+    for (int i = 0; i < _pendingMessages.length; i++) {
+      try {
+        final pendingMessage = _pendingMessages[i];
+        
+        // Skip messages that are already in the database
+        if (!isLocalId(pendingMessage.id!)) continue;
+        
+        // Send the message to the database
+        await _repository.sendMessage(pendingMessage);
+        
+        // If it's a user message, generate AI response
+        if (!pendingMessage.isBot) {
+          await _processAIResponse(pendingMessage, emit);
+        }
+        
+        // Update conversation
+        await _repository.updateConversation(
+          pendingMessage.conversationId,
+          lastMessage: pendingMessage.message,
+          incrementUnread: pendingMessage.isBot ? 1 : 0,
+        );
+        
+      } catch (e) {
+        print('Error processing pending message: $e');
+        // Continue with other messages even if one fails
+      }
+    }
+    
+    // Clear pending messages after processing
+    _pendingMessages.clear();
+    await _savePendingMessages();
+    
+    // Refresh messages from server now that we're online
+    if (_currentUserId != null && _currentCompanionId != null) {
+      add(RefreshMessages());
+    }
+  }
+
+  // Load pending messages from SharedPreferences
+  Future<void> _loadPendingMessages() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pendingMessagesJson = prefs.getStringList(_pendingMessagesKey) ?? [];
+      
+      _pendingMessages.clear();
+      for (final json in pendingMessagesJson) {
+        try {
+          final Map<String, dynamic> messageData = jsonDecode(json);
+          final message = Message.fromJson(messageData);
+          _pendingMessages.add(message);
+        } catch (e) {
+          print('Error parsing pending message: $e');
+        }
+      }
+      
+      print('Loaded ${_pendingMessages.length} pending messages');
+    } catch (e) {
+      print('Error loading pending messages: $e');
+    }
+  }
+
+  // Save pending messages to SharedPreferences
+  Future<void> _savePendingMessages() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pendingMessagesJson = _pendingMessages.map(
+        (m) => jsonEncode(m.toJson())
+      ).toList();
+      
+      await prefs.setStringList(_pendingMessagesKey, pendingMessagesJson);
+    } catch (e) {
+      print('Error saving pending messages: $e');
+    }
+  }
+
+  // Add a pending message
+  Future<void> _addPendingMessage(Message message) async {
+    _pendingMessages.add(message);
+    await _savePendingMessages();
+  }
 
   void _setupPeriodicSync() {
     _syncTimer?.cancel();
@@ -67,7 +220,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
-  // Add this helper method to trigger conversation refresh
   void _triggerConversationRefresh() {
     if (_currentUserId != null) {
       // Find ConversationBloc instance and add refresh event
@@ -126,14 +278,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
 
       // 1. Optimistic update for immediate UI feedback
-      _currentMessages.add(userMessage);
-      emit(MessageLoaded(messages: _currentMessages));
-
-      // 2. Send to database (don't await to keep UI responsive)
-      unawaited(_repository.sendMessage(userMessage));
-      unawaited(_repository.updateConversation(
-        userMessage.conversationId,
-        lastMessage: userMessage.message,
+      final localMessage = event.message.copyWith();
+      _currentMessages.add(localMessage);
+      
+      // Mark message as pending if offline
+      final isPending = !IsOnline;
+      
+      // 2. Emit state with pending indicator if offline
+      emit(MessageLoaded(
+        messages: _currentMessages, 
+        pendingMessageIds: isPending ? [localMessage.id ?? ''] : []
       ));
 
       // 3. Cache current messages with companion-specific key
@@ -145,62 +299,28 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         );
       }
 
-      // 4. Show typing indicator
-      _typingSubject.add(true);
-      emit(MessageReceiving(userMessage.message, messages: _currentMessages));
-
-      // 5. Generate AI response
-      final String aiResponse = await _geminiService.generateResponse(
-        userMessage.message,
-      ).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?",
-      );
-
-      // 6. Hide typing indicator
-      _typingSubject.add(false);
-
-      // 7. Create AI message
-      final aiMessage = Message(
-        id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-        message: aiResponse,
-        companionId: userMessage.companionId,
-        userId: userMessage.userId,
-        conversationId: userMessage.conversationId,
-        isBot: true,
-        created_at: DateTime.now(),
-        metadata: {
-          'relationship_level': metrics['level'],
-          'emotion': metrics['dominant_emotion'],
-        },
-      );
-
-      // 8. Update local state and cache
-      _currentMessages.add(aiMessage);
-      if (_currentUserId != null && _currentCompanionId != null) {
-        await _cacheService.cacheMessages(
-          _currentUserId!,
-          _currentMessages,
-          companionId: _currentCompanionId!,
-        );
+      // 4. If offline, add to pending queue and return
+      if (!IsOnline) {
+        await _addPendingMessage(localMessage);
+        return;
       }
 
-      // 9. Update UI
-      emit(MessageLoaded(messages: _currentMessages));
-      emit(MessageSent());
-
-      // 10. Save AI message to database
-      unawaited(_repository.sendMessage(aiMessage));
-      unawaited(_repository.updateConversation(
+      // 5. Send to database if online
+      await _repository.sendMessage(userMessage);
+      await _repository.updateConversation(
         userMessage.conversationId,
-        lastMessage: aiMessage.message,
-        incrementUnread: 1,
-      ));
+        lastMessage: userMessage.message,
+      );
 
-      // 11. Trigger conversation list refresh
+      // 6. Process AI response
+      await _processAIResponse(userMessage, emit);
+
+      // 7. Trigger conversation list refresh
       _triggerConversationRefresh();
+      
     } catch (e) {
       print('Error sending message: $e');
+      
       // Remove the optimistically added message if error occurs
       if (_currentMessages.isNotEmpty) {
         _currentMessages.removeLast();
@@ -215,6 +335,101 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
       _typingSubject.add(false);
       emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
+    }
+  }
+
+  // Helper method to process AI response
+  Future<void> _processAIResponse(Message userMessage, Emitter<MessageState> emit) async {
+    // Show typing indicator
+    _typingSubject.add(true);
+    emit(MessageReceiving(userMessage.message, messages: _currentMessages));
+
+    try {
+      // Generate AI response
+      final String aiResponse = await _geminiService.generateResponse(
+        userMessage.message,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?",
+      );
+
+      // Hide typing indicator
+      _typingSubject.add(false);
+
+      // Create AI message
+      final metrics = _geminiService.getRelationshipMetrics();
+      final aiMessage = Message(
+        id: 'local_${DateTime.now().millisecondsSinceEpoch}',
+        message: aiResponse,
+        companionId: userMessage.companionId,
+        userId: userMessage.userId,
+        conversationId: userMessage.conversationId,
+        isBot: true,
+        created_at: DateTime.now(),
+        metadata: {
+          'relationship_level': metrics['level'],
+          'emotion': metrics['dominant_emotion'],
+        },
+      );
+
+      // Update local state
+      _currentMessages.add(aiMessage);
+      
+      // Update cache
+      if (_currentUserId != null && _currentCompanionId != null) {
+        await _cacheService.cacheMessages(
+          _currentUserId!,
+          _currentMessages,
+          companionId: _currentCompanionId!,
+        );
+      }
+
+      // Update UI
+      emit(MessageLoaded(messages: _currentMessages));
+      emit(MessageSent());
+
+      // If online, send AI message to database
+      if (IsOnline) {
+        await _repository.sendMessage(aiMessage);
+        await _repository.updateConversation(
+          userMessage.conversationId,
+          lastMessage: aiMessage.message,
+          incrementUnread: 1,
+        );
+      } else {
+        // If offline, add to pending queue
+        await _addPendingMessage(aiMessage);
+      }
+    } catch (e) {
+      print('Error generating AI response: $e');
+      _typingSubject.add(false);
+      
+      // Create error message from AI
+      final errorMessage = Message(
+        id: 'local_error_${DateTime.now().millisecondsSinceEpoch}',
+        message: "I'm having trouble responding right now. Please try again later.",
+        companionId: userMessage.companionId,
+        userId: userMessage.userId,
+        conversationId: userMessage.conversationId,
+        isBot: true,
+        created_at: DateTime.now(),
+        metadata: {'error': true},
+      );
+      
+      _currentMessages.add(errorMessage);
+      emit(MessageLoaded(
+        messages: _currentMessages,
+        hasError: true
+      ));
+      
+      // Cache error message
+      if (_currentUserId != null && _currentCompanionId != null) {
+        await _cacheService.cacheMessages(
+          _currentUserId!,
+          _currentMessages,
+          companionId: _currentCompanionId!,
+        );
+      }
     }
   }
 
@@ -236,27 +451,47 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         companionId: event.companionId,
       );
 
+      // Find any pending messages
+      final pendingMessageIds = _pendingMessages
+          .where((m) => m.companionId == event.companionId && m.userId == event.userId)
+          .map((m) => m.id ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+
       if (_currentMessages.isNotEmpty) {
         print("Found ${_currentMessages.length} cached messages for companion ${event.companionId}");
-        emit(MessageLoaded(messages: _currentMessages));
+        emit(MessageLoaded(
+          messages: _currentMessages,
+          pendingMessageIds: pendingMessageIds,
+        ));
       }
 
-      // 3. Get messages from server
-      final messages = await _repository.getMessages(event.userId, event.companionId);
+      // 3. If we're online, get messages from server
+      if (IsOnline) {
+        try {
+          final messages = await _repository.getMessages(event.userId, event.companionId);
 
-      // 4. Check if there are differences and update cache if needed
-      if (messages.isNotEmpty &&
-          (_currentMessages.isEmpty ||
-              messages.length != _currentMessages.length ||
-              _messagesNeedUpdate(messages, _currentMessages))) {
-        _currentMessages = messages;
-        // Update companion-specific cache
-        await _cacheService.cacheMessages(
-          event.userId,
-          messages,
-          companionId: event.companionId,
-        );
-        emit(MessageLoaded(messages: _currentMessages));
+          // 4. Check if there are differences and update cache if needed
+          if (messages.isNotEmpty &&
+              (_currentMessages.isEmpty ||
+                  messages.length != _currentMessages.length ||
+                  _messagesNeedUpdate(messages, _currentMessages))) {
+            _currentMessages = messages;
+            // Update companion-specific cache
+            await _cacheService.cacheMessages(
+              event.userId,
+              messages,
+              companionId: event.companionId,
+            );
+            emit(MessageLoaded(
+              messages: _currentMessages,
+              pendingMessageIds: pendingMessageIds,
+            ));
+          }
+        } catch (e) {
+          print('Error fetching messages from server: $e');
+          // Continue with cached messages
+        }
       }
 
       // 5. Get current user
@@ -282,14 +517,22 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       );
 
       // 8. Final state emission
-      if (_currentMessages.isEmpty) {
-        emit(MessageLoaded(messages: const []));
+      if (state is! MessageLoaded) {
+        emit(MessageLoaded(
+          messages: _currentMessages,
+          pendingMessageIds: pendingMessageIds,
+          isFromCache: true,
+        ));
       }
     } catch (e) {
       print('Error loading messages: $e');
       // Fallback to cached messages
       if (_currentMessages.isNotEmpty) {
-        emit(MessageLoaded(messages: _currentMessages));
+        emit(MessageLoaded(
+          messages: _currentMessages,
+          isFromCache: true,
+          hasError: true,
+        ));
       } else {
         emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
       }
@@ -340,7 +583,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       );
       await _repository.updateConversation(
         conversationId,
-        lastMessage: '',
+        lastMessage: "Start a conversation",
         incrementUnread: 0,
       );
 
@@ -421,20 +664,51 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   }
 
   Future<void> _onRefreshMessages(RefreshMessages event, Emitter<MessageState> emit) async {
+    if (!IsOnline) {
+      print('Skipping message refresh - device is offline');
+      return;
+    }
+    
     if (_currentUserId != null && _currentCompanionId != null) {
-      await _onLoadMessages(
-        LoadMessagesEvent(
-          userId: _currentUserId!,
-          companionId: _currentCompanionId!,
-        ),
-        emit,
-      );
+      try {
+        final messages = await _repository.getMessages(
+          _currentUserId!,
+          _currentCompanionId!,
+        );
+        
+        if (messages.isNotEmpty) {
+          _currentMessages = messages;
+          
+          // Update cache
+          await _cacheService.cacheMessages(
+            _currentUserId!,
+            messages,
+            companionId: _currentCompanionId!,
+          );
+          
+          // Find any pending messages
+          final pendingMessageIds = _pendingMessages
+              .where((m) => m.companionId == _currentCompanionId && m.userId == _currentUserId)
+              .map((m) => m.id ?? '')
+              .where((id) => id.isNotEmpty)
+              .toList();
+              
+          emit(MessageLoaded(
+            messages: _currentMessages,
+            pendingMessageIds: pendingMessageIds,
+          ));
+        }
+      } catch (e) {
+        print('Error refreshing messages: $e');
+        // Keep current state on error
+      }
     }
   }
 
   @override
   Future<void> close() async {
     _syncTimer?.cancel();
+    _connectivitySubscription?.cancel();
     await _typingSubject.close();
 
     // Save current AI state before closing

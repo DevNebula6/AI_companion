@@ -42,6 +42,12 @@ class AuthEventCompanionSelection extends AuthEvents {
   const AuthEventCompanionSelection();
 }
 
+class AuthEventNavigateToUserProfile extends AuthEvents {
+  final CustomAuthUser user;
+  const AuthEventNavigateToUserProfile({required this.user});
+}
+
+
 class AuthEventNavigateToCompanion extends AuthEvents {
   final CustomAuthUser user;
   const AuthEventNavigateToCompanion({required this.user});
