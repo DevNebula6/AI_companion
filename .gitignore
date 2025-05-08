@@ -8,6 +8,7 @@
 .buildlog/
 .history
 .svn/
+
 migrate_working_dir/
 
 # IntelliJ related
@@ -20,6 +21,23 @@ migrate_working_dir/
 # VS Code which you may wish to be included in version control, so this line
 # is commented out by default.
 #.vscode/
+# Sensitive files
+.env
+.env.*
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+key.jks
+key.properties
+keystore.properties
+**/android/key.properties
+**/**/key.jks
+**/secrets.json
+**/API_KEYS.dart
+**/api_keys.dart
+**/credentials.dart
+**/supabase_keys.dart
+**/service-account*.json
 
 # Flutter/Dart/Pub related
 **/doc/api/
