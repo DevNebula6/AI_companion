@@ -1,0 +1,2 @@
+E:/dev/New folder/AI_companion/android/app/.cxx/Debug/3dl1p344/x86/CMakeFiles/edit_cache.dir
+E:/dev/New folder/AI_companion/android/app/.cxx/Debug/3dl1p344/x86/CMakeFiles/rebuild_cache.dir

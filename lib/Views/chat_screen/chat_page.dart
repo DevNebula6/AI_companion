@@ -1,11 +1,12 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
-import 'package:ai_companion/Views/Home/home_screen.dart';
 import 'package:ai_companion/Views/chat_screen/chat_input_field.dart';
 import 'package:ai_companion/Views/chat_screen/message_bubble.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
+import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
+import 'package:ai_companion/chat/conversation/conversation_event.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:ai_companion/chat/message_bloc/message_bloc.dart';
 import 'package:ai_companion/chat/message_bloc/message_event.dart';
@@ -42,11 +43,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   late AnimationController _profilePanelController;
   bool _showProfilePanel = false;
   StreamSubscription? _typingSubscription;
-  CustomAuthUser? user ;
+  CustomAuthUser? user;
+  
+  // Add references to blocs to avoid context lookups during disposal
+  late MessageBloc _messageBloc;
+  late ConversationBloc _conversationBloc;
   
   @override
   void initState() {
     super.initState();
+    
+    // Store bloc references at initialization
+    _messageBloc = context.read<MessageBloc>();
+    _conversationBloc = context.read<ConversationBloc>();
+    
     _profilePanelController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -55,8 +65,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _companionColors = getCompanionColorScheme(widget.companion);
     _loadChatAndInitializeCompanion();
     
-    final messageBloc = context.read<MessageBloc>();
-    _typingSubscription = messageBloc.typingStream.listen((isTyping) {
+    // Use the class member instead of reading from context
+    _typingSubscription = _messageBloc.typingStream.listen((isTyping) {
       if (mounted) {
         setState(() {
           _isTyping = isTyping;
@@ -67,12 +77,44 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   
   @override
   void dispose() {
+    // Ensure conversation data is updated when leaving the chat page
+    _syncConversationOnExit();
+    
     _messageController.dispose();
     _focusNode.dispose();
     _scrollController.dispose();
     _profilePanelController.dispose();
     _typingSubscription?.cancel();
     super.dispose();
+  }
+  
+  // Modified sync method to avoid context dependency
+  void _syncConversationOnExit() {
+    if (widget.conversationId.isEmpty) return;
+    
+    try {
+      // Use the stored bloc reference instead of context.read
+      final messages = _messageBloc.currentMessages;
+      
+      // Check if messages list is not empty before accessing the last element
+      if (messages.isNotEmpty) {
+        final lastMessage = messages.last;
+        
+        // Use stored conversationBloc reference
+        _conversationBloc.add(UpdateConversationMetadata(
+          conversationId: widget.conversationId,
+          lastMessage: lastMessage.message,
+          lastUpdated: lastMessage.created_at,
+        ));
+        
+        print('Synced conversation metadata on exit: ${widget.conversationId}');
+      } else {
+        print('No messages to sync on exit');
+      }
+    } catch (e) {
+      print('Error syncing conversation on exit: $e');
+      // Non-blocking - we don't want to prevent navigation if this fails
+    }
   }
   
   Future<void> _loadChatAndInitializeCompanion() async {
@@ -82,12 +124,13 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         _currentUserId = user!.id;
       });
       
-      context.read<MessageBloc>().add(InitializeCompanionEvent(
+      // Use stored blocs
+      _messageBloc.add(InitializeCompanionEvent(
         companion: widget.companion,
         userId: user!.id,
         user: user,
-       ));
-      context.read<MessageBloc>().add(LoadMessagesEvent(
+      ));
+      _messageBloc.add(LoadMessagesEvent(
         userId: user!.id,
         companionId: widget.companion.id,
       ));
@@ -108,7 +151,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       created_at: DateTime.now(),
     );
     
-    context.read<MessageBloc>().add(SendMessageEvent(message: userMessage));
+    // Use stored messageBloc reference
+    _messageBloc.add(SendMessageEvent(message: userMessage));
     _messageController.clear();
     
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -128,32 +172,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   
   Widget _buildMessageList(List<Message> messages) {
     if (messages.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircleAvatar(
-              radius: 40,
-              backgroundImage: NetworkImage(widget.companion.avatarUrl),
-            ).animate().scale(
-              duration: 600.ms,
-              curve: Curves.easeOutBack,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Start a conversation with ${widget.companion.name}',
-              style: TextStyle(
-                fontSize: 16,
-                color: Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
-              ),
-              textAlign: TextAlign.center,
-            ).animate().fadeIn(
-              duration: 600.ms,
-              delay: 300.ms,
-            ),
-          ],
-        ),
-      );
+      return _emptyMessageWidget();
+    }
+    
+    // Get pending message IDs from the MessageBloc state
+    List<String> pendingMessageIds = [];
+    final messageState = _messageBloc.state;
+    if (messageState is MessageLoaded) {
+      pendingMessageIds = messageState.pendingMessageIds;
     }
     
     return ListView.builder(
@@ -175,6 +201,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           isNextSameSender = messages[index + 1].isBot == message.isBot;
         }
         
+        // Check if this message is pending
+        final isPending = message.id != null && pendingMessageIds.contains(message.id);
+        
         final messageWidget = MessageBubble(
           key: ValueKey(message.id),
           message: message,
@@ -184,6 +213,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           isPreviousSameSender: isPreviousSameSender,
           isNextSameSender: isNextSameSender,
           animation: null,
+          isPending: isPending, // Pass pending state to bubble
         );
         
         if (index == 0 || !_isSameDay(messages[index - 1].created_at, message.created_at)) {
@@ -197,6 +227,35 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         
         return messageWidget;
       },
+    );
+  }
+
+  Center _emptyMessageWidget() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircleAvatar(
+            radius: 40,
+            backgroundImage: NetworkImage(widget.companion.avatarUrl),
+          ).animate().scale(
+            duration: 600.ms,
+            curve: Curves.easeOutBack,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Start a conversation with ${widget.companion.name}',
+            style: TextStyle(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
+            ),
+            textAlign: TextAlign.center,
+          ).animate().fadeIn(
+            duration: 600.ms,
+            delay: 300.ms,
+          ),
+        ],
+      ),
     );
   }
   
@@ -424,182 +483,218 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
-      appBar: AppBar(
-        leading: BackButton(
-          color: _companionColors.onPrimary,
-          onPressed: () {
-            print('Back button pressed');
-            
-            // Always navigate to home screen regardless of source
-            // This prevents navigation stack issues
-            if (user != null) {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(
-                  builder: (context) => HomeScreen(),
-                ),
-              );
-              // After UI is updated, update the auth state
-              Future.microtask(() {
-                if (user != null) {
-                  context.read<AuthBloc>().add(AuthEventNavigateToHome(
-                    user: user!,
-                  ));
-                }
-              });
-            } else {
-              // If user is somehow null, just try to go back
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        centerTitle: true,
-        backgroundColor: _companionColors.primary,
-        foregroundColor: _companionColors.onPrimary,
-        elevation: 0,
-        title: Row(
-          children: [
-            Hero(
-              tag: 'avatar_${widget.companion.id}',
-              child: CircleAvatar(
-                radius: 20,
-                backgroundImage: NetworkImage(widget.companion.avatarUrl),
-              ),
+    return WillPopScope(
+      // Add WillPopScope to catch back button and manual navigation
+      onWillPop: () async {
+        // Call sync before navigation, but don't await it
+        _syncConversationOnExit();
+        return true; // Allow the navigation to proceed
+      },
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
+        appBar: AppBar(
+          leading: IconButton(
+            icon: Icon(
+              Icons.arrow_back,
+              color: _companionColors.onPrimary,
             ),
-            const SizedBox(width: 8),
-            Text(
-              widget.companion.name,
-              style: TextStyle(
-                color: _companionColors.onPrimary,
-                fontSize: 18,
+            color: _companionColors.onPrimary,
+            onPressed: () {
+              print('Back button pressed');
+
+              // Then perform navigation
+              if (user != null) {
+                context.read<AuthBloc>().add(AuthEventNavigateToHome(
+                  user: user!,
+                ));
+              } else {
+                Navigator.of(context).pop();
+              }
+            },
+          ),
+          centerTitle: true,
+          backgroundColor: _companionColors.primary,
+          foregroundColor: _companionColors.onPrimary,
+          elevation: 0,
+          title: Row(
+            children: [
+              Hero(
+                tag: 'avatar_${widget.companion.id}',
+                child: CircleAvatar(
+                  radius: 20,
+                  backgroundImage: NetworkImage(widget.companion.avatarUrl),
+                ),
               ),
+              const SizedBox(width: 8),
+              Text(
+                widget.companion.name,
+                style: TextStyle(
+                  color: _companionColors.onPrimary,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: Icon(
+                _showProfilePanel ? Icons.info : Icons.info_outline,
+                color: _companionColors.onPrimary,
+              ),
+              onPressed: () {
+                setState(() {
+                  _showProfilePanel = !_showProfilePanel;
+                  if (_showProfilePanel) {
+                    _profilePanelController.forward();
+                  } else {
+                    _profilePanelController.reverse();
+                  }
+                });
+              },
+            ),
+            PopupMenuButton(
+              color: Theme.of(context).colorScheme.surface,
+              icon: Icon(
+                Icons.more_vert,
+                color: _companionColors.onPrimary,
+              ),
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  child: ListTile(
+                    leading: const Icon(Icons.refresh),
+                    title: const Text('Clear Conversation'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  onTap: () {
+                    Future.delayed(
+                      const Duration(milliseconds: 100),
+                      () => _showClearConfirmation(),
+                    );
+                  },
+                ),
+                PopupMenuItem(
+                  child: ListTile(
+                    leading: const Icon(Icons.report_outlined),
+                    title: const Text('Report Issue'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  onTap: () {
+                  },
+                ),
+              ],
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _showProfilePanel ? Icons.info : Icons.info_outline,
-              color: _companionColors.onPrimary,
-            ),
-            onPressed: () {
-              setState(() {
-                _showProfilePanel = !_showProfilePanel;
-                if (_showProfilePanel) {
-                  _profilePanelController.forward();
-                } else {
-                  _profilePanelController.reverse();
-                }
+        body: BlocConsumer<MessageBloc, MessageState>(
+          listener: (context, state) {
+            if (state is MessageLoaded) {
+              Future.delayed(const Duration(milliseconds: 100), () {
+                _scrollToBottom();
               });
-            },
-          ),
-          PopupMenuButton(
-            color: Theme.of(context).colorScheme.surface,
-            icon: Icon(
-              Icons.more_vert,
-              color: _companionColors.onPrimary,
-            ),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                child: ListTile(
-                  leading: const Icon(Icons.refresh),
-                  title: const Text('Clear Conversation'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-                onTap: () {
-                  Future.delayed(
-                    const Duration(milliseconds: 100),
-                    () => _showClearConfirmation(),
-                  );
-                },
-              ),
-              PopupMenuItem(
-                child: ListTile(
-                  leading: const Icon(Icons.report_outlined),
-                  title: const Text('Report Issue'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-                onTap: () {
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-      body: BlocConsumer<MessageBloc, MessageState>(
-        listener: (context, state) {
-          if (state is MessageLoaded) {
-            Future.delayed(const Duration(milliseconds: 100), () {
-              _scrollToBottom();
-            });
-          }
-        },
-        builder: (context, state) {
+            }
+            
+            // Add listener for network status changes
+            if (state is MessageLoaded && !state.isFromCache && state.hasError) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Having trouble connecting.'),
+                  duration: Duration(seconds: 3),
+                )
+              );
+            }
+          },
+          builder: (context, state) {
 
-          final List<Message> currentMessages = state is MessageLoaded 
-          ? state.messages 
-          : context.read<MessageBloc>().currentMessages; 
-          
-          return Column(
-            children: [
-              if (_showProfilePanel) _buildProfilePanel(),
-              
-              Expanded(
-                child: Stack(
-                  children: [
-                    if (currentMessages.isNotEmpty)
-                      _buildMessageList(currentMessages),
-                    if (state is MessageLoading)
-                      _buildLoadingMessages(),
-                    if (state is MessageError)
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              size: 48,
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Something went wrong',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+            final List<Message> currentMessages = state is MessageLoaded 
+            ? state.messages 
+            : _messageBloc.currentMessages; 
+            
+            // Show offline indicator if needed
+            final isOfflineVisible = !_messageBloc.IsOnline; // Access the private field directly
+            
+            return Column(
+              children: [
+                if (_showProfilePanel) _buildProfilePanel(),
+                
+                // Add offline indicator banner when device is offline
+                if (isOfflineVisible)
+                  Container(
+                    color: Colors.orange.withOpacity(0.2),
+                    padding: EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.wifi_off, size: 16, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text(
+                          'You\'re offline. Messages will be sent when reconnected.',
+                          style: TextStyle(
+                            color: Colors.orange[800],
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                
+                Expanded(
+                  child: Stack(
+                    children: [
+                      if (currentMessages.isNotEmpty)
+                        _buildMessageList(currentMessages),
+                      if (currentMessages.isEmpty)
+                        _emptyMessageWidget(),
+                      if (state is MessageLoading)
+                        _buildLoadingMessages(),
+                      if (state is MessageError)
+                        Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 48,
                                 color: Theme.of(context).colorScheme.error,
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            ElevatedButton(
-                              onPressed: _loadChatAndInitializeCompanion,
-                              child: const Text('Retry'),
-                            ),
-                          ],
+                              const SizedBox(height: 16),
+                              Text(
+                                'Something went wrong',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              ElevatedButton(
+                                onPressed: _loadChatAndInitializeCompanion,
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    
-                    if (_isTyping)
-                      Positioned(
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        child: _buildTypingIndicator(),
-                      ),
-                  ],
+                      
+                      if (_isTyping)
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          child: _buildTypingIndicator(),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              
-              ChatInputField(
-                controller: _messageController,
-                focusNode: _focusNode,
-                onSend: _sendMessage,
-                isTyping: _isTyping,
-              ),
-            ],
-          );
-        },
+                
+                ChatInputField(
+                  controller: _messageController,
+                  focusNode: _focusNode,
+                  onSend: _sendMessage,
+                  isTyping: _isTyping,
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -659,15 +754,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
     
     if (result == true && _currentUserId != null) {
-      context.read<MessageBloc>().add(ClearConversation(
+      // Use stored messageBloc reference
+      _messageBloc.add(ClearConversation(
         userId: _currentUserId!,
         companionId: widget.companion.id,
       ));
-      context.read<MessageBloc>().add(RefreshMessages(
-        userId: _currentUserId!,
-        companionId: widget.companion.id,
-      ));
-      
     }
   }
 }

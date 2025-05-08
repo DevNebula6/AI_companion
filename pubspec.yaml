@@ -1,5 +1,5 @@
 name: ai_companion
-description: "A new Flutter project."
+description: "AI Companion is a mobile application that provides users differnt ai personas to chat with."
 publish_to: 'none'
 version: 0.1.0
 
@@ -15,7 +15,7 @@ dependencies:
   flutter_bloc: ^9.1.0
   equatable: ^2.0.5
   flutter_svg: ^2.0.10+1
-  flutter_animate: ^4.5.0
+  flutter_animate: ^4.2.0
   logging: ^1.2.0
   google_generative_ai: ^0.4.6
   shared_preferences: ^2.3.3
@@ -35,6 +35,11 @@ dependencies:
   flutter_cache_manager: ^3.4.1
   provider: ^6.1.4
   collection: ^1.19.1
+  timeago: ^3.2.2
+  connectivity_plus: ^6.1.3
+  photo_view: ^0.15.0
+  supercharged: ^2.1.1
+  flutter_launcher_icons: ^0.13.1
 
 dev_dependencies:
   flutter_test:
@@ -44,12 +49,11 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-      - assets/
-      - assets/images/
-      - assets/icons/
-      - assets/animation/
-      - assets/backgrounds/
-      - .env
+    - assets/images/
+    - assets/icons/
+    - assets/animation/
+    - assets/backgrounds/
+    - .env
   fonts:
     - family: SpaceGrotesk
       fonts:
@@ -75,3 +79,31 @@ flutter:
         - asset: assets/fonts/Plus_Jakarta_Sans/PlusJakartaSans-Italic.ttf
           style: italic
           weight: 400
+
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/poppins/Poppins-Thin.ttf
+          weight: 100
+        - asset: assets/fonts/poppins/Poppins-ExtraLight.ttf
+          weight: 200
+        - asset: assets/fonts/poppins/Poppins-Light.ttf
+          weight: 300
+        - asset: assets/fonts/poppins/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/poppins/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/poppins/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/poppins/Poppins-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/poppins/Poppins-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/poppins/Poppins-Black.ttf
+          weight: 900
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo4.png"
+  adaptive_icon_background: "#000000" # Black background
+  adaptive_icon_foreground: "assets/images/logo4.png"

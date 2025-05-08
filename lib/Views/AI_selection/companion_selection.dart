@@ -106,52 +106,24 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
   }
 
   Widget _buildBackground() {
-  return Stack(
-    children: [
-      // Base gradient (lighter than current)
-      Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              // Color(0xFFFFFAF5), // Very soft warm white
-              // Color(0xFFF8F0F0), // Subtle blush undertone
-             // Subtle bluish undertone
-              Color(0xFFE6F0F5),
-              Color(0xFFE6F0F6),
-            ],
-          ),
-        ),
+  return Container(
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          // Color(0xFFFFFAF5), // Very soft warm white
+          // Color(0xFFF8F0F0), // Subtle blush undertone
+         // Subtle bluish undertone
+          Color(0xFFE6F0F5),
+          Color(0xFFE6F0F6),
+        ],
       ),
-      
-      Opacity(
-        opacity: 0.0, 
-        child: Container(
-          decoration: const BoxDecoration(
-            image: DecorationImage(
-              image: AssetImage('assets/backgrounds/pt4.png'),
-              fit: BoxFit.cover,
-              scale: 2, 
-            ),
-          ),
-        ),
-      ),
-    ],
+    ),
   );
 }
 
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Text(
-        'Choose Your Companion',
-        style: AppTextStyles.displayMedium.copyWith(
-          color: Theme.of(context).colorScheme.onSurface,
-        ),
-      ),
-    );
-  }
+  
 
   Widget _buildSwiper(List<AICompanion> companions) {
     return Swiper(
@@ -164,11 +136,6 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
   }
 
   Widget _buildCard(AICompanion companion) {
-    List<Color> colors = [
-      getTraitColor(companion.personality.primaryTraits[0], context),
-      getTraitColor(companion.personality.primaryTraits.last, context),
-    ];
-
     return GestureDetector(
       onTap: () => _showCompanionDetails(companion,user),
       child: Card(
@@ -191,14 +158,16 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                 placeholder: (context, url) => Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [
-                      colors[0],
-                      colors[1],
+                        // Modern teal to blue gradient
+                        Color(0xFF4AC8EA),  // Light teal
+                        Color(0xFF2A80D7),  // Medium blue
+
                     ]),
                   ),
                   child: Center(
                     child: 
                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(colors[0]),
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
                       strokeAlign: BorderSide.strokeAlignOutside,
                       strokeWidth: 4,
                     )),
@@ -206,8 +175,8 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                 errorWidget: (context, url, error) => Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [
-                      colors[0],
-                      colors[1],
+                      Color(0xFF4AC8EA),  // Light teal
+                      Color(0xFF2A80D7),  // Medium blue
                     ]),
                   ),
                   child: Center(
@@ -218,6 +187,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
                     ),
                   ),
                 ),
+
               ),
             ),
           ),

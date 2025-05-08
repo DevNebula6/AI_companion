@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// Creates a modern, visually striking app theme with a minimalist feel
 ThemeData createAppTheme(ColorScheme colorScheme) {
@@ -7,54 +6,62 @@ ThemeData createAppTheme(ColorScheme colorScheme) {
     colorScheme: colorScheme,
     useMaterial3: true,
     
-    // Typography with modern Google Fonts
-    textTheme: GoogleFonts.poppinsTextTheme(
-      ThemeData(brightness: colorScheme.brightness).textTheme,
-    ).copyWith(
-      displayLarge: GoogleFonts.poppins(
+    // Typography with system fonts instead of Google Fonts
+    textTheme: ThemeData(brightness: colorScheme.brightness).textTheme.copyWith(
+      displayLarge: const TextStyle(
+        fontFamily: 'Poppins',  // You can replace with your bundled font
         fontWeight: FontWeight.w300,
         fontSize: 57,
         letterSpacing: -0.5,
       ),
-      displayMedium: GoogleFonts.poppins(
+      displayMedium: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w300,
-        fontSize: 45,
+        fontSize: 46,
       ),
-      displaySmall: GoogleFonts.poppins(
+      displaySmall: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w400,
         fontSize: 36,
       ),
-      headlineLarge: GoogleFonts.poppins(
+      headlineLarge: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w600,
         fontSize: 32,
         letterSpacing: -0.5,
       ),
-      headlineMedium: GoogleFonts.poppins(
+      headlineMedium: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w600,
         fontSize: 28,
         letterSpacing: -0.5,
       ),
-      titleLarge: GoogleFonts.poppins(
+      titleLarge: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w600,
         fontSize: 22,
         letterSpacing: -0.25,
       ),
-      titleMedium: GoogleFonts.poppins(
+      titleMedium: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w500,
         fontSize: 16,
         letterSpacing: 0.1,
       ),
-      bodyLarge: GoogleFonts.poppins(
+      bodyLarge: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w400,
         fontSize: 16,
         letterSpacing: 0.5,
       ),
-      bodyMedium: GoogleFonts.poppins(
+      bodyMedium: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w400,
         fontSize: 14,
         letterSpacing: 0.25,
       ),
-      labelLarge: GoogleFonts.poppins(
+      labelLarge: const TextStyle(
+        fontFamily: 'Poppins',
         fontWeight: FontWeight.w500,
         fontSize: 14,
         letterSpacing: 0.1,

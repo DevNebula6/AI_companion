@@ -110,8 +110,15 @@ class SupabaseAuthProvider implements AuthProvider {
   @override
   Future<void> logout() async {
     try {
-      await _client.auth.signOut();
+      await _client.auth.signOut(
+        scope: SignOutScope.local,
+      );
       _cachedUser = null;
+      
+      // Clear user data from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('user_data');
+      
     } catch (e) {
       _log.warning('Error during logout: $e');
       throw LogoutException();
