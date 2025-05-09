@@ -1,6 +1,6 @@
 # AI Companion
 
-![AI Companion Logo](assets/images/logo.png)
+![AI Companion Logo](assets/images/logo4.png)
 
 *Connect, converse, and build relationships with AI companions that feel genuinely human.*
 
