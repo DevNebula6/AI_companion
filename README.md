@@ -1,6 +1,6 @@
 # AI Companion
 
-![AI Companion Logo](assets/images/logo.png)
+![AI Companion Logo](assets/images/logo4.png)
 
 *Connect, converse, and build relationships with AI companions that feel genuinely human.*
 
@@ -15,14 +15,13 @@ AI Companion offers a unique platform where users can:
 - **Build Meaningful Connections**: Develop companionship, friendship, or even emotional and intimate connections with companions that feel real.
 - **Practice Communication Skills**: Improve language fluency, build social confidence, and develop conversational abilities in a judgment-free environment.
 - **Explore Diverse Personalities**: Interact with companions representing different backgrounds, cultures, personalities, and communication styles.
-- **Experience Seamless Conversations**: Chat anytime, anywhere - even offline - with our robust synchronization system.
+- **Experience Seamless Conversations**: Chat anytime, anywhere - with our robust synchronization system.
 - **Watch Relationships Evolve**: See how your relationship with companions changes over time based on your interactions.
 
 ## Key Features
 
 - **Diverse AI Companions**: Each with unique backstories, personalities, interests, and communication styles
 - **Relationship Development**: Companions remember past conversations and build an evolving relationship with users
-- **Offline Functionality**: Continue conversations even without internet connection
 - **Conversation Synchronization**: Seamlessly transition between online and offline usage
 - **Personalized Interactions**: Adaptive responses that reflect your unique relationship with each companion
 - **Multiple Conversation Threads**: Maintain separate conversations with different companions
@@ -78,7 +77,7 @@ Customize your experience and manage your personal information.
 - **Backend**: Supabase for authentication, data storage, and real-time features
 - **AI**: Google's Gemini AI for natural language processing and conversation generation
 - **State Management**: BLoC pattern for efficient state management
-- **Data Caching**: Hybrid caching system(Hive + shared preference) for offline access
+- **Data Caching**: Hybrid caching system(Hive + shared preference) for offline support 
 - **Authentication**: Secure authentication through Google
 
 ## Caching
@@ -86,7 +85,7 @@ Customize your experience and manage your personal information.
 AI Companion features a robust Caching and offline system that:
 
 - Caches conversation history for seamless offline viewing
-- Stores companion data locally for access without internet
+- Caches and Stores companion data locally for access without internet
 - Queues messages sent while offline and sends them when connectivity is restored
 - Synchronizes conversations between device and server automatically
 - Provides visual indicators for pending messages
