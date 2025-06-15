@@ -16,6 +16,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shimmer/shimmer.dart';
 import 'dart:async';
+import 'package:ai_companion/utilities/widgets/floating_connectivity_indicator.dart';
+import 'package:ai_companion/services/connectivity_service.dart';
 
 class ChatPage extends StatefulWidget {
   final AICompanion companion;
@@ -48,6 +50,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   // Add references to blocs to avoid context lookups during disposal
   late MessageBloc _messageBloc;
   late ConversationBloc _conversationBloc;
+  late ConnectivityService _connectivityService;
+  bool _isOnline = true;
   
   @override
   void initState() {
@@ -71,6 +75,37 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         setState(() {
           _isTyping = isTyping;
         });
+      }
+    });
+    
+    _connectivityService = ConnectivityService();
+    _setupConnectivityMonitoring();
+  }
+  
+  void _setupConnectivityMonitoring() {
+    _connectivityService.onConnectivityChanged.listen((isOnline) {
+      if (mounted && isOnline != _isOnline) {
+        setState(() {
+          _isOnline = isOnline;
+        });
+        
+        // Show feedback when connectivity changes
+        if (isOnline) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.wifi, color: Colors.white, size: 16),
+                  SizedBox(width: 8),
+                  Text('Connection restored'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       }
     });
   }
@@ -483,217 +518,202 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      // Add WillPopScope to catch back button and manual navigation
-      onWillPop: () async {
-        // Call sync before navigation, but don't await it
-        _syncConversationOnExit();
-        return true; // Allow the navigation to proceed
-      },
-      child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.background,
-        appBar: AppBar(
-          leading: IconButton(
-            icon: Icon(
-              Icons.arrow_back,
-              color: _companionColors.onPrimary,
-            ),
-            color: _companionColors.onPrimary,
-            onPressed: () {
-              print('Back button pressed');
-
-              // Then perform navigation
-              if (user != null) {
-                context.read<AuthBloc>().add(AuthEventNavigateToHome(
-                  user: user!,
-                ));
-              } else {
-                Navigator.of(context).pop();
-              }
-            },
-          ),
-          centerTitle: true,
-          backgroundColor: _companionColors.primary,
-          foregroundColor: _companionColors.onPrimary,
-          elevation: 0,
-          title: Row(
-            children: [
-              Hero(
-                tag: 'avatar_${widget.companion.id}',
-                child: CircleAvatar(
-                  radius: 20,
-                  backgroundImage: NetworkImage(widget.companion.avatarUrl),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                widget.companion.name,
-                style: TextStyle(
-                  color: _companionColors.onPrimary,
-                  fontSize: 18,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            IconButton(
+    return FloatingConnectivityIndicator(
+      child: WillPopScope(
+        onWillPop: () async {
+          _syncConversationOnExit();
+          return true;
+        },
+        child: Scaffold(
+          backgroundColor: Theme.of(context).colorScheme.background,
+          appBar: AppBar(
+            leading: IconButton(
               icon: Icon(
-                _showProfilePanel ? Icons.info : Icons.info_outline,
+                Icons.arrow_back,
                 color: _companionColors.onPrimary,
               ),
+              color: _companionColors.onPrimary,
               onPressed: () {
-                setState(() {
-                  _showProfilePanel = !_showProfilePanel;
-                  if (_showProfilePanel) {
-                    _profilePanelController.forward();
-                  } else {
-                    _profilePanelController.reverse();
-                  }
-                });
+                print('Back button pressed');
+
+                if (user != null) {
+                  context.read<AuthBloc>().add(AuthEventNavigateToHome(
+                    user: user!,
+                  ));
+                } else {
+                  Navigator.of(context).pop();
+                }
               },
             ),
-            PopupMenuButton(
-              color: Theme.of(context).colorScheme.surface,
-              icon: Icon(
-                Icons.more_vert,
-                color: _companionColors.onPrimary,
-              ),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  child: ListTile(
-                    leading: const Icon(Icons.refresh),
-                    title: const Text('Clear Conversation'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  onTap: () {
-                    Future.delayed(
-                      const Duration(milliseconds: 100),
-                      () => _showClearConfirmation(),
-                    );
-                  },
-                ),
-                PopupMenuItem(
-                  child: ListTile(
-                    leading: const Icon(Icons.report_outlined),
-                    title: const Text('Report Issue'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  onTap: () {
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-        body: BlocConsumer<MessageBloc, MessageState>(
-          listener: (context, state) {
-            if (state is MessageLoaded) {
-              Future.delayed(const Duration(milliseconds: 100), () {
-                _scrollToBottom();
-              });
-            }
-            
-            // Add listener for network status changes
-            if (state is MessageLoaded && !state.isFromCache && state.hasError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Having trouble connecting.'),
-                  duration: Duration(seconds: 3),
-                )
-              );
-            }
-          },
-          builder: (context, state) {
-
-            final List<Message> currentMessages = state is MessageLoaded 
-            ? state.messages 
-            : _messageBloc.currentMessages; 
-            
-            // Show offline indicator if needed
-            final isOfflineVisible = !_messageBloc.IsOnline; // Access the private field directly
-            
-            return Column(
+            centerTitle: true,
+            backgroundColor: _companionColors.primary,
+            foregroundColor: _companionColors.onPrimary,
+            elevation: 0,
+            title: Row(
               children: [
-                if (_showProfilePanel) _buildProfilePanel(),
-                
-                // Add offline indicator banner when device is offline
-                if (isOfflineVisible)
-                  Container(
-                    color: Colors.orange.withOpacity(0.2),
-                    padding: EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.wifi_off, size: 16, color: Colors.orange),
-                        SizedBox(width: 8),
-                        Text(
-                          'You\'re offline. Messages will be sent when reconnected.',
-                          style: TextStyle(
-                            color: Colors.orange[800],
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
+                Hero(
+                  tag: 'avatar_${widget.companion.id}',
+                  child: CircleAvatar(
+                    radius: 20,
+                    backgroundImage: NetworkImage(widget.companion.avatarUrl),
                   ),
-                
+                ),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Stack(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (currentMessages.isNotEmpty)
-                        _buildMessageList(currentMessages),
-                      if (currentMessages.isEmpty)
-                        _emptyMessageWidget(),
-                      if (state is MessageLoading)
-                        _buildLoadingMessages(),
-                      if (state is MessageError)
-                        Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.error_outline,
-                                size: 48,
-                                color: Theme.of(context).colorScheme.error,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Something went wrong',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              ElevatedButton(
-                                onPressed: _loadChatAndInitializeCompanion,
-                                child: const Text('Retry'),
-                              ),
-                            ],
-                          ),
+                      Text(
+                        widget.companion.name,
+                        style: TextStyle(
+                          color: _companionColors.onPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
-                      
-                      if (_isTyping)
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: _buildTypingIndicator(),
-                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ),
-                
-                ChatInputField(
-                  controller: _messageController,
-                  focusNode: _focusNode,
-                  onSend: _sendMessage,
-                  isTyping: _isTyping,
-                ),
               ],
-            );
-          },
+            ),
+            actions: [
+              IconButton(
+                icon: Icon(
+                  _showProfilePanel ? Icons.info : Icons.info_outline,
+                  color: _companionColors.onPrimary,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _showProfilePanel = !_showProfilePanel;
+                    if (_showProfilePanel) {
+                      _profilePanelController.forward();
+                    } else {
+                      _profilePanelController.reverse();
+                    }
+                  });
+                },
+              ),
+              
+              PopupMenuButton(
+                color: Theme.of(context).colorScheme.surface,
+                icon: Icon(
+                  Icons.more_vert,
+                  color: _companionColors.onPrimary,
+                ),
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    child: ListTile(
+                      leading: const Icon(Icons.refresh),
+                      title: const Text('Clear Conversation'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onTap: () {
+                      Future.delayed(
+                        const Duration(milliseconds: 100),
+                        () => _showClearConfirmation(),
+                      );
+                    },
+                  ),
+                  PopupMenuItem(
+                    child: ListTile(
+                      leading: const Icon(Icons.report_outlined),
+                      title: const Text('Report Issue'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onTap: () {
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          body: BlocConsumer<MessageBloc, MessageState>(
+            listener: (context, state) {
+              if (state is MessageLoaded) {
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  _scrollToBottom();
+                });
+              }
+              
+              // Add listener for network status changes
+              if (state is MessageLoaded && !state.isFromCache && state.hasError) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Having trouble connecting.'),
+                    duration: Duration(seconds: 3),
+                  )
+                );
+              }
+            },
+            builder: (context, state) {
+              final List<Message> currentMessages = state is MessageLoaded 
+              ? state.messages 
+              : _messageBloc.currentMessages; 
+
+              return Column(
+                children: [
+                  if (_showProfilePanel) _buildProfilePanel(),
+                  
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        if (currentMessages.isNotEmpty)
+                          _buildMessageList(currentMessages),
+                        if (currentMessages.isEmpty)
+                          _emptyMessageWidget(),
+                        if (state is MessageLoading)
+                          _buildLoadingMessages(),
+                        if (state is MessageError)
+                          Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.error_outline,
+                                  size: 48,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Something went wrong',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ElevatedButton(
+                                  onPressed: _loadChatAndInitializeCompanion,
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        
+                        if (_isTyping)
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: _buildTypingIndicator(),
+                          ),
+                      ],
+                    ),
+                  ),
+                  
+                  ChatInputField(
+                    controller: _messageController,
+                    focusNode: _focusNode,
+                    onSend: _sendMessage,
+                    isTyping: _isTyping,
+                    isOnline: _isOnline,
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
