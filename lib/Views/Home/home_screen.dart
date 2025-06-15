@@ -11,6 +11,8 @@ import 'package:ai_companion/chat/conversation/conversation_state.dart';
 import 'package:ai_companion/utilities/Dialogs/generic_dialog.dart';
 import 'package:ai_companion/utilities/constants/textstyles.dart';
 import 'package:ai_companion/utilities/widgets/photo_viewer.dart' show ProfilePhotoViewer;
+import 'package:ai_companion/utilities/widgets/floating_connectivity_indicator.dart';
+import 'package:ai_companion/services/connectivity_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_animate/flutter_animate.dart';
@@ -34,6 +36,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   CustomAuthUser? _user;
   late AnimationController _drawerAnimationController;
   final Map<String, String?> _companionEmotions = {}; // Track emotions for each companion
+  late ConnectivityService _connectivityService;
+  bool _isOnline = true;
 
   @override
   void initState() {
@@ -61,6 +65,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     // Load conversations on startup
     _loadConversations();
+
+    _connectivityService = ConnectivityService();
+    _setupConnectivityListener();
+  }
+
+  void _setupConnectivityListener() {
+    _connectivityService.onConnectivityChanged.listen((isOnline) {
+      if (mounted && isOnline != _isOnline) {
+        setState(() {
+          _isOnline = isOnline;
+        });
+      }
+    });
   }
 
   @override
@@ -102,50 +119,52 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      backgroundColor: colorScheme.background,
-      body: Stack(
-        children: [
-          // Main content
-          _buildMainContent(colorScheme),
+    return FloatingConnectivityIndicator(
+      child: Scaffold(
+        backgroundColor: colorScheme.background,
+        body: Stack(
+          children: [
+            // Main content
+            _buildMainContent(colorScheme),
 
-          // Overlay for drawer
-          if (_isDrawerOpen)
-            GestureDetector(
-              onTap: _toggleDrawer,
-              child: AnimatedOpacity(
-                opacity: _isDrawerOpen ? 0.3 : 0.0,
-                duration: const Duration(milliseconds: 300),
-                child: Container(
-                  color: Colors.black,
+            // Overlay for drawer
+            if (_isDrawerOpen)
+              GestureDetector(
+                onTap: _toggleDrawer,
+                child: AnimatedOpacity(
+                  opacity: _isDrawerOpen ? 0.3 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Container(
+                    color: Colors.black,
+                  ),
                 ),
               ),
-            ),
-          
-          // Integrated drawer
-          _buildDrawer(colorScheme),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          if (_user != null) {
-            context.read<AuthBloc>().add(
-              AuthEventNavigateToCompanion(user: _user!),
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Please wait, loading Companion information...')),
-            );
-          }
-        },
-        backgroundColor: colorScheme.primary,
-        icon: const Icon(Icons.add),
-        label: const Text('New Companion'),
-        elevation: 3,
-      ).animate().scale(
-        duration: 400.ms,
-        curve: Curves.easeOutBack,
-        delay: 300.ms,
+            
+            // Integrated drawer
+            _buildDrawer(colorScheme),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () {
+            if (_user != null) {
+              context.read<AuthBloc>().add(
+                AuthEventNavigateToCompanion(user: _user!),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please wait, loading Companion information...')),
+              );
+            }
+          },
+          backgroundColor: colorScheme.primary,
+          icon: const Icon(Icons.add),
+          label: const Text('New Companion'),
+          elevation: 3,
+        ).animate().scale(
+          duration: 400.ms,
+          curve: Curves.easeOutBack,
+          delay: 300.ms,
+        ),
       ),
     );
   }
@@ -204,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
               const Spacer(),
 
-              // Search button
+              // Search button (removed network indicator)
               IconButton(
                 iconSize: 26,
                 icon: Icon(
@@ -639,6 +658,81 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
       } else if (conversations.isEmpty) {
         return _buildEmptyState();
+      }
+
+      // Show offline message if no conversations and offline
+      if (conversations.isEmpty && !_isOnline) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.wifi_off,
+                size: 80,
+                color: colorScheme.primary.withOpacity(0.5),
+              ).animate().scale(
+                duration: 600.ms,
+                curve: Curves.easeOutBack,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'You\'re offline',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onBackground,
+                ),
+              ).animate().fadeIn(
+                duration: 600.ms,
+                delay: 300.ms,
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Text(
+                  'Connect to the internet to load your conversations',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: colorScheme.onBackground.withOpacity(0.6),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ).animate().fadeIn(
+                duration: 600.ms,
+                delay: 600.ms,
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final isOnline = await _connectivityService.refreshConnectivity();
+                  if (isOnline) {
+                    _loadConversations();
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Still no internet connection'),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Check Connection'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ).animate().fadeIn(
+                duration: 600.ms,
+                delay: 900.ms,
+              ),
+            ],
+          ),
+        );
       }
 
       return ListView.builder(

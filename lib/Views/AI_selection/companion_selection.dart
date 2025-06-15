@@ -13,6 +13,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:card_swiper/card_swiper.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:ai_companion/utilities/widgets/floating_connectivity_indicator.dart';
 
 class CompanionSelectionPage extends StatefulWidget {
   const CompanionSelectionPage({super.key});
@@ -43,64 +44,66 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor:Color(0xFFE6F0F5),
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () {
-            context.read<AuthBloc>().add(AuthEventNavigateToHome(user: user));
+    return FloatingConnectivityIndicator(
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor:Color(0xFFE6F0F5),
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            onPressed: () {
+              context.read<AuthBloc>().add(AuthEventNavigateToHome(user: user));
+            },
+          ),
+          title: Text(
+          'Choose Your Companion',
+          style: AppTextStyles.displayMedium.copyWith(
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+          ),
+          centerTitle: true,
+        ),
+        body: BlocConsumer<CompanionBloc, CompanionState>(
+          listener: (context, state) {
+            if (state is CompanionError) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Failed to load companions - ${state.message}')),
+              );
+            }
+          },
+          builder: (BuildContext context, CompanionState state) {
+            if (state is CompanionLoading) {
+              return const Center(child: CircularProgressIndicator());
+            } 
+            if (state is CompanionError) {
+              return RetryActionButton();
+            }
+            if (state is CompanionLoaded) {
+              return Stack(
+                children: [
+                  _buildBackground(),
+                  SafeArea(
+                    child: Column(
+                      children: [
+                        // _buildHeader(),
+                        Expanded(
+                          child: 
+                            (state.companions.toList().isNotEmpty)?
+                              _buildSwiper(state.companions):
+                              const RetryActionButton(),
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }
+             return const Center(
+            child: Text('No companions available'),
+             );
           },
         ),
-        title: Text(
-        'Choose Your Companion',
-        style: AppTextStyles.displayMedium.copyWith(
-          color: Theme.of(context).colorScheme.onSurface,
-        ),
-        ),
-        centerTitle: true,
-      ),
-      body: BlocConsumer<CompanionBloc, CompanionState>(
-        listener: (context, state) {
-          if (state is CompanionError) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Failed to load companions - ${state.message}')),
-            );
-          }
-        },
-        builder: (BuildContext context, CompanionState state) {
-          if (state is CompanionLoading) {
-            return const Center(child: CircularProgressIndicator());
-          } 
-          if (state is CompanionError) {
-            return RetryActionButton();
-          }
-          if (state is CompanionLoaded) {
-            return Stack(
-              children: [
-                _buildBackground(),
-                SafeArea(
-                  child: Column(
-                    children: [
-                      // _buildHeader(),
-                      Expanded(
-                        child: 
-                          (state.companions.toList().isNotEmpty)?
-                            _buildSwiper(state.companions):
-                            const RetryActionButton(),
-                      ),
-                      const SizedBox(height: 4),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          }
-           return const Center(
-          child: Text('No companions available'),
-           );
-        },
       ),
     );
   }
