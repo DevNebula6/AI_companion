@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:ai_companion/services/connectivity_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/message_bloc/message_event.dart';
@@ -16,6 +16,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final ChatRepository _repository;
   final GeminiService _geminiService = GeminiService();
   final ChatCacheService _cacheService;
+  final ConnectivityService _connectivityService = ConnectivityService();
 
   String? _currentUserId;
   String? _currentCompanionId;
@@ -23,7 +24,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   List<Message> _currentMessages = [];
   
   // Offline support
-  bool IsOnline = true;
+  bool _isOnline = true;
   StreamSubscription? _connectivitySubscription;
   final List<Message> _pendingMessages = [];
   final String _pendingMessagesKey = 'pending_messages';
@@ -52,13 +53,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
   List<Message> get currentMessages => List<Message>.from(_currentMessages);
 
-  // Setup connectivity monitoring
+  // Setup connectivity monitoring using centralized service
   void _setupConnectivityListener() {
     try {
-      _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
-        final isOnline = result != ConnectivityResult.none;
-        if (isOnline != IsOnline) {
-          IsOnline = isOnline;
+      // Get initial status
+      _isOnline = _connectivityService.isOnline;
+      
+      // Listen to connectivity changes from centralized service
+      _connectivitySubscription = _connectivityService.onConnectivityChanged.listen((isOnline) {
+        if (isOnline != _isOnline) {
+          _isOnline = isOnline;
           add(ConnectivityChangedEvent(isOnline));
           
           // Process any pending messages when coming back online
@@ -67,24 +71,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           }
         }
       }, onError: (e) {
-        print('Connectivity stream error: $e');
-        // Assume online if connectivity check fails
-        if (!IsOnline) {
-          IsOnline = true;
-          add(ConnectivityChangedEvent(true));
-        }
+        print('Connectivity stream error in MessageBloc: $e');
       });
       
-      // Check initial connectivity
-      Connectivity().checkConnectivity().then((result) {
-        IsOnline = result != ConnectivityResult.none;
-      }).catchError((e) {
-        print('Initial connectivity check failed: $e');
-        IsOnline = true; // Assume online if check fails
-      });
     } catch (e) {
-      print('Failed to setup connectivity listener: $e');
-      IsOnline = true; // Assume online if setup fails
+      print('Failed to setup connectivity listener in MessageBloc: $e');
+      _isOnline = true;
     }
   }
 
@@ -93,11 +85,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     ConnectivityChangedEvent event,
     Emitter<MessageState> emit,
   ) async {
-    IsOnline = event.isOnline;
-    print('Message connectivity changed, online: $IsOnline');
+    _isOnline = event.isOnline;
+    print('MessageBloc connectivity changed, online: $_isOnline');
     
     // Process pending messages when back online
-    if (IsOnline && _pendingMessages.isNotEmpty) {
+    if (_isOnline && _pendingMessages.isNotEmpty) {
       add(ProcessPendingMessagesEvent());
     }
   }
@@ -107,7 +99,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     ProcessPendingMessagesEvent event,
     Emitter<MessageState> emit,
   ) async {
-    if (_pendingMessages.isEmpty || !IsOnline) return;
+    if (_pendingMessages.isEmpty || !_isOnline) return;
     
     print('Processing ${_pendingMessages.length} pending messages');
     
@@ -281,8 +273,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       final localMessage = event.message.copyWith();
       _currentMessages.add(localMessage);
       
-      // Mark message as pending if offline
-      final isPending = !IsOnline;
+      // Mark message as pending if offline (using centralized service)
+      final isPending = !_connectivityService.isOnline;
       
       // 2. Emit state with pending indicator if offline
       emit(MessageLoaded(
@@ -300,7 +292,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
 
       // 4. If offline, add to pending queue and return
-      if (!IsOnline) {
+      if (!_connectivityService.isOnline) {
         await _addPendingMessage(localMessage);
         return;
       }
@@ -389,7 +381,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       emit(MessageSent());
 
       // If online, send AI message to database
-      if (IsOnline) {
+      if (_isOnline) {
         await _repository.sendMessage(aiMessage);
         await _repository.updateConversation(
           userMessage.conversationId,
@@ -466,8 +458,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         ));
       }
 
-      // 3. If we're online, get messages from server
-      if (IsOnline) {
+      // 3. If we're online, get messages from server (using centralized service)
+      if (_connectivityService.isOnline) {
         try {
           final messages = await _repository.getMessages(event.userId, event.companionId);
 
@@ -664,7 +656,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   }
 
   Future<void> _onRefreshMessages(RefreshMessages event, Emitter<MessageState> emit) async {
-    if (!IsOnline) {
+    // Use centralized connectivity service
+    if (!_connectivityService.isOnline) {
       print('Skipping message refresh - device is offline');
       return;
     }
@@ -700,7 +693,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         }
       } catch (e) {
         print('Error refreshing messages: $e');
-        // Keep current state on error
       }
     }
   }
