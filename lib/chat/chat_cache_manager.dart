@@ -265,7 +265,7 @@ class ChatCacheService {
 
   // ===== NEW CONVERSATION CACHING METHODS =====
 
-  /// Cache all conversations for a user
+  /// Enhanced cache conversations method that preserves companion names
   Future<void> cacheConversations(String userId, List<Conversation> conversations) async {
     try {
       // Ensure conversations don't exceed max cache size
@@ -274,7 +274,17 @@ class ChatCacheService {
       }
       
       final key = _getConversationCacheKey(userId);
-      final data = conversations.map((c) => c.toJson()).toList();
+      
+      // Convert to JSON while preserving all data including companion names
+      final data = conversations.map((c) {
+        final json = c.toJson();
+        // Ensure companion_name is included
+        if (json['companion_name'] == null || json['companion_name'].toString().isEmpty) {
+          print('WARNING: Caching conversation ${c.id} without companion name');
+        }
+        return json;
+      }).toList();
+      
       await _prefs.setString(key, jsonEncode(data));
       await _updateConversationLastSync(userId);
       
@@ -283,35 +293,45 @@ class ChatCacheService {
       await _prefs.setStringList('${key}_companion_ids', companionIds);
       
       print('Cached ${conversations.length} conversations for user $userId');
+      
+      // Debug what was actually cached
+      print('Cached conversation names: ${conversations.map((c) => c.companionName).toList()}');
     } catch (e) {
       print('Error caching conversations: $e');
     }
   }
   
-  /// Get cached conversations for a user
+  /// Get cached conversations for a user with better error handling
   List<Conversation> getCachedConversations(String userId) {
     try {
       final key = _getConversationCacheKey(userId);
       final data = _prefs.getString(key);
       
       if (data == null || data.isEmpty) {
+        print('No cached conversations found for user $userId');
         return [];
       }
       
       final List<dynamic> jsonList = jsonDecode(data);
       final conversations = <Conversation>[];
       
-      // Need to handle the fact that Conversation.fromJson requires an AICompanion
-      // We'll need to reconstruct partial conversations with null companions
-      // (they'll be populated later when AICompanions are loaded)
+      print('Found ${jsonList.length} cached conversations in storage');
+      
       for (var json in jsonList) {
         try {
-          // Create a basic conversation without companion data
           final conversationMap = json as Map<String, dynamic>;
+          
+          // Enhanced validation
+          if (conversationMap['id'] == null || conversationMap['companion_id'] == null) {
+            print('Skipping invalid cached conversation: missing id or companion_id');
+            continue;
+          }
+          
           final conversation = Conversation(
             id: conversationMap['id'] ?? '',
             userId: conversationMap['user_id'] ?? '',
             companionId: conversationMap['companion_id'] ?? '',
+            companionName: conversationMap['companion_name'], // This should now be preserved
             lastMessage: conversationMap['last_message'],
             unreadCount: conversationMap['unread_count'] ?? 0,
             lastUpdated: conversationMap['last_updated'] != null 
@@ -320,19 +340,21 @@ class ChatCacheService {
             isPinned: conversationMap['is_pinned'] ?? false,
             metadata: conversationMap['metadata'] as Map<String, dynamic>? ?? {},
           );
+          
           conversations.add(conversation);
+          print('Loaded cached conversation: ${conversation.companionName} (${conversation.id})');
         } catch (e) {
           print('Error parsing cached conversation: $e');
         }
       }
       
+      print('Successfully loaded ${conversations.length} conversations from cache');
       return conversations;
     } catch (e) {
       print('Error getting cached conversations: $e');
       return [];
     }
   }
-
   /// Check if conversation cache needs syncing
   bool conversationsNeedSync(String userId) {
     final lastSync = _getConversationLastSync(userId);
@@ -409,5 +431,37 @@ class ChatCacheService {
   /// Check if we have any cached conversations
   bool hasCachedConversations(String userId) {
     return _prefs.containsKey(_getConversationCacheKey(userId));
+  }
+  
+  /// Debug method to check cache contents
+  void debugCacheContents(String userId) {
+    try {
+      final key = _getConversationCacheKey(userId);
+      final data = _prefs.getString(key);
+      
+      print('=== CONVERSATION CACHE DEBUG ===');
+      print('User ID: $userId');
+      print('Cache Key: $key');
+      print('Has Cache Data: ${data != null}');
+      
+      if (data != null) {
+        try {
+          final List<dynamic> jsonList = jsonDecode(data);
+          print('Cached Conversations Count: ${jsonList.length}');
+          
+          for (int i = 0; i < jsonList.length; i++) {
+            final conv = jsonList[i];
+            print('  [$i] ID: ${conv['id']}, CompanionID: ${conv['companion_id']}, CompanionName: ${conv['companion_name']}, LastMessage: ${conv['last_message']}');
+          }
+        } catch (e) {
+          print('Error parsing cached data: $e');
+        }
+      }
+      
+      print('All Conversation Cache Keys: ${_prefs.getKeys().where((k) => k.startsWith(_conversationCacheKeyPrefix)).toList()}');
+      print('===============================');
+    } catch (e) {
+      print('Debug cache error: $e');
+    }
   }
 }

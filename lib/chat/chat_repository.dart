@@ -235,8 +235,15 @@ class ChatRepository implements IChatRepository {
       for (final item in data) {
         final companionId = item['companion_id'].toString();
         if (companionsMap.containsKey(companionId)) {
+          final companion = companionsMap[companionId]!;
+          
+          // Ensure companion_name is populated in the conversation data
+          if (item['companion_name'] == null || item['companion_name'].toString().isEmpty) {
+            item['companion_name'] = companion.name;
+          }
+          
           conversations.add(
-              Conversation.fromJson(item, companionsMap[companionId]!)
+              Conversation.fromJson(item, companion)
           );
         }
       }
@@ -356,7 +363,7 @@ class ChatRepository implements IChatRepository {
       // Check for existing conversation
       final response = await _supabase
           .from('conversations')
-          .select('id')
+          .select('id, companion_name') // Include companion_name in select
           .eq('companion_id', companionId)
           .eq('user_id', userId)
           .limit(1)
@@ -367,12 +374,17 @@ class ChatRepository implements IChatRepository {
         return response['id'];
       }
 
-      // Create new conversation
+      // Get companion data before creating conversation
+      final companion = await getCompanion(companionId);
+      final companionName = companion?.name ?? 'Unknown Companion';
+
+      // Create new conversation with companion name
       final newConversation = await _supabase
           .from('conversations')
           .insert({
         'user_id': userId,
         'companion_id': companionId,
+        'companion_name': companionName, // Store companion name
         'unread_count': 0,
         'last_message': 'Start a conversation',
         'last_updated': DateTime.now().toIso8601String(),

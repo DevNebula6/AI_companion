@@ -78,11 +78,16 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       }
     });
     
-    _connectivityService = ConnectivityService();
+    // Use injected connectivity service for better performance
+    _connectivityService = context.read<ConnectivityService>();
     _setupConnectivityMonitoring();
   }
   
   void _setupConnectivityMonitoring() {
+    // Get initial status
+    _isOnline = _connectivityService.isOnline;
+    
+    // Listen to changes from centralized service
     _connectivityService.onConnectivityChanged.listen((isOnline) {
       if (mounted && isOnline != _isOnline) {
         setState(() {

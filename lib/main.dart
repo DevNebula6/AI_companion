@@ -27,6 +27,7 @@ import 'package:ai_companion/themes/theme.dart';
 import 'package:ai_companion/utilities/Loading/loading_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ai_companion/services/connectivity_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +45,9 @@ Future<void> _initializeCoreServices() async {
     await supabaseManager.initialize();
 
     final prefs = await SharedPreferences.getInstance();
+
+    // Initialize connectivity service early for app-wide usage
+    final connectivityService = ConnectivityService();
 
     // Initialize Hive in parallel
     final hiveInitFuture = HiveService.initHive()
@@ -64,10 +68,15 @@ Future<void> _initializeCoreServices() async {
     runApp(
       MultiProvider(
         providers: [
+          // Provide ConnectivityService as singleton
+          Provider<ConnectivityService>.value(value: connectivityService),
+          
           // Provide ChatRepository instance
           Provider<ChatRepository>.value(value: chatRepository),
+          
           // Provide ChatCacheService
           Provider<ChatCacheService>.value(value: chatCacheService),
+          
           // --- BLoC Providers ---
           BlocProvider<AuthBloc>(
             create: (context) {
@@ -187,7 +196,7 @@ class MainApp extends StatelessWidget {
         key: ValueKey('ChatPage_${state.conversationId}'),
         conversationId: state.conversationId,
         companion: state.companion,
-        navigationSource: state.navigationSource, // Pass the navigation source
+        navigationSource: state.navigationSource,
       );
     } else {
       return Scaffold(

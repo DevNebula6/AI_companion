@@ -66,11 +66,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Load conversations on startup
     _loadConversations();
 
-    _connectivityService = ConnectivityService();
+    // Use injected connectivity service for better performance
+    _connectivityService = context.read<ConnectivityService>();
     _setupConnectivityListener();
   }
 
   void _setupConnectivityListener() {
+    // Get initial status
+    _isOnline = _connectivityService.isOnline;
+    
+    // Listen to changes from centralized service
     _connectivityService.onConnectivityChanged.listen((isOnline) {
       if (mounted && isOnline != _isOnline) {
         setState(() {
@@ -572,17 +577,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _updateConversationEmotion(conversation);
       }
 
-      // Debug any search issues - enhanced with more details
-      if (_searchQuery.isNotEmpty) {
-        print('Searching for: "$_searchQuery"');
-        print('All conversations before filtering:');
-        for (var conversation in conversations) {
-          print('Conversation ${conversation.id}: '
-                'companionId=${conversation.companionId}, '
-                'companionName=${conversation.companionName ?? "NULL"}, '
-                'lastMessage=${conversation.lastMessage?.substring(0, 20) ?? "NULL"}');
-        }
-      }
 
       // Updated search filtering with better null handling and debugging
       if (_searchQuery.isNotEmpty) {
@@ -660,8 +654,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         return _buildEmptyState();
       }
 
-      // Show offline message if no conversations and offline
-      if (conversations.isEmpty && !_isOnline) {
+      // Show offline message if no conversations and offline (using centralized service)
+      if (conversations.isEmpty && !_connectivityService.isOnline) {
         return Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,

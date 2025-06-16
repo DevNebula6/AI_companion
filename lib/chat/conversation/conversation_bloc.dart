@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:ai_companion/auth/custom_auth_user.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:ai_companion/chat/conversation.dart' show Conversation;
+import 'package:ai_companion/services/connectivity_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/chat/chat_cache_manager.dart';
@@ -10,6 +11,8 @@ import 'conversation_state.dart';
 class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
   final ChatRepository _repository;
   final ChatCacheService _cacheService;
+  final ConnectivityService _connectivityService = ConnectivityService();
+  
   StreamSubscription? _conversationSubscription;
   StreamSubscription? _connectivitySubscription;
   Timer? _refreshTimer;
@@ -28,15 +31,18 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
     on<UpdateConversationMetadata>(_onUpdateMetadata);
     on<ConnectivityChangedEvent>(_onConnectivityChanged);
     on<ClearAllCacheForUser>(_onClearAllCacheForUser);
-    // Monitor connectivity changes
+    
+    // Use centralized connectivity service
     _setupConnectivityListener();
   }
   
   void _setupConnectivityListener() {
     try {
-      // Safe connectivity initialization
-      _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
-        final isOnline = result != ConnectivityResult.none;
+      // Get initial status
+      _isOnline = _connectivityService.isOnline;
+      
+      // Listen to connectivity changes from centralized service
+      _connectivitySubscription = _connectivityService.onConnectivityChanged.listen((isOnline) {
         if (isOnline != _isOnline) {
           _isOnline = isOnline;
           add(ConnectivityChangedEvent(isOnline));
@@ -47,25 +53,11 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
           }
         }
       }, onError: (e) {
-        print('Connectivity stream error: $e');
-        // Assume online if connectivity check fails
-        if (!_isOnline) {
-          _isOnline = true;
-          add(ConnectivityChangedEvent(true));
-        }
+        print('Connectivity stream error in ConversationBloc: $e');
       });
       
-      // Check initial connectivity safely
-      Connectivity().checkConnectivity().then((result) {
-        _isOnline = result != ConnectivityResult.none;
-      }).catchError((e) {
-        print('Initial connectivity check failed: $e');
-        // Assume online if connectivity check fails
-        _isOnline = true;
-      });
     } catch (e) {
-      print('Failed to setup connectivity listener: $e');
-      // Assume online if setup fails
+      print('Failed to setup connectivity listener in ConversationBloc: $e');
       _isOnline = true;
     }
   }
@@ -74,10 +66,8 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
     ConnectivityChangedEvent event,
     Emitter<ConversationState> emit,
   ) async {
-    // No need to emit a new state, just update internal flag
-    // This event is primarily to trigger syncing when connectivity is restored
     _isOnline = event.isOnline;
-    print('Connectivity changed, online: $_isOnline');
+    print('ConversationBloc connectivity changed, online: $_isOnline');
   }
   
   Future<void> _onLoadConversations(
@@ -87,61 +77,107 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
     try {
       _currentUserId = event.userId;
       
-      // Check for cached data first
-      final hasCachedData = _cacheService.hasCachedConversations(event.userId);
+      // DEBUG: Check what's in cache first
+      _cacheService.debugCacheContents(event.userId);
       
-      // Initially load from cache if available
-      if (hasCachedData) {
-        final cachedConversations = _cacheService.getCachedConversations(event.userId);
-        if (cachedConversations.isNotEmpty) {
-          emit(ConversationLoaded(
-            conversations: cachedConversations,
-            pinnedConversations: cachedConversations.where((c) => c.isPinned).toList(),
-            regularConversations: cachedConversations.where((c) => !c.isPinned).toList(),
-            isFromCache: true,
-          ));
-        }
+      // Always try to load from cache first for immediate response
+      final cachedConversations = _cacheService.getCachedConversations(event.userId);
+      
+      if (cachedConversations.isNotEmpty) {
+        print('Loading ${cachedConversations.length} cached conversations for user ${event.userId}');
+        // Enrich cached conversations with companion names if missing
+        final enrichedConversations = await _enrichConversationsWithCompanionNames(cachedConversations);
+        
+        emit(ConversationLoaded(
+          conversations: enrichedConversations,
+          pinnedConversations: enrichedConversations.where((c) => c.isPinned).toList(),
+          regularConversations: enrichedConversations.where((c) => !c.isPinned).toList(),
+          isFromCache: true,
+        ));
       } else if (state is! ConversationLoaded) {
-        // Only show loading if we don't have any data
         emit(ConversationLoading());
       }
       
-      // If we're offline and have cached data, don't try to fetch from network
-      if (!_isOnline && hasCachedData) {
-        print('Using cached conversations while offline');
+      // Check connectivity using centralized service
+      if (!_connectivityService.isOnline) {
+        print('App is offline. Using cached conversations only.');
+        if (cachedConversations.isEmpty) {
+          emit(ConversationLoaded(
+            conversations: [],
+            pinnedConversations: [],
+            regularConversations: [],
+            isFromCache: true,
+            hasError: false,
+          ));
+        }
         return;
       }
       
-      // Load from network
-      final conversations = await _repository.getConversations(event.userId);
-      
-      // Cache the conversations
-      await _cacheService.cacheConversations(event.userId, conversations);
-      
-      // Update state
-      emit(ConversationLoaded(
-        conversations: conversations,
-        pinnedConversations: conversations.where((c) => c.isPinned).toList(),
-        regularConversations: conversations.where((c) => !c.isPinned).toList(),
-        isFromCache: false,
-      ));
-    } catch (e) {
-      print('Error loading conversations: $e');
-      
-      // If we have cached data, use that on error
-      if (_cacheService.hasCachedConversations(event.userId)) {
-        final cachedConversations = _cacheService.getCachedConversations(event.userId);
+      // If we're online, try to sync with server
+      try {
+        print('App is online. Syncing conversations with server...');
+        final conversations = await _repository.getConversations(event.userId);
+        
+        // Enrich conversations with companion names
+        final enrichedConversations = await _enrichConversationsWithCompanionNames(conversations);
+        
+        // Cache the fresh conversations with companion names
+        await _cacheService.cacheConversations(event.userId, enrichedConversations);
+        
+        // Update state with fresh data
         emit(ConversationLoaded(
-          conversations: cachedConversations,
-          pinnedConversations: cachedConversations.where((c) => c.isPinned).toList(),
-          regularConversations: cachedConversations.where((c) => !c.isPinned).toList(),
-          isFromCache: true,
-          hasError: true,
+          conversations: enrichedConversations,
+          pinnedConversations: enrichedConversations.where((c) => c.isPinned).toList(),
+          regularConversations: enrichedConversations.where((c) => !c.isPinned).toList(),
+          isFromCache: false,
         ));
+      } catch (e) {
+        print('Error syncing conversations with server: $e');
+        
+        // If sync fails but we have cached data, keep using cache
+        if (cachedConversations.isNotEmpty) {
+          final enrichedConversations = await _enrichConversationsWithCompanionNames(cachedConversations);
+          emit(ConversationLoaded(
+            conversations: enrichedConversations,
+            pinnedConversations: enrichedConversations.where((c) => c.isPinned).toList(),
+            regularConversations: enrichedConversations.where((c) => !c.isPinned).toList(),
+            isFromCache: true,
+            hasError: true,
+          ));
+        } else {
+          emit(ConversationError('Failed to load conversations: $e'));
+        }
+      }
+    } catch (e) {
+      print('Error in _onLoadConversations: $e');
+      emit(ConversationError('Failed to load conversations: $e'));
+    }
+  }
+  
+  // Helper method to enrich conversations with companion names
+  Future<List<Conversation>> _enrichConversationsWithCompanionNames(List<Conversation> conversations) async {
+    final enrichedConversations = <Conversation>[];
+    
+    for (final conversation in conversations) {
+      if (conversation.companionName == null || conversation.companionName!.isEmpty) {
+        // Try to get companion data to populate the name
+        try {
+          final companion = await _repository.getCompanion(conversation.companionId);
+          if (companion != null) {
+            enrichedConversations.add(conversation.copyWith(companionName: companion.name));
+          } else {
+            enrichedConversations.add(conversation);
+          }
+        } catch (e) {
+          print('Error getting companion ${conversation.companionId}: $e');
+          enrichedConversations.add(conversation);
+        }
       } else {
-        emit(ConversationError('Failed to load conversations: $e'));
+        enrichedConversations.add(conversation);
       }
     }
+    
+    return enrichedConversations;
   }
   
   Future<void> _onConversationsUpdated(
@@ -187,7 +223,6 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         
         // Also update the cache
         if (_currentUserId != null) {
-          // Find conversation safely without using orElse: () => null
           final matchingConversations = updatedConversations
               .where((c) => c.id == event.conversationId)
               .toList();
@@ -201,13 +236,12 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         }
       }
       
-      // Update the database if online
-      if (_isOnline) {
+      // Update the database if online (using centralized service)
+      if (_connectivityService.isOnline) {
         await _repository.markConversationAsRead(event.conversationId);
       }
     } catch (e) {
       print('Error marking conversation as read: $e');
-      // Don't emit error state to prevent UI disruption
     }
   }
   
@@ -250,7 +284,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       }
       
       // Update the database if online
-      if (_isOnline) {
+      if (_connectivityService.isOnline) {
         await _repository.togglePinConversation(
           event.conversationId, 
           event.isPinned
@@ -300,7 +334,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       }
       
       // If we have internet, delete from the server
-      if (_isOnline) {
+      if (_connectivityService.isOnline) {
         // Delete from database
         await _repository.deleteConversation(event.conversationId);
         
@@ -346,6 +380,42 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         
         emit(ConversationCreated(conversationId));
         
+        // **FIX: Immediately cache the new conversation**
+        try {
+          final companion = await _repository.getCompanion(event.companionId);
+          if (companion != null) {
+            final newConversation = Conversation(
+              id: conversationId,
+              userId: userId,
+              companionId: event.companionId,
+              companionName: companion.name, // Include companion name
+              lastMessage: 'Start a conversation',
+              unreadCount: 0,
+              lastUpdated: DateTime.now(),
+              isPinned: false,
+              metadata: {'relationship_level': 1},
+            );
+            
+            // Add to cache immediately
+            await _cacheService.updateCachedConversation(userId, newConversation);
+            
+            // Update local state
+            if (state is ConversationLoaded) {
+              final currentState = state as ConversationLoaded;
+              final updatedConversations = [newConversation, ...currentState.conversations];
+              
+              emit(ConversationLoaded(
+                conversations: updatedConversations,
+                pinnedConversations: updatedConversations.where((c) => c.isPinned).toList(),
+                regularConversations: updatedConversations.where((c) => !c.isPinned).toList(),
+                isFromCache: currentState.isFromCache,
+              ));
+            }
+          }
+        } catch (e) {
+          print('Error caching new conversation: $e');
+        }
+        
         // Refresh conversation list with the new conversation
         add(RefreshConversations(userId: userId));
       } else {
@@ -379,7 +449,6 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       // Update local state first
       if (state is ConversationLoaded && _currentUserId != null) {
         final currentState = state as ConversationLoaded;
-        // Find conversation safely without using orElse: () => null
         final matchingConversations = currentState.conversations
             .where((c) => c.id == event.conversationId)
             .toList();
@@ -413,13 +482,13 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
             isFromCache: currentState.isFromCache,
           ));
           
-          // Update cache
+          // **FIX: Always update cache immediately**
           await _cacheService.updateCachedConversation(_currentUserId!, updatedConversation);
         }
       }
       
       // Update the database if online
-      if (_isOnline) {
+      if (_connectivityService.isOnline) {
         await _repository.updateConversationMetadata(
           event.conversationId,
           updates: updates,
@@ -430,7 +499,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       // Don't emit error state to prevent UI disruption
     }
   }
-  
+
   @override
   Future<void> close() {
     _conversationSubscription?.cancel();
@@ -443,8 +512,8 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
     RefreshConversations event, 
     Emitter<ConversationState> emit
   ) async {
-    // Skip if offline
-    if (!_isOnline) {
+    // Skip if offline (using centralized service)
+    if (!_connectivityService.isOnline) {
       print('Skipping refresh while offline');
       return;
     }
@@ -465,7 +534,6 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       ));
     } catch (e) {
       print('Error refreshing conversations: $e');
-      // On error, keep current state if possible
     }
   }
 

@@ -141,7 +141,7 @@ class _FloatingConnectivityIndicatorState extends State<FloatingConnectivityIndi
 
   Widget _buildFloatingIndicator() {
     return Positioned(
-      top: MediaQuery.of(context).padding.top + 10,
+      bottom: MediaQuery.of(context).padding.bottom + 10,
       left: 16,
       right: 16,
       child: SlideTransition(
