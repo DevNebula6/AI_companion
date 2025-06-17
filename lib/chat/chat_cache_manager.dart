@@ -202,31 +202,6 @@ class ChatCacheService {
   String _getLastSyncKey(String userId, {String? companionId}) => 
     companionId != null ? '$_lastSyncKey${userId}_$companionId' : '$_lastSyncKey$userId';
 
-  // Updated clear cache method that can target specific companions
-  Future<void> clearCache(String userId, {String? companionId}) async {
-    try {
-      if (companionId != null) {
-        // Clear companion-specific cache
-        final key = _getCompanionCacheKey(userId, companionId);
-        await _prefs.remove(key);
-        await _prefs.remove(_getLastSyncKey(userId, companionId: companionId));
-        print('Cleared cache for user $userId and companion $companionId');
-      } else {
-        // Clear all user caches
-        final allKeys = _prefs.getKeys();
-        final userKeys = allKeys.where((key) => 
-          (key.startsWith('$_cacheKeyPrefix$userId') || 
-           key.startsWith('$_lastSyncKey$userId')));
-        
-        for (final key in userKeys) {
-          await _prefs.remove(key);
-        }
-        print('Cleared all caches for user $userId');
-      }
-    } catch (e) {
-      print('Failed to clear cache: $e');
-    }
-  }
 
   // Paginated access to cached messages
   List<Message> getCachedMessagesPaginated(String userId, {
@@ -395,18 +370,6 @@ class ChatCacheService {
     }
   }
   
-  /// Clear all conversations for a user
-  Future<void> clearConversationsCache(String userId) async {
-    try {
-      final key = _getConversationCacheKey(userId);
-      await _prefs.remove(key);
-      await _prefs.remove('${key}_companion_ids');
-      await _prefs.remove(_getConversationLastSyncKey(userId));
-      print('Cleared conversations cache for user $userId');
-    } catch (e) {
-      print('Error clearing conversations cache: $e');
-    }
-  }
   
   /// Helper to update last sync time for conversations
   Future<void> _updateConversationLastSync(String userId) async {
@@ -462,6 +425,164 @@ class ChatCacheService {
       print('===============================');
     } catch (e) {
       print('Debug cache error: $e');
+    }
+  }
+  /// Clear ALL caches for a specific user (used during logout)
+  Future<void> clearAllUserCaches(String userId) async {
+    try {
+      print('Starting comprehensive cache clear for user $userId');
+      
+      // 1. Clear conversation caches
+      await clearConversationsCache(userId);
+      
+      // 2. Clear all message caches for this user
+      await clearCache(userId); // This clears all message caches
+      
+      // 3. Clear any remaining user-specific keys
+      final allKeys = _prefs.getKeys();
+      final userSpecificKeys = allKeys.where((key) => 
+        (key.startsWith('$_cacheKeyPrefix$userId') ||
+        key.contains('user_data') ||
+        key.startsWith('$_lastSyncKey$userId') ||
+        key.startsWith('$_conversationCacheKeyPrefix$userId') ||
+        key.contains('gemini_companion_state_v2_$userId') ||
+        key.contains('companion_memory_$userId') ||
+        key.startsWith('$_conversationLastSyncKey$userId')) &&
+        // Preserve system-level settings
+        !key.startsWith(_cacheVersionKey) &&
+        key != 'isInitialized'
+      );
+      
+      for (final key in userSpecificKeys) {
+        await _prefs.remove(key);
+      }
+
+      // 5. Reset general cache flags
+      await _prefs.remove('hasCache');
+
+      print('Completed comprehensive cache clear for user $userId. Cleared ${userSpecificKeys.length} additional keys.');
+    } catch (e) {
+      print('Error in comprehensive user cache clear: $e');
+    }
+  }
+
+  /// **NEW: Force cache rebuild after login**
+  Future<void> initializeForNewUser(String userId) async {
+    try {
+      // Clear any stale data first
+      await clearAllUserCaches(userId);
+      
+      // Set initialization flag
+      await _prefs.setBool('cache_initialized_$userId', true);
+      
+      print('Initialized cache for new user $userId');
+    } catch (e) {
+      print('Error initializing cache for new user: $e');
+    }
+  }
+  /// Enhanced clear conversations cache with better cleanup
+  Future<void> clearConversationsCache(String userId) async {
+    try {
+      final key = _getConversationCacheKey(userId);
+      
+      // Remove all conversation-related keys
+      await _prefs.remove(key);
+      await _prefs.remove('${key}_companion_ids');
+      await _prefs.remove(_getConversationLastSyncKey(userId));
+      
+      // Also remove any orphaned conversation keys
+      final allKeys = _prefs.getKeys();
+      final conversationKeys = allKeys.where((k) => 
+        k.startsWith('conversations_$userId') ||
+        k.startsWith('conversation_last_sync_$userId'));
+      
+      for (final orphanKey in conversationKeys) {
+        await _prefs.remove(orphanKey);
+      }
+      
+      print('Cleared conversations cache for user $userId');
+    } catch (e) {
+      print('Error clearing conversations cache: $e');
+    }
+  }
+
+  /// Enhanced clear cache with companion-specific cleanup
+  Future<void> clearCache(String userId, {String? companionId}) async {
+    try {
+      if (companionId != null) {
+        // Clear companion-specific cache
+        final key = _getCompanionCacheKey(userId, companionId);
+        await _prefs.remove(key);
+        await _prefs.remove(_getLastSyncKey(userId, companionId: companionId));
+        print('Cleared cache for user $userId and companion $companionId');
+      } else {
+        // Clear ALL message caches for user
+        final allKeys = _prefs.getKeys();
+        final userMessageKeys = allKeys.where((key) => 
+          key.startsWith('$_cacheKeyPrefix$userId') || 
+          key.startsWith('$_lastSyncKey$userId'));
+        
+        for (final key in userMessageKeys) {
+          await _prefs.remove(key);
+        }
+        print('Cleared all message caches for user $userId. Removed ${userMessageKeys.length} keys.');
+      }
+    } catch (e) {
+      print('Failed to clear cache: $e');
+    }
+  }
+
+  /// Debug method to test complete cache lifecycle
+  Future<void> debugCacheLifecycle(String userId) async {
+    try {
+      print('=== CACHE LIFECYCLE TEST ===');
+      
+      final prefs = await SharedPreferences.getInstance();
+      final chatCache = ChatCacheService(prefs);
+      
+      // 1. Test cache creation
+      print('1. Testing cache creation...');
+      final testMessages = [
+        Message(
+          id: 'test1',
+          message: 'Test message',
+          userId: userId,
+          companionId: 'companion1',
+          conversationId: 'conv1',
+          isBot: false,
+          created_at: DateTime.now(),
+        ),
+      ];
+      await chatCache.cacheMessages(userId, testMessages, companionId: 'companion1');
+      print('✅ Messages cached');
+      
+      // 2. Test cache retrieval
+      print('2. Testing cache retrieval...');
+      final cachedMessages = chatCache.getCachedMessages(userId, companionId: 'companion1');
+      print('✅ Retrieved ${cachedMessages.length} messages');
+      
+      // 3. Test cache clearing
+      print('3. Testing cache clearing...');
+      await chatCache.clearAllUserCaches(userId);
+      final afterClear = chatCache.getCachedMessages(userId, companionId: 'companion1');
+      print('✅ After clear: ${afterClear.length} messages (should be 0)');
+      
+      // 4. Verify no user data remains
+      final allKeys = prefs.getKeys();
+      final remainingUserKeys = allKeys.where((key) => key.contains(userId)).toList();
+      
+      if (remainingUserKeys.isEmpty) {
+        print('✅ CACHE LIFECYCLE TEST PASSED');
+      } else {
+        print('❌ CACHE LIFECYCLE TEST FAILED: ${remainingUserKeys.length} keys remain');
+        for (final key in remainingUserKeys) {
+          print('  - $key');
+        }
+      }
+      
+      print('============================');
+    } catch (e) {
+      print('❌ CACHE LIFECYCLE TEST ERROR: $e');
     }
   }
 }
