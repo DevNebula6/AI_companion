@@ -549,11 +549,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     if (shouldLogout) {
       _toggleDrawer();
-      // Clear all user cache 
-      // context.read<ConversationBloc>().add(const ClearAllCacheForUser());
-
-      // Perform logout
-      context.read<AuthBloc>().add(const AuthEventLogOut());
+      
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Signing out...'),
+            ],
+          ),
+        ),
+      );
+      
+      try {
+        // Clear all user cache before logout
+        if (_user != null) {
+          context.read<ConversationBloc>().add(ClearAllCacheForUser());
+          
+          // Give a moment for cache clearing to complete
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+        
+        // Perform logout
+        context.read<AuthBloc>().add(const AuthEventLogOut());
+        Navigator.of(context).pop();
+      } catch (e) {
+        // Close loading dialog
+        Navigator.of(context).pop();
+        
+        // Show error
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error during logout: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

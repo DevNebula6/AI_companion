@@ -114,11 +114,10 @@ class SupabaseAuthProvider implements AuthProvider {
         scope: SignOutScope.local,
       );
       _cachedUser = null;
-      
-      // Clear user data from SharedPreferences
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('user_data');
-      
+
     } catch (e) {
       _log.warning('Error during logout: $e');
       throw LogoutException();

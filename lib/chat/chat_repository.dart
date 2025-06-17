@@ -531,24 +531,41 @@ class ChatRepository implements IChatRepository {
 
   @override
   Future<void> clearMessageCache({
-    required String userId, 
+    required String userId,
     required String companionId
   }) async {
-    await _ensureInitialized();
-    
     try {
-      // Get cache service instance
       final cacheService = await _getCacheService();
-      
-      // Clear messages from cache
       await cacheService.clearCache(userId, companionId: companionId);
+      
+      // **FIX: Also clear companion state from GeminiService**
+      await GeminiService().clearCompanionState(userId, companionId);
       
       print('Cleared message cache for user $userId and companion $companionId');
     } catch (e) {
       print('Error clearing message cache: $e');
     }
   }
-  
+
+  /// Clear all caches for a user
+  Future<void> clearAllUserCaches(String userId) async {
+    try {
+      final cacheService = await _getCacheService();
+      await cacheService.clearAllUserCaches(userId);
+      
+      // Clear companion states
+      await GeminiService().clearAllUserStates(userId);
+      
+      // Clear memory cache
+      _memoryCache.clear();
+      _cacheAccessTimes.clear();
+      
+      print('Cleared all caches for user $userId');
+    } catch (e) {
+      print('Error clearing all user caches: $e');
+    }
+  }
+
   Future<ChatCacheService> _getCacheService() async {
     final prefs = await SharedPreferences.getInstance();
     return ChatCacheService(prefs);

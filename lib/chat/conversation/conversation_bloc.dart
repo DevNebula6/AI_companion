@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/conversation.dart' show Conversation;
+import 'package:ai_companion/chat/gemini/gemini_service.dart' show GeminiService;
 import 'package:ai_companion/services/connectivity_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
@@ -338,6 +339,9 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         // Delete from database
         await _repository.deleteConversation(event.conversationId);
         
+        // Delete that conversation from the cache
+        await _cacheService.removeCachedConversation(_currentUserId!, event.conversationId);
+
         // Delete messages from cache if we have the companion ID
         if (companionId != null && _currentUserId != null) {
           await _repository.clearMessageCache(
@@ -537,16 +541,30 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
     }
   }
 
-  FutureOr<void> _onClearAllCacheForUser(
+  Future<void> _onClearAllCacheForUser(
     ClearAllCacheForUser event, 
     Emitter<ConversationState> emit
-    ) {
+  ) async {
+    try {
       if (_currentUserId != null) {
-        // Clear all cached conversations for the user
-        _cacheService.clearConversationsCache(_currentUserId!);
-        // Emit a state to indicate that the cache has been cleared
-        // emit(ConversationLoading());
+        
+        // 2. Clear companion states from GeminiService
+        await GeminiService().clearAllUserStates(_currentUserId!);
+        
+        // 3. Clear any chat repository caches
+        await _repository.clearAllUserCaches(_currentUserId!);
+      
+        // Reset current state
+        _currentUserId = null;
+        
+        // Emit initial state
+        emit(ConversationInitial());
+        
+        print('Cleared all conversation caches for user logout');
       }
+    } catch (e) {
+      print('Error clearing all cache for user: $e');
+    }
   }
 }
 
