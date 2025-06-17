@@ -706,39 +706,6 @@ class GeminiService {
     }
   }
 
-  /// Clears state from memory and storage for a specific user-companion pair.
-  Future<void> clearCompanionState(String userId, String companionId) async {
-    final key = _getCompanionStateKey(userId, companionId);
-    _log.info('Clearing state for key: $key');
-
-    // Use mutex for thread safety
-    await _stateOperationMutex.acquire();
-
-    try {
-      // Remove from memory cache
-      _companionStates.remove(key);
-      _stateAccessTimes.remove(key);
-
-      // If this was the active companion, clear the active key
-      if (_activeCompanionKey == key) {
-        _activeCompanionKey = null;
-        _log.info('Cleared active companion key.');
-      }
-
-      // Remove from persistent storage
-      if (!_prefsInitialized) await _initPrefs();
-      if (_prefsInitialized) {
-        await _prefs.remove('$_prefsKeyPrefix$key');
-        _log.fine('Removed state from storage for key: $key');
-      }
-    } catch (e) {
-      _log.warning('Failed to clear state: $e');
-      rethrow;
-    } finally {
-      _stateOperationMutex.release();
-    }
-  }
-
   /// Resets the conversation history and related metrics for the currently active companion.
   Future<void> resetConversation() async {
     if (_activeCompanionKey == null || !_companionStates.containsKey(_activeCompanionKey!)) {
@@ -951,6 +918,63 @@ class GeminiService {
   }
 
   // --- Cleanup ---
+  /// Clear all companion states for a specific user (for logout)
+  Future<void> clearAllUserStates(String userId) async {
+    if (!_prefsInitialized) await _initPrefs();
+    if (!_prefsInitialized) return;
+
+    await _stateOperationMutex.acquire();
+    try {
+      // Clear from memory cache
+      final keysToRemove = _companionStates.keys
+          .where((key) => key.startsWith('${userId}_'))
+          .toList();
+      
+      for (final key in keysToRemove) {
+        _companionStates.remove(key);
+        _stateAccessTimes.remove(key);
+      }
+
+      // Clear from persistent storage
+      final allKeys = _prefs.getKeys()
+          .where((key) => key.startsWith('${_prefsKeyPrefix}${userId}_'))
+          .toList();
+
+      for (final key in allKeys) {
+        await _prefs.remove(key);
+      }
+
+      _log.info('Cleared all companion states for user $userId (${allKeys.length} keys removed)');
+    } catch (e) {
+      _log.severe('Error clearing user companion states: $e');
+    } finally {
+      _stateOperationMutex.release();
+    }
+  }
+
+  /// Clear state for a specific companion
+  Future<void> clearCompanionState(String userId, String companionId) async {
+    if (!_prefsInitialized) await _initPrefs();
+    if (!_prefsInitialized) return;
+
+    await _stateOperationMutex.acquire();
+    try {
+      final key = _getCompanionStateKey(userId, companionId);
+      
+      // Remove from memory
+      _companionStates.remove(key);
+      _stateAccessTimes.remove(key);
+      
+      // Remove from storage
+      await _prefs.remove('$_prefsKeyPrefix$key');
+      
+      _log.info('Cleared companion state for $companionId');
+    } catch (e) {
+      _log.severe('Error clearing companion state: $e');
+    } finally {
+      _stateOperationMutex.release();
+    }
+  }
   /// Call this on app shutdown or when service is no longer needed.
   Future<void> dispose() async {
     _log.info('Disposing GeminiService...');
