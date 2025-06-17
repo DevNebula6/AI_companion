@@ -119,7 +119,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   void dispose() {
     // Ensure conversation data is updated when leaving the chat page
     _syncConversationOnExit();
-    
+    _markConversationAsRead();
     _messageController.dispose();
     _focusNode.dispose();
     _scrollController.dispose();
@@ -127,7 +127,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _typingSubscription?.cancel();
     super.dispose();
   }
-  
+
+  // 
+  void _markConversationAsRead() {
+    if (widget.conversationId.isEmpty) return;
+    
+    try {
+      // Use the stored bloc reference instead of context.read
+      _conversationBloc.add(MarkConversationAsRead(widget.conversationId));
+      print('Marked conversation as read: ${widget.conversationId}');
+    } catch (e) {
+      print('Error marking conversation as read: $e');
+    }
+  }
+
   // Modified sync method to avoid context dependency
   void _syncConversationOnExit() {
     if (widget.conversationId.isEmpty) return;
@@ -527,6 +540,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       child: WillPopScope(
         onWillPop: () async {
           _syncConversationOnExit();
+          _markConversationAsRead();
           return true;
         },
         child: Scaffold(
@@ -786,4 +800,5 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       ));
     }
   }
+  
 }
