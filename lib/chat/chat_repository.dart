@@ -296,7 +296,7 @@ class ChatRepository implements IChatRepository {
     // Fallback to database
     try {
       final companionData = await _supabase
-          .from('companions')
+          .from('ai_companions')
           .select()
           .eq('id', companionId)
           .single();

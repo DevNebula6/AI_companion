@@ -14,9 +14,20 @@ class CompanionState {
 
   // Transient fields, not stored directly in JSON, recreated on load
   ChatSession? chatSession;
-  AICompanion? companion; // Loaded separately when needed
+  AICompanion? _companion; // Loaded separately when needed
 
   static const int maxStoredHistoryLength = 30; // Limit history stored in JSON
+  
+  AICompanion get companion {
+    if (_companion == null) {
+      throw StateError('Companion not loaded. Call loadCompanion() first.');
+    }
+    return _companion!;
+  }
+  
+  // **FIXED: Companion setter**
+  set companion(AICompanion comp) => _companion = comp;
+  bool get hasCompanion => _companion != null;
 
   CompanionState({
     required this.userId,
@@ -27,46 +38,47 @@ class CompanionState {
     required this.relationshipLevel,
     this.dominantEmotion,
     this.chatSession, // Optional initial session
-    this.companion, // Optional initial companion
-  }) {
+  })
+  {
     if (relationshipLevel < 1 || relationshipLevel > 5) {
       relationshipLevel = 1; // Default to 1 if invalid
       print('Warning: Invalid relationshipLevel corrected to 1.');
     }
     // Note: History trimming for the *active* session happens in GeminiService
   }
+  Future<void> loadCompanion(AICompanion comp) async {
+    if (comp.id != companionId) {
+      throw ArgumentError('Companion ID mismatch: expected $companionId, got ${comp.id}');
+    }
+    _companion = comp;
+  }
 
   /// Serializable version for persistent storage (stores limited history)
   Map<String, dynamic> toJson() {
-    // Serialize only the necessary parts of history for storage efficiency
-    // Take the *last* `maxStoredHistoryLength` items
     final historyToStore = history.length <= maxStoredHistoryLength
         ? history
         : history.sublist(history.length - maxStoredHistoryLength);
 
     final storableHistory = historyToStore.map((content) {
-       // Basic serialization: store role and concatenated text parts
-       final text = content.parts.whereType<TextPart>().map((p) => p.text).join('\n');
-       return {
-         'role': content.role ?? 'user', // Default role if null
-         'text': text,
-       };
+      final text = content.parts.whereType<TextPart>().map((p) => p.text).join('\n');
+      return {
+        'role': content.role ?? 'user',
+        'text': text,
+      };
     }).toList();
 
     return {
-      // Store version for potential future migrations
       'version': GeminiService.storageVersion,
       'userId': userId,
       'companionId': companionId,
-      // Store pruned history
       'history': storableHistory,
       'userMemory': userMemory,
       'metadata': conversationMetadata,
       'relationshipLevel': relationshipLevel,
       'dominantEmotion': dominantEmotion,
-      // chatSession is NOT stored
     };
   }
+
 
   /// Create state from stored JSON data
   factory CompanionState.fromJson(Map<String, dynamic> json) {
@@ -76,24 +88,20 @@ class CompanionState {
         if (item is Map && item['role'] is String && item['text'] is String) {
           final role = item['role'] as String;
           final text = item['text'] as String;
-          // Recreate Content object (assuming simple text parts)
           history.add(Content(role, [TextPart(text)]));
         }
       }
     }
 
-    // Handle potential version migrations here if needed based on json['version']
-
     return CompanionState(
       userId: json['userId'] ?? '',
       companionId: json['companionId'] ?? '',
-      history: history, // Deserialized history
+      history: history,
       userMemory: Map<String, dynamic>.from(json['userMemory'] ?? {}),
       conversationMetadata: Map<String, dynamic>.from(json['metadata'] ?? {}),
       relationshipLevel: (json['relationshipLevel'] as int?) ?? 1,
       dominantEmotion: json['dominantEmotion'] as String?,
-      // chatSession is recreated later by GeminiService using the history
-      // companion object is loaded later by GeminiService
+      //Companion loaded separately**
     );
   }
 

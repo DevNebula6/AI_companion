@@ -88,16 +88,18 @@ class UpdateConversationMetadata extends ConversationEvent {
   final String? lastMessage;
   final DateTime? lastUpdated;
   final int? unreadCount;
-  
+  final bool markAsRead;
+
   const UpdateConversationMetadata({
     required this.conversationId,
     this.lastMessage,
     this.lastUpdated,
     this.unreadCount,
+    this.markAsRead = false,
   });
   
   @override
-  List<Object?> get props => [conversationId, lastMessage, lastUpdated, unreadCount];
+  List<Object?> get props => [conversationId, lastMessage, lastUpdated, unreadCount, markAsRead];
 }
 
 class ClearAllCacheForUser extends ConversationEvent {
