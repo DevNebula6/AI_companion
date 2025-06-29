@@ -243,6 +243,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         await _geminiService.initializeCompanion(
           companion: event.companion,
           userId: event.userId,
+          messageBloc: this,
           userName: event.user?.fullName,
           userProfile: event.user?.toAIFormat(),
         );
@@ -344,7 +345,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         const Duration(seconds: 15),
         onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?",
       );
-
+      print('AI response generated: $aiResponse');
       // Hide typing indicator
       _typingSubject.add(false);
 
@@ -392,6 +393,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         // If offline, add to pending queue
         await _addPendingMessage(aiMessage);
       }
+
+      //Mark conversation as read
+      await _repository.markConversationAsRead(
+        userMessage.conversationId,
+      );
     } catch (e) {
       print('Error generating AI response: $e');
       _typingSubject.add(false);
@@ -491,16 +497,21 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
       // 6. Initialize AI companion if needed
       try {
-        await _geminiService.initializeCompanion(
-          companion: companion,
-          userId: event.userId,
-          userName: user?.fullName,
-          userProfile: user?.toAIFormat(),
-        );
+        if (!_geminiService.isCompanionInitialized(event.userId, event.companionId)) {
+          await _geminiService.initializeCompanion(
+            companion: companion,
+            userId: event.userId,
+            userName: user?.fullName,
+            userProfile: user?.toAIFormat(),
+            messageBloc: this,
+          );
+        } else {
+          print('Companion already initialized, skipping initialization');
+        }
       } catch (e) {
         print('Error initializing AI in message loading: $e');
-        // Continue anyway to show messages
       }
+
 
       // 7. Create conversation if needed
       await _repository.getOrCreateConversation(
@@ -555,6 +566,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     try {
       emit(MessageLoading());
 
+      // Clear from database
+      await _repository.deleteAllMessages(companionId: event.companionId);
+
       // Clear cached messages for this specific companion
       await _cacheService.clearCache(
         event.userId,
@@ -563,10 +577,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       _currentMessages = [];
 
       // Reset AI conversation
-      _geminiService.resetConversation();
-
-      // Clear from database
-      await _repository.deleteAllMessages(companionId: event.companionId);
+      _geminiService.resetConversation(messageBloc: this);
 
       // Update conversation in database
       final conversationId = await _repository.getOrCreateConversation(

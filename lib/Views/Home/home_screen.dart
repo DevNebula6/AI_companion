@@ -103,6 +103,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _loadConversations() async {
+
     final user = await CustomAuthUser.getCurrentUser();
     if (user != null) {
       context.read<ConversationBloc>().add(LoadConversations(user.id));

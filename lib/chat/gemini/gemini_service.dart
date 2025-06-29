@@ -3,13 +3,16 @@ import 'dart:convert';
 import 'dart:collection';
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/chat/gemini/companion_state.dart';
-import 'package:ai_companion/chat/gemini/system_prompt.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
+import '../message.dart';
+import '../message_bloc/message_bloc.dart';
+import '../message_bloc/message_state.dart';
+import 'system_prompt.dart';
 
-/// Service for interacting with the Gemini API and managing companion state.
+/// Optimized service for interacting with the Gemini API and managing companion state.
 /// Implemented as a singleton for application-wide state management.
 class GeminiService {
   // --- Singleton Setup ---
@@ -27,16 +30,28 @@ class GeminiService {
   late final SharedPreferences _prefs;
   bool _prefsInitialized = false;
 
-  // Model management
+  // **OPTIMIZED: Single base model instead of multiple companion-specific models**
   GenerativeModel? _baseModel;
-  final Map<String, GenerativeModel> _companionModels = {};
   final Map<String, String> _cachedSystemPrompts = {};
   bool _isModelInitializing = false;
   bool _isModelInitialized = false;
-
-  // Improved thread safety with better mutex tracking
+  final Map<String, ChatSession> _persistentSessions = {};
+  final Map<String, DateTime> _sessionLastUsed = {};
+  static const Duration _sessionMaxAge = Duration(days: 90);  // 30 days!
+  static const int _sessionMaxMessages = 1000;                // 500 messages!
+  final Map<String, int> _sessionMessageCount = {};
+  
+  // **OPTIMIZED: Enhanced thread safety with better mutex tracking**
   final _modelInitMutex = Mutex();
   final _stateOperationMutex = Mutex();
+
+  // **OPTIMIZED: Debounced saving mechanism**
+  Timer? _saveDebounceTimer;
+  final Set<String> _pendingSaves = {};
+  static const Duration _saveDebounceDelay = Duration(milliseconds: 500);
+
+  // **OPTIMIZED: Cached regex patterns for memory extraction**
+  Map<String, RegExp>? _cachedPatterns;
 
   // --- Constants ---
   static const String _prefsKeyPrefix = 'gemini_companion_state_v2_';
@@ -76,6 +91,7 @@ class GeminiService {
         _prefs = await SharedPreferences.getInstance();
         _prefsInitialized = true;
         _log.info('SharedPreferences initialized.');
+        await _loadSessionMetadata();
 
         // Schedule periodic cleanup
         _schedulePeriodicCleanup();
@@ -85,23 +101,67 @@ class GeminiService {
     }
   }
 
-  // Initialize base model once for efficiency
+  Future<void> _saveSessionMetadata() async {
+    if (!_prefsInitialized) return;
+    
+    try {
+      final sessionData = <String, dynamic>{};
+      
+      _sessionLastUsed.forEach((key, lastUsed) {
+        sessionData[key] = {
+          'lastUsed': lastUsed.toIso8601String(),
+          'messageCount': _sessionMessageCount[key] ?? 0,
+        };
+      });
+      
+      await _prefs.setString('session_metadata', jsonEncode(sessionData));
+      _log.info('Saved session metadata for ${sessionData.length} sessions');
+    } catch (e) {
+      _log.warning('Failed to save session metadata: $e');
+    }
+  }
+
+  /// Load session metadata on startup
+  Future<void> _loadSessionMetadata() async {
+    if (!_prefsInitialized) return;
+    
+    try {
+      final sessionDataString = _prefs.getString('session_metadata');
+      if (sessionDataString != null) {
+        final sessionData = jsonDecode(sessionDataString) as Map<String, dynamic>;
+        
+        sessionData.forEach((key, data) {
+          if (data is Map<String, dynamic>) {
+            _sessionLastUsed[key] = DateTime.parse(data['lastUsed']);
+            _sessionMessageCount[key] = data['messageCount'] ?? 0;
+          }
+        });
+        
+        _log.info('Loaded session metadata for ${sessionData.length} sessions');
+      }
+    } catch (e) {
+      _log.warning('Failed to load session metadata: $e');
+    }
+  }
+
+  // **OPTIMIZED: Single base model initialization**
   Future<void> _initializeBaseModel() async {
-    await _modelInitMutex.acquire();
+    if (!await _modelInitMutex.acquireWithTimeout(_modelInitTimeout)) {
+      throw TimeoutException('Model initialization timed out');
+    }
+
     try {
       if (_baseModel != null && _isModelInitialized) {
-        _modelInitMutex.release();
         return;
       }
 
       if (_isModelInitializing) {
         _log.info('Model already initializing, waiting...');
-        _modelInitMutex.release();
         return;
       }
 
       _isModelInitializing = true;
-      _log.info('Initializing base Gemini Model...');
+      _log.info('Initializing optimized base Gemini Model...');
 
       // Get API key with validation
       final apiKey = dotenv.env['GEMINI_API_KEY'];
@@ -109,22 +169,23 @@ class GeminiService {
         throw Exception('GEMINI_API_KEY not found or empty in .env file.');
       }
 
-      // Create the base model with generic system instruction
+      // **OPTIMIZED: Create single base model with minimal system instruction**
       _baseModel = GenerativeModel(
         model: _modelName,
         apiKey: apiKey,
         safetySettings: _safetySettings,
         generationConfig: _generationConfig,
-        systemInstruction: Content.system("You are an AI companion assistant."),
+        systemInstruction: Content.system(buildFoundationalSystemPrompt()),
       );
 
       _isModelInitialized = true;
       _isModelInitializing = false;
-      _log.info('Base Gemini Model initialized successfully.');
+      _log.info('Optimized base Gemini Model initialized successfully.');
     } catch (e, stackTrace) {
       _isModelInitializing = false;
       _isModelInitialized = false;
       _log.severe('Failed to initialize Gemini Model: $e', e, stackTrace);
+      rethrow;
     } finally {
       _modelInitMutex.release();
     }
@@ -179,8 +240,8 @@ class GeminiService {
     }
   }
 
-  /// Ensures the base model is initialized and returns it
-  Future<GenerativeModel> _getBaseModel() async {
+  /// **OPTIMIZED: Ensures the base model is initialized and returns it**
+  Future<GenerativeModel> _getOptimizedModel() async {
     if (_baseModel != null && _isModelInitialized) {
       return _baseModel!;
     }
@@ -194,46 +255,52 @@ class GeminiService {
     return _baseModel!;
   }
 
-  /// Gets or creates a companion-specific model with the right system prompt
-  Future<GenerativeModel> _getCompanionModel(AICompanion companion) async {
-    final companionId = companion.id;
+  /// **OPTIMIZED: Cache system prompts to avoid regeneration**
+  String _getOrCacheSystemPrompt(AICompanion companion) {
+    if (_cachedSystemPrompts.containsKey(companion.id)) {
+      return _cachedSystemPrompts[companion.id]!;
+    }
+    
+    final prompt = buildCompanionIntroduction(companion);
+    _cachedSystemPrompts[companion.id] = prompt;
+    return prompt;
+  }
 
-    // Return cached model if available
-    if (_companionModels.containsKey(companionId)) {
-      return _companionModels[companionId]!;
+
+  List<Content> _buildOptimizedSessionHistory(CompanionState state) {
+    final history = <Content>[];
+
+    // ✅ FIXED: Safe companion access with fallback
+    if (!state.hasCompanion) {
+      _log.severe('Cannot build session history: companion not loaded for ${state.companionId}');
+      throw StateError('Companion not loaded in state');
     }
 
-    // Make sure base model is initialized
-    await _getBaseModel();
-
-    // Get API key
-    final apiKey = dotenv.env['GEMINI_API_KEY'];
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('GEMINI_API_KEY not found or empty');
-    }
-
-    // Check for cached system prompt or generate new one
-    String systemPrompt;
-    if (_cachedSystemPrompts.containsKey(companionId)) {
-      systemPrompt = _cachedSystemPrompts[companionId]!;
-    } else {
-      systemPrompt = buildSystemPrompt(companion);
-      _cachedSystemPrompts[companionId] = systemPrompt; // Cache for future use
-    }
-
-    // Create companion-specific model
-    final companionModel = GenerativeModel(
-      model: _modelName,
-      apiKey: apiKey,
-      safetySettings: _safetySettings,
-      generationConfig: _generationConfig,
-      systemInstruction: Content.system(systemPrompt),
+    // **FIXED: Check if companion introduction already exists in state history**
+    final hasCompanionIntro = state.history.any((content) => 
+      content.parts.any((part) => 
+        part is TextPart && 
+        (part.text.contains('CHARACTER ASSIGNMENT') || 
+         part.text.contains('EMBODIMENT INSTRUCTIONS'))
+      )
     );
-
-    // Cache the model for future use
-    _companionModels[companionId] = companionModel;
-
-    return companionModel;
+    
+    if (!hasCompanionIntro) {
+      // **FIXED: Add intro to state history so it persists**
+      final intro = buildCompanionIntroduction(state.companion);
+      state.history.insert(0, Content.text(intro));
+      _log.info('Added companion introduction to persistent state');
+    }
+    
+    if (state.history.isNotEmpty) {
+      final recentHistory = state.history.length > 100 
+          ? state.history.skip(state.history.length - 100).toList()
+          : state.history;
+      history.addAll(recentHistory);
+    }
+    
+    _log.info('Built session with ${history.length} messages');
+    return history;
   }
 
   /// Public getter for external checks (e.g., UI elements)
@@ -242,6 +309,51 @@ class GeminiService {
   // --- State Key Helper ---
   String _getCompanionStateKey(String userId, String companionId) {
     return '${userId}_$companionId';
+  }
+
+  // --- **OPTIMIZED: Debounced State Saving** ---
+
+  /// **OPTIMIZED: Debounced save to prevent excessive disk I/O**
+  void _debouncedSave(CompanionState state) {
+    final key = _getCompanionStateKey(state.userId, state.companionId);
+    
+    // Mark this state as needing save
+    _pendingSaves.add(key);
+    
+    // Cancel existing timer and create new one
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(_saveDebounceDelay, () async {
+      await _processPendingSaves();
+    });
+  }
+
+  /// **OPTIMIZED: Process all pending saves in batch**
+  Future<void> _processPendingSaves() async {
+    if (_pendingSaves.isEmpty) return;
+    
+    final keysToSave = Set<String>.from(_pendingSaves);
+    _pendingSaves.clear();
+    
+    _log.info('Processing ${keysToSave.length} pending saves');
+    
+    for (final key in keysToSave) {
+      if (_companionStates.containsKey(key)) {
+        final state = _companionStates[key]!;
+        
+        // Create lightweight copy for saving
+        final stateForStorage = CompanionState(
+          userId: state.userId,
+          companionId: state.companionId,
+          history: List.from(state.history), // Shallow copy
+          userMemory: Map.from(state.userMemory),
+          conversationMetadata: Map.from(state.conversationMetadata),
+          relationshipLevel: state.relationshipLevel,
+          dominantEmotion: state.dominantEmotion,
+        );
+        
+        await _saveCompanionState(key, stateForStorage);
+      }
+    }
   }
 
   // --- Persistence (using CompanionState.toJson/fromJson) ---
@@ -303,168 +415,119 @@ class GeminiService {
     return null;
   }
 
-  // --- Core State Logic & LRU Cache Management ---
+  // --- **OPTIMIZED: Core State Logic & LRU Cache Management** ---
 
-  /// Gets state from memory cache, loads from storage, or creates a new one.
-  Future<CompanionState> _getOrLoadCompanionState({
+  /// **OPTIMIZED: State loading with reduced overhead**
+  Future<CompanionState> _getOrLoadCompanionStateOptimized({
     required String userId,
     required String companionId,
     required AICompanion companion,
+    required MessageBloc messageBloc,
     String? userName,
     Map<String, dynamic>? userProfile,
   }) async {
     final key = _getCompanionStateKey(userId, companionId);
 
-    // Use improved mutex with auto-release
-    await _stateOperationMutex.acquire();
-
-    try {
-      // Check memory cache first (LRU update)
-      if (_companionStates.containsKey(key)) {
-        _log.fine('State cache hit for key: $key');
-        // Update access time
-        _stateAccessTimes[key] = DateTime.now();
-        // Move to end to mark as recently used
-        final state = _companionStates.remove(key)!;
-        _companionStates[key] = state;
-        // Ensure transient fields are populated if needed
-        state.companion = companion;
-        // Recreate chat session if it's null
-        if (state.chatSession == null) {
-          await _recreateChatSession(state);
-        }
-        return state;
-      }
-
-      _log.fine('State cache miss for key: $key. Loading from storage...');
-
-      // Try loading from SharedPreferences
-      CompanionState? state = await _loadCompanionState(key);
-
-      if (state != null) {
-        _log.info('Loaded state from storage for key: $key');
-        // Populate transient fields
-        state.companion = companion;
-        await _recreateChatSession(state); // Recreate ChatSession from loaded history
-      } else {
-        _log.info('No state found in storage. Creating new state for key: $key');
-        // Create new state if not found
-        state = CompanionState(
-          userId: userId,
-          companionId: companionId,
-          history: [], // Start with empty history
-          userMemory: { // Initialize basic memory
-            'userName': userName ?? 'User',
-            if (userProfile != null) 'userProfile': userProfile,
-          },
-          conversationMetadata: {
-            'created_at': DateTime.now().toIso8601String(),
-            'total_interactions': 0,
-          },
-          relationshipLevel: 1,
-          dominantEmotion: 'neutral',
-          companion: companion, // Attach the full companion object
-        );
-
-        // Add initial context as first message
-        await _initializeCompanionContext(state, userName, userProfile);
-
-        // Save the newly created state immediately
-        await _saveCompanionState(key, state);
-      }
-
-      // Add to memory cache and manage size (LRU eviction)
-      _companionStates[key] = state;
+    // **OPTIMIZED: Quick memory check first**
+    if (_companionStates.containsKey(key)) {
+      _log.fine('State cache hit for key: $key');
       _stateAccessTimes[key] = DateTime.now();
-      await _evictLRUStateIfNecessary(); // Check and evict oldest if cache exceeds limit
-
+      final state = _companionStates.remove(key)!;
+      _companionStates[key] = state; // Move to end (LRU)
+      state.companion = companion;
       return state;
-    } catch (e) {
-      _log.severe('Error in _getOrLoadCompanionState: $e');
-      rethrow;
-    } finally {
-      _stateOperationMutex.release();
-    }
-  }
-
-  /// Initializes companion context by creating a ChatSession with the appropriate system prompt
-  Future<void> _initializeCompanionContext(
-    CompanionState state,
-    String? userName,
-    Map<String, dynamic>? userProfile
-  ) async {
-    try {
-      // Get companion-specific model - cached or new
-      final companionModel = await _getCompanionModel(state.companion!);
-
-      // Create initial session with the companion-specific model
-      state.chatSession = companionModel.startChat();
-
-      // Add minimal context for the conversation
-      final userContext = _buildMinimalUserContext(userName, userProfile);
-      if (userContext.isNotEmpty) {
-        state.addHistory(Content.text("Tell me about yourself: $userContext"));
-
-        // Add dummy model response to initialize the conversation
-        state.addHistory(Content.model([TextPart("Nice to meet you! I'm ${state.companion!.name}. What would you like to talk about?")]));
-      }
-
-      _log.fine('Initialized context and chat session for ${state.companion!.name}');
-    } catch (e, stackTrace) {
-      _log.severe('Failed to initialize companion context: $e', e, stackTrace);
-      throw Exception('Failed to setup companion: ${e.toString().split('\n').first}');
-    }
-  }
-
-  /// Creates a minimal user context string with essential info
-  String _buildMinimalUserContext(String? userName, Map<String, dynamic>? userProfile) {
-    final buffer = StringBuffer();
-
-    if (userName != null && userName.isNotEmpty) {
-      buffer.write("My name is $userName");
     }
 
-    if (userProfile != null) {
-      if (userProfile['age'] != null) {
-        buffer.write(buffer.isEmpty ? "I'm " : ", I'm ");
-        buffer.write("${userProfile['age']} years old");
-      }
+    // **OPTIMIZED: Load with timeout to prevent hanging**
+    CompanionState? state = await _loadCompanionState(key)
+        .timeout(const Duration(seconds: 10), onTimeout: () {
+      _log.warning('State loading timed out for key: $key. Creating new state.');
+      return null;
+    });
 
-      if (userProfile['gender'] != null && userProfile['gender'].toString().isNotEmpty) {
-        buffer.write(buffer.isEmpty ? "I'm " : ", I'm ");
-        buffer.write("${userProfile['gender']}");
-      }
-
-      if (userProfile['interests'] is List && (userProfile['interests'] as List).isNotEmpty) {
-        buffer.write(buffer.isEmpty ? "I like " : ", and I like ");
-        buffer.write((userProfile['interests'] as List).join(', '));
-      }
-    }
-
-    return buffer.toString();
-  }
-
-  /// Recreates the ChatSession for a given state, using its history and companion-specific model.
-  Future<void> _recreateChatSession(CompanionState state) async {
-    try {
-      // Trim history before starting chat if too long
-      if (state.history.length > _maxActiveHistoryLength) {
-        _trimHistory(state.history, _maxActiveHistoryLength);
-      }
-
-      // Get the companion-specific model - reuses cached model when available
-      final companionModel = await _getCompanionModel(state.companion!);
-
-      // Initialize chat with history
-      state.chatSession = companionModel.startChat(
-        history: state.history.isNotEmpty ? state.history : null,
+    if (state != null) {
+      _log.info('Loaded state from storage for key: $key');
+      state.companion = companion;
+    } else {
+      _log.info('Creating new optimized state for key: $key');
+      state = CompanionState(
+        userId: userId,
+        companionId: companionId,
+        history: [],
+        userMemory: {
+          'userName': userName ?? 'User',
+          if (userProfile != null) 'userProfile': userProfile,
+        },
+        conversationMetadata: {
+          'created_at': DateTime.now().toIso8601String(),
+          'total_interactions': 0,
+        },
+        relationshipLevel: 1,
+        dominantEmotion: 'neutral',
       );
 
-      _log.fine('Recreated chat session for ${state.companion!.name} with ${state.history.length} history items');
-    } catch (e, stackTrace) {
-      _log.severe('Failed to recreate chat session: $e', e, stackTrace);
-      state.chatSession = null; // Ensure session is null on failure
-      throw Exception('Failed to initialize companion: ${e.toString().split('\n').first}');
+      await state.loadCompanion(companion);
+      await _initializeContextFromMessages(state, userName, userProfile, messageBloc);
+    }
+
+    // Add to cache and manage size
+    _companionStates[key] = state;
+    _stateAccessTimes[key] = DateTime.now();
+    unawaited(_evictLRUStateIfNecessary());
+
+    return state;
+  }
+
+  /// **OPTIMIZED: Initialize context from existing messages**
+  Future<void> _initializeContextFromMessages(
+    CompanionState state,
+    String? userName,
+    Map<String, dynamic>? userProfile,
+    MessageBloc messageBloc,
+  ) async {
+    try {
+
+      if (!state.hasCompanion) {
+      _log.severe('Cannot initialize context: companion not loaded');
+      return;
+      }
+
+      List<Message> messages = [];
+
+      final messageBlocState = messageBloc.state;
+      if (messageBlocState is MessageLoaded) {
+        messages = messageBlocState.messages;
+      } else {
+        messages = messageBloc.currentMessages;
+      }
+
+      if (messages.isNotEmpty) {
+        // **FIXED: Check if we already have an introduction**
+        final hasIntro = messages.any((msg) => 
+          msg.isBot && msg.message.contains("CHARACTER ASSIGNMENT: You are now embodying ${state.companion.name}"));
+        
+        if (!hasIntro) {
+          // Add introduction only if not present in database
+          final intro = buildCompanionIntroduction(state.companion);
+          state.addHistory(Content.text(intro));
+        }
+        
+        // Convert existing messages to AI history
+        for (final message in messages) {
+          if (message.isBot) {
+            state.addHistory(Content.model([TextPart(message.message)]));
+          } else {
+            state.addHistory(Content.text(message.message));
+          }
+        }
+        
+        state.updateMetadata('total_interactions', messages.length ~/ 2);
+        _log.info('Initialized state with ${messages.length} messages from MessageBloc');
+      }
+      // If no messages, introduction will be added when session is created
+      
+    } catch (e) {
+      _log.severe('Error initializing state from MessageBloc: $e');
     }
   }
 
@@ -492,99 +555,136 @@ class GeminiService {
     }
   }
 
-  /// Initializes or loads the state for a specific companion interaction, making it active.
+  /// **OPTIMIZED: Parallel initialization processes**
   Future<void> initializeCompanion({
     required AICompanion companion,
     required String userId,
+    required MessageBloc messageBloc,
     String? userName,
     Map<String, dynamic>? userProfile,
   }) async {
     final key = _getCompanionStateKey(userId, companion.id);
     _log.info('Initializing companion: ${companion.name} (key: $key)');
 
-    // Ensure base model is initialized in background
-    unawaited(_getBaseModel());
-
-    // Save state of the previously active companion before switching
-    if (_activeCompanionKey != null && _activeCompanionKey != key) {
-      await saveState(); // Saves the currently active state
-    }
+    // **OPTIMIZED: Parallel initialization**
+    final futures = <Future>[
+      _getOptimizedModel(), // Ensure base model is ready
+      if (_activeCompanionKey != null && _activeCompanionKey != key) 
+        _quickSaveActiveState(), // Quick save current state
+    ];
+    
+    await Future.wait(futures);
 
     try {
-      // Get/Load the state. This also adds it to the memory cache (LRU).
-      final state = await _getOrLoadCompanionState(
+      // **OPTIMIZED: Load state with minimal blocking**
+      final state = await _getOrLoadCompanionStateOptimized(
         userId: userId,
         companionId: companion.id,
         companion: companion,
         userName: userName,
         userProfile: userProfile,
+        messageBloc: messageBloc,
       );
 
-      // Set the new active key
+      // Set as active immediately
       _activeCompanionKey = key;
 
-      // Ensure the chat session is valid
-      if (state.chatSession == null) {
-        _log.warning('Chat session is null after loading state. Recreating...');
-        await _recreateChatSession(state);
-        if (state.chatSession == null) {
-          throw Exception('Failed to create chat session after loading state.');
-        }
-      }
-
-      _log.info('Companion ${companion.name} initialized and active.');
+      _log.info('Companion ${companion.name} initialized efficiently.');
     } catch (e, stackTrace) {
       _log.severe('Failed to initialize companion ${companion.name}: $e', e, stackTrace);
-      _activeCompanionKey = null; // Ensure no active key on failure
-      rethrow; // Propagate the error
+      _activeCompanionKey = null;
+      rethrow;
     }
   }
 
-  /// Generates a response from the currently active companion with enhanced error handling.
+  /// **OPTIMIZED: Quick save without full serialization**
+  Future<void> _quickSaveActiveState() async {
+    if (_activeCompanionKey != null && _companionStates.containsKey(_activeCompanionKey!)) {
+      final state = _companionStates[_activeCompanionKey!]!;
+      // Use debounced save instead of immediate save
+      _debouncedSave(state);
+    }
+  }
+
+  // TODO: Implement optimized session history building
+  Future<ChatSession> _getOrCreatePersistentSession(CompanionState state) async {
+    await _getOptimizedModel();
+    
+    final sessionKey = '${state.userId}_${state.companionId}';
+
+    // **VALIDATION: Check if this is after a reset**
+    final lastReset = state.conversationMetadata['last_reset'];
+    if (lastReset != null && _sessionLastUsed.containsKey(sessionKey)) {
+      final resetTime = DateTime.parse(lastReset);
+      final sessionTime = _sessionLastUsed[sessionKey]!;
+      
+      if (resetTime.isAfter(sessionTime)) {
+        // Session is older than last reset - force recreation
+        _persistentSessions.remove(sessionKey);
+        _sessionLastUsed.remove(sessionKey);
+        _sessionMessageCount.remove(sessionKey);
+        _log.info('Forced session recreation due to conversation reset');
+      }
+    }
+    
+    if (_persistentSessions.containsKey(sessionKey)) {
+      final lastUsed = _sessionLastUsed[sessionKey] ?? DateTime.now();
+      final messageCount = _sessionMessageCount[sessionKey] ?? 0;
+      
+      final isRecent = DateTime.now().difference(lastUsed) < _sessionMaxAge;
+      final isFresh = messageCount < _sessionMaxMessages;
+      
+      if (isRecent && isFresh) {
+        _sessionLastUsed[sessionKey] = DateTime.now();
+        _log.info('Reusing existing session for ${state.companion.name}');
+        return _persistentSessions[sessionKey]!;
+      } else {
+        _log.info('Session expired: age=${DateTime.now().difference(lastUsed).inDays}d, messages=$messageCount');
+        _persistentSessions.remove(sessionKey);
+        _sessionLastUsed.remove(sessionKey);
+        _sessionMessageCount.remove(sessionKey);
+      }
+    }
+
+    // Create new session with optimized history
+    _log.info('Creating new session for ${state.companion.name}');
+
+    final sessionHistory = _buildOptimizedSessionHistory(state);
+    
+    final session = _baseModel!.startChat(history: sessionHistory);
+    _persistentSessions[sessionKey] = session;
+    _sessionLastUsed[sessionKey] = DateTime.now();
+    _sessionMessageCount[sessionKey] = sessionHistory.length;
+    
+    _log.info('Created new 90-day session for ${state.companion.name}');
+    return session;
+  }
+
+
+  /// TODO: Response generation with full context
   Future<String> generateResponse(String userMessage) async {
     final stopwatch = Stopwatch()..start();
-    // Validation checks
+    
     if (_activeCompanionKey == null) {
-      _log.severe('generateResponse called but no active companion key set.');
       throw Exception('No active companion. Please initialize a companion first.');
     }
 
-    // Acquire mutex with timeout - prevent deadlocks
     if (!await _stateOperationMutex.acquireWithTimeout(_stateOperationTimeout)) {
       throw TimeoutException('Operation timed out waiting for mutex');
     }
 
     try {
-      // Get the active state from cache
       final state = _companionStates[_activeCompanionKey!];
       if (state == null) {
         throw Exception('Active companion state not found. Please reinitialize.');
       }
+      
+      final chatSession = await _getOrCreatePersistentSession(state);
 
-      // Ensure chat session exists
-      if (state.chatSession == null) {
-        _log.warning('Chat session is null for active companion. Recreating...');
-        await _recreateChatSession(state);
-        if (state.chatSession == null) {
-          throw Exception('Failed to create chat session for companion.');
-        }
-      }
-
-      _log.fine('Generating response for: "$userMessage" (Companion: ${state.companionId})');
-
-      // Prepare user message
+      //  Send message to persistent session (maintains context!)
       final userContent = Content.text(userMessage);
-
-      // Add to history
-      state.addHistory(userContent);
-
-      // Ensure history isn't too long
-      if (state.history.length > _maxActiveHistoryLength) {
-        _trimHistory(state.history, _maxActiveHistoryLength);
-      }
-
-      // Send message with timeout
-      final response = await state.chatSession!.sendMessage(userContent)
+      
+      final response = await chatSession.sendMessage(userContent)
           .timeout(const Duration(seconds: 15), onTimeout: () {
         throw TimeoutException('Response generation timed out');
       });
@@ -592,7 +692,6 @@ class GeminiService {
       stopwatch.stop();
       _log.info('Response received in ${stopwatch.elapsedMilliseconds}ms');
 
-      // Process response
       final aiText = response.text;
       if (aiText == null || aiText.trim().isEmpty) {
         if (response.promptFeedback?.blockReason != null) {
@@ -601,132 +700,170 @@ class GeminiService {
         throw Exception('Empty response received from AI');
       }
 
-      // Add AI response to history
-      state.addHistory(Content.model([TextPart(aiText)]));
+      //  Update state efficiently
+      _updateStateEfficiently(state, userMessage, aiText, stopwatch.elapsedMilliseconds);
+      
+      // Update session message count
+      final sessionKey = '${state.userId}_${state.companionId}';
+      _sessionMessageCount[sessionKey] = (_sessionMessageCount[sessionKey] ?? 0) + 2;
+      _sessionLastUsed[sessionKey] = DateTime.now();
 
-      // Update state metadata for analytics and relationship metrics
-      _updateStateMetadata(state, userMessage, aiText, stopwatch.elapsedMilliseconds);
-
-      // Save state asynchronously (don't wait)
-      unawaited(_saveCompanionState(_activeCompanionKey!, state));
+      // Async save with debouncing**
+      _debouncedSave(state);
 
       return aiText;
-    } catch (e, stackTrace) {
-      stopwatch.stop();
-      _log.severe('Error generating response: $e', e, stackTrace);
-
-      // Attempt recovery on timeout
-      if (e is TimeoutException) {
-        try {
-          // On timeout, try to recreate the session
-          final state = _companionStates[_activeCompanionKey!];
-          if (state != null) {
-            state.chatSession = null; // Force recreation on next attempt
-            _log.info('Clearing chat session after timeout');
-          }
-        } catch (recoveryError) {
-          _log.warning('Error during timeout recovery: $recoveryError');
-        }
-      }
-
-      // Return user-friendly error message
-      if (e is TimeoutException) {
-        throw Exception('I need a moment to collect my thoughts. Please try again.');
-      } else {
-        throw Exception('I\'m having trouble responding right now. Let\'s try something else.');
-      }
     } finally {
       _stateOperationMutex.release();
     }
   }
 
-  /// Update state metadata with analytics and relationship data
-  void _updateStateMetadata(CompanionState state, String userMessage, String aiResponse, int responseTimeMs) {
-    try {
-      // Update basic interaction metrics
-      final interactions = (state.conversationMetadata['total_interactions'] ?? 0) + 1;
-      state.updateMetadata('total_interactions', interactions);
-      state.updateMetadata('last_interaction', DateTime.now().toIso8601String());
-      state.updateMetadata('last_response_time_ms', responseTimeMs);
-
-      // Update memory items (every message)
-      _extractMemoryItems(state, userMessage, aiResponse);
-
-      // Update relationship metrics (every 5 messages for performance)
-      if (interactions % 5 == 0) {
-        _updateRelationshipMetrics(state, userMessage, aiResponse);
-      }
-    } catch (e) {
-      _log.warning('Error updating metadata: $e');
+  /// **TODO: Batch state updates**
+  void _updateStateEfficiently(CompanionState state, String userMessage, String aiResponse, int responseTimeMs) {
+    // Add messages to history
+    state.addHistory(Content.text(userMessage));
+    state.addHistory(Content.model([TextPart(aiResponse)]));
+    
+    // Trim if necessary
+    if (state.history.length > _maxActiveHistoryLength) {
+      // trim history while preserving system messages
+      _trimHistoryOptimized(state.history, _maxActiveHistoryLength);
+      // trim companion state history to keep it manageable
+      final keepCount = 40;
+      state.history.removeRange(0, state.history.length - keepCount);
+    }
+    
+    // **OPTIMIZED: Batch metadata updates**
+    final updates = <String, dynamic>{
+      'total_interactions': (state.conversationMetadata['total_interactions'] ?? 0) + 1,
+      'last_interaction': DateTime.now().toIso8601String(),
+      'last_response_time_ms': responseTimeMs,
+    };
+    
+    updates.forEach((key, value) => state.updateMetadata(key, value));
+    
+    // **OPTIMIZED: Conditional relationship updates**
+    final interactions = updates['total_interactions'] as int;
+    if (interactions % 5 == 0) {
+      _updateRelationshipMetrics(state, userMessage, aiResponse);
+    }
+    
+    // **OPTIMIZED: Conditional memory updates**
+    if (interactions % 3 == 0) {
+      _extractMemoryItemsOptimized(state, userMessage, aiResponse);
     }
   }
 
-  /// Trims the history list to the specified maximum length, removing older items.
-  void _trimHistory(List<Content> history, int maxLength) {
-    if (history.length > maxLength) {
-      // Calculate how many items to remove (preserve first context item)
-      int removeCount = history.length - maxLength;
-
-      // Always keep the first item (context setup)
-      if (history.length > 2 && removeCount >= history.length - 1) {
-        removeCount = history.length - 2;
+  /// **OPTIMIZED: History trimming with conversation context preservation**
+  void _trimHistoryOptimized(List<Content> history, int maxLength) {
+    if (history.length <= maxLength) return;
+    
+    final systemMessages = <Content>[];
+    final conversationHistory = <Content>[];
+    
+    // Separate system messages from conversation
+    for (final content in history) {
+      if (content.role == 'system' || content.role == 'model' && 
+          content.parts.any((part) => part is TextPart && 
+          (part.text.contains('You are') || part.text.length > 500))) {
+        systemMessages.add(content);
+      } else {
+        conversationHistory.add(content);
       }
-
+    }
+    
+    // Trim conversation history but keep system messages
+    if (conversationHistory.length > maxLength - systemMessages.length) {
+      final keepCount = maxLength - systemMessages.length;
+      final removeCount = conversationHistory.length - keepCount;
+      
+      // **OPTIMIZED: Keep recent conversations and some context**
       if (removeCount > 0) {
-        // Remove from index 1 (after context) to preserve the setup
-        history.removeRange(1, 1 + removeCount);
-        _log.info('Trimmed history from ${history.length + removeCount} to ${history.length} items');
+        // Keep first few messages for context (25%) and recent messages (75%)
+        final contextKeep = (keepCount * 0.25).round();
+        final recentKeep = keepCount - contextKeep;
+        
+        final contextMessages = conversationHistory.take(contextKeep).toList();
+        final recentMessages = conversationHistory.skip(conversationHistory.length - recentKeep).toList();
+        
+        conversationHistory.clear();
+        conversationHistory.addAll(contextMessages);
+        conversationHistory.addAll(recentMessages);
       }
     }
+    
+    // Rebuild history
+    history.clear();
+    history.addAll(systemMessages);
+    history.addAll(conversationHistory);
+    
+    _log.info('Optimized history trimming: ${history.length} messages retained');
   }
 
-  /// Saves the currently active companion's state to persistent storage.
+  // Quick check if companion is active without full initialization
+  bool isCompanionActive(String userId, String companionId) {
+    final key = _getCompanionStateKey(userId, companionId);
+    return _activeCompanionKey == key;
+  }
+
+  // Get active companion info for debugging
+  Map<String, String?> getActiveCompanionInfo() {
+    return {
+      'activeKey': _activeCompanionKey,
+      'companionId': _activeCompanionKey != null && _companionStates.containsKey(_activeCompanionKey!)
+          ? _companionStates[_activeCompanionKey!]!.companionId
+          : null,
+      'companionName': _activeCompanionKey != null && _companionStates.containsKey(_activeCompanionKey!)
+          ? _companionStates[_activeCompanionKey!]!.companion.name
+          : null,
+    };
+  }
+  // Saves the currently active companion's state to persistent storage.
   Future<void> saveState() async {
     if (_activeCompanionKey != null && _companionStates.containsKey(_activeCompanionKey!)) {
       _log.info('Saving state for active companion: $_activeCompanionKey');
       final state = _companionStates[_activeCompanionKey!]!;
-
-      // Create a copy of state before modifying it to avoid affecting memory version
-      final stateForStorage = CompanionState(
-        userId: state.userId,
-        companionId: state.companionId,
-        history: state.history,
-        userMemory: Map.from(state.userMemory),
-        conversationMetadata: Map.from(state.conversationMetadata),
-        relationshipLevel: state.relationshipLevel,
-        dominantEmotion: state.dominantEmotion,
-        companion: state.companion,
-      );
-
-      // Clear transient session before saving
-      stateForStorage.chatSession = null;
-      await _saveCompanionState(_activeCompanionKey!, stateForStorage);
+      _debouncedSave(state);
     } else {
-      _log.warning('saveState called but no active companion state found.');
+      // Only log warning if we actually expect an active companion
+      if (_activeCompanionKey != null) {
+        _log.warning('saveState called but active companion state $_activeCompanionKey not found in memory.');
+      } else {
+        _log.fine('saveState called but no active companion is currently set.');
+      }
     }
   }
 
   /// Resets the conversation history and related metrics for the currently active companion.
-  Future<void> resetConversation() async {
+  Future<void> resetConversation({required MessageBloc messageBloc}) async {
     if (_activeCompanionKey == null || !_companionStates.containsKey(_activeCompanionKey!)) {
       _log.warning('resetConversation called but no active companion state found.');
       return;
     }
 
-    // Use mutex for thread safety
-    await _stateOperationMutex.acquire();
+    if (!await _stateOperationMutex.acquireWithTimeout(_stateOperationTimeout)) {
+      throw TimeoutException('Reset conversation operation timed out');
+    }
 
     try {
       final key = _activeCompanionKey!;
       final state = _companionStates[key]!;
-      _log.info('Resetting conversation state for: ${state.companion?.name ?? key}');
+      _log.info('Resetting conversation for: ${state.companion.name}');
+
+      // **CRITICAL FIX 1: Clear the persistent session**
+      final sessionKey = '${state.userId}_${state.companionId}';
+      if (_persistentSessions.containsKey(sessionKey)) {
+        _persistentSessions.remove(sessionKey);
+        _sessionLastUsed.remove(sessionKey);
+        _sessionMessageCount.remove(sessionKey);
+        _log.info('Cleared persistent session for reset');
+      }
 
       // Cache core information before reset
-      final companion = state.companion;
       final userName = state.userMemory['userName'];
       final userProfile = state.userMemory['userProfile'];
+      final companion = state.companion; // Store companion reference
 
-      // Reset state
+      // **CRITICAL FIX 2: Complete state reset**
       state.history.clear();
       state.userMemory.clear();
       state.userMemory['userName'] = userName;
@@ -740,13 +877,17 @@ class GeminiService {
       state.conversationMetadata['reset_count'] = (state.conversationMetadata['reset_count'] ?? 0) + 1;
       state.conversationMetadata['last_reset'] = DateTime.now().toIso8601String();
 
-      // Reinitialize context and session
-      await _initializeCompanionContext(state, userName, userProfile);
+      // Re-add companion introduction properly
+      if (state.hasCompanion) {
+        final intro = buildCompanionIntroduction(state.companion);
+        state.addHistory(Content.text(intro));
+        _log.info('Added fresh companion introduction after reset');
+      }
 
-      // Save the reset state
-      await _saveCompanionState(key, state);
+      //: Save the completely reset state**
+      _debouncedSave(state);
 
-      _log.info('Conversation reset complete');
+      _log.info('Conversation reset complete - session and state cleared');
     } catch (e) {
       _log.severe('Error during conversation reset: $e');
       rethrow;
@@ -755,7 +896,29 @@ class GeminiService {
     }
   }
 
-  // --- Memory & Relationship ---
+  // --- **OPTIMIZED: Memory & Relationship Management** ---
+
+  void cleanupStaleSessions() {
+    final now = DateTime.now();
+    final keysToRemove = <String>[];
+    
+    _sessionLastUsed.forEach((key, lastUsed) {
+      // **GENEROUS: Only remove sessions older than 45 days**
+      if (now.difference(lastUsed).inDays > 45) {
+        keysToRemove.add(key);
+      }
+    });
+    
+    for (final key in keysToRemove) {
+      _persistentSessions.remove(key);
+      _sessionLastUsed.remove(key);
+      _sessionMessageCount.remove(key);
+    }
+    
+    if (keysToRemove.isNotEmpty) {
+      _log.info('Cleaned up ${keysToRemove.length} sessions older than 45 days');
+    }
+  }
 
   /// Adds or updates an item in the user-specific memory for the active companion.
   void addMemoryItem(String memoryKey, dynamic value) {
@@ -766,10 +929,10 @@ class GeminiService {
 
     final state = _companionStates[_activeCompanionKey!]!;
     state.updateMemory(memoryKey, value);
-    _log.fine('Updated memory item "$memoryKey" for companion: ${state.companion?.name ?? state.companionId}');
+    _log.fine('Updated memory item "$memoryKey" for companion: ${state.companion.name}');
 
-    // Save updated memory async
-    unawaited(_saveCompanionState(_activeCompanionKey!, state));
+    // Save updated memory with debouncing
+    _debouncedSave(state);
   }
 
   /// Retrieves relationship metrics for the active companion.
@@ -799,41 +962,66 @@ class GeminiService {
     return _activeCompanionKey == key && _companionStates.containsKey(key);
   }
 
-  // --- Improved Relationship & Memory Management ---
+  // --- **OPTIMIZED: Memory Management** ---
 
-  /// Enhanced memory item extraction with pattern recognition
-  void _extractMemoryItems(CompanionState state, String userMessage, String aiResponse) {
+  /// **OPTIMIZED: Cache regex patterns for reuse**
+  Map<String, RegExp> _getCachedPatterns() {
+    return _cachedPatterns ??= {
+      'name': RegExp(r'(?:my name is|i am called|i am called|call me)\s+([A-Za-z]+)', caseSensitive: false),
+      'age': RegExp(r'i am (\d+) years old|i am (\d+)', caseSensitive: false),
+    };
+  }
+
+  /// **OPTIMIZED: Helper to check multiple keywords efficiently**
+  bool _containsAny(String text, List<String> keywords) {
+    return keywords.any((keyword) => text.contains(keyword));
+  }
+
+  /// **OPTIMIZED: Helper to determine if a message contains important facts**
+  bool _isImportantFact(String message) {
+    final lower = message.toLowerCase();
+    final factIndicators = ['i am', 'i\'m', 'i have', 'my', 'i work', 'i live'];
+    return _containsAny(lower, factIndicators) && 
+           message.length > 10 && 
+           message.length < 200;
+  }
+
+  /// **OPTIMIZED: Helper to add items to memory lists efficiently**
+  void _addToMemoryList(CompanionState state, String key, String value, {int maxSize = 10}) {
+    final list = state.userMemory[key] as List<dynamic>? ?? <String>[];
+    
+    // Avoid duplicates
+    if (!list.contains(value)) {
+      if (list.length >= maxSize) {
+        list.removeAt(0); // Remove oldest
+      }
+      list.add(value);
+      state.updateMemory(key, list);
+    }
+  }
+
+  /// **OPTIMIZED: Memory extraction with pattern caching**
+  void _extractMemoryItemsOptimized(CompanionState state, String userMessage, String aiResponse) {
     try {
       final lowerUserMsg = userMessage.toLowerCase();
-
-      // Extract relationship-related information
-      if (lowerUserMsg.contains('my name is') || lowerUserMsg.contains('i\'m called')) {
-        final namePattern = RegExp(r'''(?:my name is|i\'m called|i am called) ([A-Za-z]+)''');
-        final match = namePattern.firstMatch(userMessage);
-        if (match != null && match.group(1) != null) {
-          state.updateMemory('user_preferred_name', match.group(1));
-        }
+      
+      // **OPTIMIZED: Use cached regex patterns**
+      final patterns = _getCachedPatterns();
+      
+      // Extract name with better pattern
+      final nameMatch = patterns['name']!.firstMatch(userMessage);
+      if (nameMatch != null && nameMatch.group(1) != null) {
+        state.updateMemory('user_preferred_name', nameMatch.group(1)!.trim());
       }
 
-      // Extract preferences
-      if (lowerUserMsg.contains('favorite') || lowerUserMsg.contains(' like ') ||
-          lowerUserMsg.contains(' love ') || lowerUserMsg.contains(' enjoy ')) {
-        final preferences = state.userMemory['preferences'] ?? <String>[];
-        if (preferences is List) {
-          if (preferences.length >= 10) preferences.removeAt(0); // Keep list manageable
-          preferences.add(userMessage);
-          state.updateMemory('preferences', preferences);
-        }
+      // **OPTIMIZED: Batch preference extraction**
+      if (_containsAny(lowerUserMsg, ['favorite', 'like', 'love', 'enjoy', 'prefer'])) {
+        _addToMemoryList(state, 'preferences', userMessage, maxSize: 8);
       }
 
-      // Extract important facts
-      if (lowerUserMsg.contains('i am ') || lowerUserMsg.contains('i\'m ') ||
-          lowerUserMsg.startsWith('i have ') || lowerUserMsg.contains('my ')) {
-        final facts = state.userMemory['important_facts'] ?? <String>[];
-        if (facts is List && facts.length < 15 && userMessage.length > 10) {
-          facts.add(userMessage);
-          state.updateMemory('important_facts', facts);
-        }
+      // **OPTIMIZED: Extract facts more selectively**
+      if (_isImportantFact(userMessage)) {
+        _addToMemoryList(state, 'important_facts', userMessage, maxSize: 10);
       }
     } catch (e) {
       _log.warning('Error extracting memory items: $e');
@@ -906,6 +1094,8 @@ class GeminiService {
       'memoryCacheKeys': _companionStates.keys.toList(),
       'lastStateCleanup': _lastStateCleanup.toIso8601String(),
       'stateAccessTimes': _stateAccessTimes.map((k, v) => MapEntry(k, v.toIso8601String())),
+      'pendingSaves': _pendingSaves.length,
+      'cachedSystemPrompts': _cachedSystemPrompts.length,
       'activeCompanionDetails': _activeCompanionKey != null && _companionStates.containsKey(_activeCompanionKey!)
           ? {
               'companionId': _companionStates[_activeCompanionKey!]!.companionId,
@@ -923,7 +1113,10 @@ class GeminiService {
     if (!_prefsInitialized) await _initPrefs();
     if (!_prefsInitialized) return;
 
-    await _stateOperationMutex.acquire();
+    if (!await _stateOperationMutex.acquireWithTimeout(_stateOperationTimeout)) {
+      throw TimeoutException('Clear user states operation timed out');
+    }
+
     try {
       // Clear from memory cache
       final keysToRemove = _companionStates.keys
@@ -935,13 +1128,33 @@ class GeminiService {
         _stateAccessTimes.remove(key);
       }
 
+      // Clear sessions
+      final sessionKeysToRemove = _persistentSessions.keys
+          .where((key) => key.startsWith('${userId}_'))
+          .toList();
+          
+      for (final key in sessionKeysToRemove) {
+        _persistentSessions.remove(key);
+        _sessionLastUsed.remove(key);
+        _sessionMessageCount.remove(key);
+      }
+
       // Clear from persistent storage
       final allKeys = _prefs.getKeys()
-          .where((key) => key.startsWith('${_prefsKeyPrefix}${userId}_'))
+          .where((key) => key.startsWith('$_prefsKeyPrefix${userId}_'))
           .toList();
 
       for (final key in allKeys) {
         await _prefs.remove(key);
+      }
+
+      // Clear cached system prompts for this user's companions
+      final userCompanionPrompts = _cachedSystemPrompts.keys
+          .where((key) => key.startsWith(userId))
+          .toList();
+      
+      for (final key in userCompanionPrompts) {
+        _cachedSystemPrompts.remove(key);
       }
 
       _log.info('Cleared all companion states for user $userId (${allKeys.length} keys removed)');
@@ -957,16 +1170,29 @@ class GeminiService {
     if (!_prefsInitialized) await _initPrefs();
     if (!_prefsInitialized) return;
 
-    await _stateOperationMutex.acquire();
+    if (!await _stateOperationMutex.acquireWithTimeout(_stateOperationTimeout)) {
+      throw TimeoutException('Clear companion state operation timed out');
+    }
+
     try {
       final key = _getCompanionStateKey(userId, companionId);
-      
+      final sessionKey = '${userId}_$companionId';
+
       // Remove from memory
       _companionStates.remove(key);
       _stateAccessTimes.remove(key);
       
+      // Remove session
+      _persistentSessions.remove(sessionKey);
+      _sessionLastUsed.remove(sessionKey);
+      _sessionMessageCount.remove(sessionKey);
+      
+
       // Remove from storage
       await _prefs.remove('$_prefsKeyPrefix$key');
+      
+      // Clear cached system prompt
+      _cachedSystemPrompts.remove(companionId);
       
       _log.info('Cleared companion state for $companionId');
     } catch (e) {
@@ -975,9 +1201,19 @@ class GeminiService {
       _stateOperationMutex.release();
     }
   }
-  /// Call this on app shutdown or when service is no longer needed.
+
+  /// **OPTIMIZED: Call this on app shutdown or when service is no longer needed.**
   Future<void> dispose() async {
     _log.info('Disposing GeminiService...');
+    await _saveSessionMetadata();
+
+    // Cancel any pending save operations
+    _saveDebounceTimer?.cancel();
+    
+    // Process any remaining pending saves
+    if (_pendingSaves.isNotEmpty) {
+      await _processPendingSaves();
+    }
 
     // Save all active states
     await saveState();
@@ -994,6 +1230,8 @@ class GeminiService {
     // Clear in-memory cache
     _companionStates.clear();
     _stateAccessTimes.clear();
+    _cachedSystemPrompts.clear();
+    _cachedPatterns = null;
     _activeCompanionKey = null;
     _baseModel = null; // Allow GC
     _isModelInitialized = false;
@@ -1021,10 +1259,14 @@ class Mutex {
       if (DateTime.now().isAfter(deadline)) {
         return false;
       }
-      await _completer!.future.timeout(
-        timeout,
-        onTimeout: () {},
-      );
+      try {
+        await _completer!.future.timeout(
+          Duration(milliseconds: 100),
+          onTimeout: () {},
+        );
+      } catch (e) {
+        // Continue waiting
+      }
     }
     _completer = Completer<void>();
     return true;
@@ -1043,5 +1285,5 @@ class Mutex {
 
 /// Helper for non-blocking operations
 void unawaited(Future<void> future) {
-  // Intentionally left empty
+  // Intentionally left empty - allows fire-and-forget operations
 }

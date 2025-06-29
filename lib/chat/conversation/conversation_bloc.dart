@@ -444,8 +444,15 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         updates['last_updated'] = event.lastUpdated!.toIso8601String();
       }
       if (event.unreadCount != null) {
-        updates['unread_count'] = event.unreadCount;
+        if (event.markAsRead){
+          updates['unread_count'] = 0; // Mark as read
+        } else {
+          updates['unread_count'] = event.unreadCount;
+        }
       }
+      if (event.markAsRead){
+          updates['unread_count'] = 0; // Mark as read
+        }
       
       // Only proceed if we have updates to make
       if (updates.isEmpty) return;
