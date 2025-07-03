@@ -127,6 +127,7 @@ class Message {
   }
 
   Message copyWith({
+    String? id,
     String? text,
     Map<String, dynamic>? metadata,
     double? confidence,
@@ -134,17 +135,18 @@ class Message {
     Map<String, dynamic>? aiContext,
     String? intent,
     Map<String, dynamic>? entities,
+    DateTime? created_at,
   }) {
     return Message(
-      id: id,
+      id: id ?? this.id,
       message: text ?? message,
       userId: userId,
       companionId: companionId,
       conversationId: conversationId,
       isBot: isBot,
-      created_at: created_at,
+      created_at: created_at ?? this.created_at, // FIXED: Allow timestamp updates
       type: type,
-      metadata: metadata ?? this.metadata,
+      metadata: metadata ?? Map<String, dynamic>.from(this.metadata),
       confidence: confidence ?? this.confidence,
       aiContext: aiContext ?? this.aiContext,
       intent: intent ?? this.intent,
@@ -154,6 +156,21 @@ class Message {
       mediaMetadata: mediaMetadata,
     );
   }
+
+  // Enhanced helper methods for fragment identification
+  bool get isFragment => metadata['is_fragment'] == true;
+  bool get isCompleteVersion => metadata['is_complete_version'] == true;
+  int? get fragmentIndex => metadata['fragment_index'] as int?;
+  int? get totalFragments => metadata['total_fragments'] as int?;
+  bool get isLastFragment => fragmentIndex != null && totalFragments != null && 
+                           fragmentIndex == totalFragments! - 1;
+  
+  // NEW: Check if this is a temporary fragment (being animated)
+  bool get isTemporaryFragment => id?.contains('_fragment_') == true && 
+                                 !id!.startsWith('permanent_');
+  
+  // NEW: Get fragment creation timestamp
+  int? get fragmentTimestamp => metadata['fragment_timestamp'] as int?;
 
   @override
   bool operator ==(Object other) =>

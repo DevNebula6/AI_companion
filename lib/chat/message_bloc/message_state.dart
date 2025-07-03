@@ -44,13 +44,30 @@ class MessageLoaded extends MessageState {
   ];
 }
 
+class MessageFragmenting extends MessageState {
+  final List<String> fragments;
+  final int currentFragmentIndex;
+  final List<Message> messages;
+  final Message originalMessage;
+
+  const MessageFragmenting({
+    required this.fragments,
+    required this.currentFragmentIndex,
+    required this.messages,
+    required this.originalMessage,
+  });
+
+  @override
+  List<Object?> get props => [fragments, currentFragmentIndex, messages, originalMessage];
+}
+
 class MessageReceiving extends MessageLoaded {
   final String userMessage;
 
   const MessageReceiving(
     this.userMessage, 
-    {required List<Message> messages}
-  ) : super(messages: messages);
+    {required super.messages}
+  );
 
   @override
   List<Object> get props => [userMessage, messages];
