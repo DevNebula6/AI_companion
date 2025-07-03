@@ -19,6 +19,8 @@ import 'dart:async';
 import 'package:ai_companion/utilities/widgets/floating_connectivity_indicator.dart';
 import 'package:ai_companion/services/connectivity_service.dart';
 
+import '../../chat/msg_fragmentation/message_fragmentation.dart';
+
 class ChatPage extends StatefulWidget {
   final AICompanion companion;
   final String conversationId;
@@ -53,6 +55,18 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   late ConnectivityService _connectivityService;
   bool _isOnline = true;
   
+  // Enhanced Fragment Support with better avatar tracking
+  List<String> _currentFragments = [];
+  int _displayedFragmentIndex = 0;
+  Timer? _fragmentDisplayTimer;
+  bool _isDisplayingFragments = false;
+  Message? _fragmentingMessage;
+  bool _isTypingForFragments = false;
+  final List<Message> _temporaryFragmentMessages = [];
+  int? _activeFragmentIndex;
+  final Set<String> _animatedFragmentIds = {};
+  String? _currentFragmentingMessageId; // NEW: Track which message is currently fragmenting
+
   @override
   void initState() {
     super.initState();
@@ -120,6 +134,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     // Ensure conversation data is updated when leaving the chat page
     _syncConversationOnExit();
     _markConversationAsRead();
+
+    _fragmentDisplayTimer?.cancel();
     _messageController.dispose();
     _focusNode.dispose();
     _scrollController.dispose();
@@ -229,47 +245,88 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
     
     // Get pending message IDs from the MessageBloc state
-    List<String> pendingMessageIds = [];
+    final pendingMessageIds = <String>[];
     final messageState = _messageBloc.state;
     if (messageState is MessageLoaded) {
-      pendingMessageIds = messageState.pendingMessageIds;
+      pendingMessageIds.addAll(messageState.pendingMessageIds);
     }
+    
+    // Enhanced message list with fragment support
+    final displayMessages = _buildDisplayMessagesList(messages);
     
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.all(16),
       reverse: false,
-      itemCount: messages.length,
+      itemCount: displayMessages.length + (_isTypingForFragments ? 1 : 0),
       itemBuilder: (context, index) {
-        final message = messages[index];
+        // Handle typing indicator at the end
+        if (index == displayMessages.length && _isTypingForFragments) {
+          return _buildFragmentTypingIndicator();
+        }
+        
+        final message = displayMessages[index];
         final isUser = !message.isBot;
         
         bool isPreviousSameSender = false;
         bool isNextSameSender = false;
         
         if (index > 0) {
-          isPreviousSameSender = messages[index - 1].isBot == message.isBot;
+          isPreviousSameSender = displayMessages[index - 1].isBot == message.isBot;
         }
-        if (index < messages.length - 1) {
-          isNextSameSender = messages[index + 1].isBot == message.isBot;
+        if (index < displayMessages.length - 1) {
+          isNextSameSender = displayMessages[index + 1].isBot == message.isBot;
         }
         
         // Check if this message is pending
         final isPending = message.id != null && pendingMessageIds.contains(message.id);
+        final isFragment = message.metadata['is_fragment'] == true;
+        final fragmentIndex = message.metadata['fragment_index'] as int?;
+        final totalFragments = message.metadata['total_fragments'] as int?;
+        final isLastFragment = fragmentIndex != null && totalFragments != null && 
+                              fragmentIndex == totalFragments - 1;
+        
+        // FIXED: Avatar positioning logic - only affect currently loading fragments
+        bool showAvatar = false;
+        if (!isUser) {
+          if (isFragment) {
+            // Get the base message ID to identify which fragment sequence this belongs to
+            final baseMessageId = _getBaseMessageId(message);
+            
+            // Check if this fragment belongs to the currently loading message
+            final isCurrentlyFragmenting = _isDisplayingFragments && 
+                                         _currentFragmentingMessageId != null &&
+                                         baseMessageId == _currentFragmentingMessageId;
+            
+            if (isCurrentlyFragmenting && _activeFragmentIndex != null) {
+              // For currently loading fragments: show avatar on active fragment
+              showAvatar = fragmentIndex == _activeFragmentIndex;
+            } else {
+              // For completed fragment sequences: show avatar on last fragment
+              showAvatar = isLastFragment;
+            }
+          } else {
+            // For regular messages: show when previous sender is different
+            showAvatar = !isPreviousSameSender;
+          }
+        }
         
         final messageWidget = MessageBubble(
           key: ValueKey(message.id),
           message: message,
           isUser: isUser,
           companionAvatar: widget.companion.avatarUrl,
-          showAvatar: !isPreviousSameSender,
+          showAvatar: showAvatar,
           isPreviousSameSender: isPreviousSameSender,
           isNextSameSender: isNextSameSender,
-          animation: null,
-          isPending: isPending, // Pass pending state to bubble
+          isPending: isPending,
+          isFragment: isFragment,
+          isLastFragment: isLastFragment,
+          fragmentIndex: fragmentIndex,
+          totalFragments: totalFragments,
         );
         
-        if (index == 0 || !_isSameDay(messages[index - 1].created_at, message.created_at)) {
+        if (!isFragment && (index == 0 || !_isSameDay(displayMessages[index - 1].created_at, message.created_at))) {
           return Column(
             children: [
               _buildDateDivider(message.created_at),
@@ -281,6 +338,54 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         return messageWidget;
       },
     );
+  }
+
+  List<Message> _buildDisplayMessagesList(List<Message> originalMessages) {
+    final displayMessages = <Message>[];
+    
+    // Add original messages (excluding any that are being fragmented)
+    for (final message in originalMessages) {
+      if (_fragmentingMessage == null || message.id != _fragmentingMessage!.id) {
+        displayMessages.add(message);
+      }
+    }
+    
+    // Add currently displaying fragments
+    if (_isDisplayingFragments && _temporaryFragmentMessages.isNotEmpty) {
+      displayMessages.addAll(_temporaryFragmentMessages);
+    }
+    
+    return displayMessages;
+  }
+
+  Widget _buildFragmentTypingIndicator() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(left: 56, bottom: 8, right: 16, top: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceVariant,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 40,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned(left: 0, child: _buildDot(delay: 0)),
+                  _buildDot(delay: 150),
+                  Positioned(right: 0, child: _buildDot(delay: 300)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 200.ms);
   }
 
   Center _emptyMessageWidget() {
@@ -540,7 +645,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       child: WillPopScope(
         onWillPop: () async {
           _syncConversationOnExit();
-          _markConversationAsRead();
           return true;
         },
         child: Scaffold(
@@ -649,12 +753,21 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           ),
           body: BlocConsumer<MessageBloc, MessageState>(
             listener: (context, state) {
+              // Enhanced scrolling behavior
               if (state is MessageLoaded) {
+                Future.delayed(const Duration(milliseconds: 50), () {
+                  _scrollToBottom();
+                });
+              }
+              if (state is MessageFragmenting) {
+                _handleFragmentedMessage(state);
+              }
+              if (state is MessageReceiving) {
+                // Scroll when typing indicator appears
                 Future.delayed(const Duration(milliseconds: 100), () {
                   _scrollToBottom();
                 });
               }
-              
               // Add listener for network status changes
               if (state is MessageLoaded && !state.isFromCache && state.hasError) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -666,9 +779,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
               }
             },
             builder: (context, state) {
-              final List<Message> currentMessages = state is MessageLoaded 
-              ? state.messages 
-              : _messageBloc.currentMessages; 
+              List<Message> baseMessages = state is MessageLoaded 
+                  ? List<Message>.from(state.messages)
+                  : List<Message>.from(_messageBloc.currentMessages);
 
               return Column(
                 children: [
@@ -677,9 +790,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                   Expanded(
                     child: Stack(
                       children: [
-                        if (currentMessages.isNotEmpty)
-                          _buildMessageList(currentMessages),
-                        if (currentMessages.isEmpty)
+                        if (baseMessages.isNotEmpty || _temporaryFragmentMessages.isNotEmpty)
+                          _buildMessageList(baseMessages),
+                        if (baseMessages.isEmpty && _temporaryFragmentMessages.isEmpty)
                           _emptyMessageWidget(),
                         if (state is MessageLoading)
                           _buildLoadingMessages(),
@@ -711,7 +824,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                             ),
                           ),
                         
-                        if (_isTyping)
+                        // Regular typing indicator (only when not fragmenting)
+                        if (_isTyping && !_isDisplayingFragments)
                           Positioned(
                             bottom: 0,
                             left: 0,
@@ -726,7 +840,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                     controller: _messageController,
                     focusNode: _focusNode,
                     onSend: _sendMessage,
-                    isTyping: _isTyping,
+                    isTyping: _isTyping || _isTypingForFragments,
                     isOnline: _isOnline,
                   ),
                 ],
@@ -738,6 +852,171 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
   
+  // Enhanced Fragment Display Logic
+  void _handleFragmentedMessage(MessageFragmenting state) {
+    setState(() {
+      _currentFragments = state.fragments;
+      _displayedFragmentIndex = 0;
+      _isDisplayingFragments = true;
+      _fragmentingMessage = state.originalMessage;
+      _temporaryFragmentMessages.clear();
+      _isTypingForFragments = true;
+      _activeFragmentIndex = null;
+      // Clear previous fragment animation tracking for new conversation
+      _animatedFragmentIds.clear();
+      // FIXED: Track which message is currently being fragmented
+      _currentFragmentingMessageId = state.originalMessage.id;
+    });
+
+    _startFragmentDisplay();
+  }
+
+  void _startFragmentDisplay() {
+    if (_currentFragments.isEmpty) return;
+
+    // Show first fragment with typing indicator
+    _displayNextFragment();
+  }
+
+  void _displayNextFragment() {
+    if (_displayedFragmentIndex >= _currentFragments.length) {
+      _completeFragmentDisplay();
+      return;
+    }
+
+    // Hide typing indicator and show current fragment
+    setState(() {
+      _isTypingForFragments = false;
+      _activeFragmentIndex = _displayedFragmentIndex;
+      
+      final fragmentId = '${_fragmentingMessage!.id}_fragment_$_displayedFragmentIndex';
+      final fragmentMessage = Message(
+        id: fragmentId,
+        message: _currentFragments[_displayedFragmentIndex],
+        companionId: _fragmentingMessage!.companionId,
+        userId: _fragmentingMessage!.userId,
+        conversationId: _fragmentingMessage!.conversationId,
+        isBot: true,
+        created_at: _fragmentingMessage!.created_at.add(Duration(milliseconds: _displayedFragmentIndex * 100)),
+        metadata: {
+          ..._fragmentingMessage!.metadata,
+          'is_fragment': true,
+          'fragment_index': _displayedFragmentIndex,
+          'total_fragments': _currentFragments.length,
+          'fragment_timestamp': DateTime.now().millisecondsSinceEpoch,
+          'base_message_id': _fragmentingMessage!.id, // NEW: Explicit base message tracking
+        },
+      );
+      
+      // Track this fragment as animated
+      _animatedFragmentIds.add(fragmentId);
+      _temporaryFragmentMessages.add(fragmentMessage);
+    });
+
+    // Enhanced scrolling behavior with proper timing
+    final scrollDelay = MessageFragmenter.calculateScrollDelay(_displayedFragmentIndex);
+    Future.delayed(Duration(milliseconds: scrollDelay), () {
+      if (mounted) {
+        _scrollToBottomImmediate();
+      }
+    });
+
+    // Prepare next fragment
+    if (_displayedFragmentIndex < _currentFragments.length - 1) {
+      final currentFragment = _currentFragments[_displayedFragmentIndex];
+      final delay = MessageFragmenter.calculateTypingDelay(currentFragment, _displayedFragmentIndex);
+      
+      _fragmentDisplayTimer = Timer(Duration(milliseconds: delay), () {
+        if (mounted) {
+          setState(() {
+            _isTypingForFragments = true;
+          });
+          
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted) {
+              _scrollToBottomImmediate();
+            }
+          });
+          
+          Timer(const Duration(milliseconds: 300), () {
+            if (mounted) {
+              _displayedFragmentIndex++;
+              _displayNextFragment();
+            }
+          });
+        }
+      });
+    } else {
+      _fragmentDisplayTimer = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          _completeFragmentDisplay();
+        }
+      });
+    }
+  }
+
+  void _completeFragmentDisplay() {
+    if (_fragmentingMessage == null) return;
+
+    setState(() {
+      _isDisplayingFragments = false;
+      _isTypingForFragments = false;
+      // FIXED: Clear the currently fragmenting message ID
+      _currentFragmentingMessageId = null;
+    });
+
+    // Add fragments to permanent storage with proper base message ID
+    for (int i = 0; i < _temporaryFragmentMessages.length; i++) {
+      final tempFragment = _temporaryFragmentMessages[i];
+      final permanentFragment = tempFragment.copyWith(
+        id: 'permanent_fragment_${DateTime.now().millisecondsSinceEpoch}_$i',
+        created_at: _fragmentingMessage!.created_at.add(Duration(milliseconds: i * 50)),
+        metadata: {
+          ...tempFragment.metadata,
+          'base_message_id': _fragmentingMessage!.id, // Preserve base message tracking
+        },
+      );
+      
+      _messageBloc.add(AddFragmentMessageEvent(permanentFragment));
+    }
+
+    // Reset fragmentation state
+    _currentFragments.clear();
+    _displayedFragmentIndex = 0;
+    _fragmentingMessage = null;
+    _fragmentDisplayTimer?.cancel();
+    
+    // Clear temporary fragments and reset tracking after delay
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (mounted) {
+        setState(() {
+          _temporaryFragmentMessages.clear();
+          _activeFragmentIndex = null;
+          // Keep animated fragment IDs to prevent re-animation
+        });
+      }
+    });
+    
+    // Update conversation metadata
+    final userMessage = _messageBloc.currentMessages
+        .where((m) => !m.isBot)
+        .lastOrNull;
+        
+    if (userMessage != null) {
+      _messageBloc.add(NotifyFragmentationCompleteEvent(userMessage.conversationId));
+    }
+  }
+
+  void _scrollToBottomImmediate() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   Widget _buildLoadingMessages() {
     return Shimmer.fromColors(
       baseColor: Colors.grey[300]!,
@@ -801,4 +1080,25 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
   }
   
+  String _getBaseMessageId(Message message) {
+    if (message.metadata['is_fragment'] == true) {
+      // First check for explicit base_message_id in metadata
+      final baseId = message.metadata['base_message_id']?.toString();
+      if (baseId != null && baseId.isNotEmpty) {
+        return baseId;
+      }
+      
+      // Extract base ID from fragment ID
+      final fragmentId = message.id ?? '';
+      if (fragmentId.contains('_fragment_')) {
+        return fragmentId.split('_fragment_')[0];
+      }
+      
+      // Fallback: use a combination that's unique to this message sequence
+      return '${message.companionId}_${message.created_at.millisecondsSinceEpoch ~/ 1000}';
+    }
+    
+    // For non-fragment messages, return the message ID or generate a fallback
+    return message.id ?? '${message.companionId}_${message.created_at.millisecondsSinceEpoch ~/ 1000}';
+  }
 }

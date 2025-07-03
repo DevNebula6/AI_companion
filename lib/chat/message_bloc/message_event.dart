@@ -61,6 +61,44 @@ class LoadMessagesEvent extends MessageEvent {
   List<Object?> get props => [userId, companionId];
 }
 
+class AddFragmentMessageEvent extends MessageEvent {
+  final Message fragmentMessage;
+  
+  const AddFragmentMessageEvent(this.fragmentMessage);
+  
+  @override
+  List<Object?> get props => [fragmentMessage];
+}
+
+class NotifyFragmentationCompleteEvent extends MessageEvent {
+  final String conversationId;
+  
+  const NotifyFragmentationCompleteEvent(this.conversationId);
+  
+  @override
+  List<Object?> get props => [conversationId];
+}
+
+class CompleteFragmentedMessageEvent extends MessageEvent {
+  final Message originalMessage;
+  final Message userMessage;
+  
+  const CompleteFragmentedMessageEvent(this.originalMessage, this.userMessage);
+  
+  @override
+  List<Object?> get props => [originalMessage, userMessage];
+}
+
+class FragmentedMessageReceivedEvent extends MessageEvent {
+  final List<String> fragments;
+  final Message originalMessage;
+  
+  const FragmentedMessageReceivedEvent(this.fragments, this.originalMessage);
+  
+  @override
+  List<Object?> get props => [fragments, originalMessage];
+}
+
 class DeleteMessageEvent extends MessageEvent {
   final String messageId;
 

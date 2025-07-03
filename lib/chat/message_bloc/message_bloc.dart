@@ -12,6 +12,8 @@ import 'package:ai_companion/chat/message.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../msg_fragmentation/message_fragmentation.dart';
+
 class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final ChatRepository _repository;
   final GeminiService _geminiService = GeminiService();
@@ -23,6 +25,10 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   Timer? _syncTimer;
   List<Message> _currentMessages = [];
   
+  // Fragmentation support
+  Timer? _fragmentTimer;
+  StreamController<String>? _fragmentController;
+
   // Offline support
   bool _isOnline = true;
   StreamSubscription? _connectivitySubscription;
@@ -45,7 +51,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<RefreshMessages>(_onRefreshMessages);
     on<ConnectivityChangedEvent>(_onConnectivityChanged);
     on<ProcessPendingMessagesEvent>(_onProcessPendingMessages);
-
+    on<FragmentedMessageReceivedEvent>(_onFragmentedMessageReceived);
+    on<CompleteFragmentedMessageEvent>(_onCompleteFragmentedMessage);
+    on<AddFragmentMessageEvent>(_onAddFragmentMessage);
+    on<NotifyFragmentationCompleteEvent>(_onNotifyFragmentationComplete);
+    
     _setupPeriodicSync();
     _setupConnectivityListener();
     _loadPendingMessages();
@@ -365,39 +375,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         },
       );
 
-      // Update local state
-      _currentMessages.add(aiMessage);
+      // Check if response should be fragmented
+      final fragments = MessageFragmenter.fragmentResponse(aiResponse);
       
-      // Update cache
-      if (_currentUserId != null && _currentCompanionId != null) {
-        await _cacheService.cacheMessages(
-          _currentUserId!,
-          _currentMessages,
-          companionId: _currentCompanionId!,
-        );
-      }
-
-      // Update UI
-      emit(MessageLoaded(messages: _currentMessages));
-      emit(MessageSent());
-
-      // If online, send AI message to database
-      if (_isOnline) {
-        await _repository.sendMessage(aiMessage);
-        await _repository.updateConversation(
-          userMessage.conversationId,
-          lastMessage: aiMessage.message,
-          incrementUnread: 1,
-        );
+      if (fragments.length > 1) {
+        // Emit fragmented response
+        add(FragmentedMessageReceivedEvent(fragments, aiMessage));
       } else {
-        // If offline, add to pending queue
-        await _addPendingMessage(aiMessage);
+        // Single message - process normally
+        await _processSingleMessage(aiMessage, userMessage, emit);
       }
-
-      //Mark conversation as read
-      await _repository.markConversationAsRead(
-        userMessage.conversationId,
-      );
     } catch (e) {
       print('Error generating AI response: $e');
       _typingSubject.add(false);
@@ -431,6 +418,168 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
+  // Handle fragmented message display
+  Future<void> _onFragmentedMessageReceived(
+    FragmentedMessageReceivedEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    emit(MessageFragmenting(
+      fragments: event.fragments,
+      currentFragmentIndex: 0,
+      messages: _currentMessages,
+      originalMessage: event.originalMessage,
+    ));
+  }
+
+  // Process single message (extracted for reuse)
+  Future<void> _processSingleMessage(Message aiMessage, Message userMessage, Emitter<MessageState> emit) async {
+    _currentMessages.add(aiMessage);
+    
+    if (_currentUserId != null && _currentCompanionId != null) {
+      await _cacheService.cacheMessages(
+        _currentUserId!,
+        _currentMessages,
+        companionId: _currentCompanionId!,
+      );
+    }
+
+    emit(MessageLoaded(messages: _currentMessages));
+    emit(MessageSent());
+
+    if (_isOnline) {
+      await _repository.sendMessage(aiMessage);
+      await _repository.updateConversation(
+        userMessage.conversationId,
+        lastMessage: aiMessage.message,
+        incrementUnread: 1,
+      );
+    } else {
+      await _addPendingMessage(aiMessage);
+    }
+
+    await _repository.markConversationAsRead(userMessage.conversationId);
+  }
+  
+  // NEW: Handle individual fragment messages
+  Future<void> _onAddFragmentMessage(
+    AddFragmentMessageEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    // Add fragment to current messages
+    _currentMessages.add(event.fragmentMessage);
+    
+    // Cache immediately
+    if (_currentUserId != null && _currentCompanionId != null) {
+      await _cacheService.cacheMessages(
+        _currentUserId!,
+        _currentMessages,
+        companionId: _currentCompanionId!,
+      );
+    }
+
+    // FIXED: Only emit state if this is not during active fragmentation
+    // This prevents reloading fragments while they're being displayed
+    if (state is! MessageFragmenting) {
+      emit(MessageLoaded(messages: _currentMessages));
+    }
+
+    // Save fragment to database if online
+    if (_isOnline) {
+      try {
+        await _repository.sendMessage(event.fragmentMessage);
+      } catch (e) {
+        print('Error saving fragment to database: $e');
+        // Continue - fragment is still in local cache
+      }
+    } else {
+      await _addPendingMessage(event.fragmentMessage);
+    }
+  }
+
+  // NEW: Handle fragmentation completion notification
+  Future<void> _onNotifyFragmentationComplete(
+    NotifyFragmentationCompleteEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    // Get the last fragment message to use as conversation preview
+    final lastFragmentMessage = _currentMessages
+        .where((m) => m.metadata['is_fragment'] == true)
+        .lastOrNull;
+    
+    // Use the first fragment as preview (more meaningful than last)
+    final firstFragmentMessage = _currentMessages
+        .where((m) => m.metadata['is_fragment'] == true && m.metadata['fragment_index'] == 0)
+        .lastOrNull;
+    
+    final lastMessagePreview = firstFragmentMessage?.message ?? 
+                              lastFragmentMessage?.message ?? 
+                              "New message";
+    
+    // Update conversation metadata with actual fragment content
+    if (_isOnline) {
+      try {
+        await _repository.updateConversation(
+          event.conversationId,
+          lastMessage: lastMessagePreview, // Use actual fragment content
+          incrementUnread: 1,
+        );
+        
+        await _repository.markConversationAsRead(event.conversationId);
+        
+        // Trigger conversation list refresh with updated content
+        _triggerConversationRefresh();
+      } catch (e) {
+        print('Error updating conversation after fragmentation: $e');
+      }
+    }
+
+    // FIXED: Final state emission with smooth transition
+    // Add a small delay to ensure UI has settled before final update
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (!isClosed) {
+        emit(MessageLoaded(messages: _currentMessages));
+        emit(MessageSent());
+      }
+    });
+  }
+
+  // MODIFIED: Simplified completion handler
+  Future<void> _onCompleteFragmentedMessage(
+    CompleteFragmentedMessageEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    // This event is now mainly for database consistency
+    // The fragments are already in _currentMessages via AddFragmentMessageEvent
+    
+    final originalMessage = event.originalMessage;
+    final userMessage = event.userMessage;
+
+    // Save complete message to database for search/backup purposes
+    if (_isOnline) {
+      try {
+        final completeMessage = originalMessage.copyWith(
+          id: 'complete_${DateTime.now().millisecondsSinceEpoch}',
+          metadata: {
+            ...originalMessage.metadata, 
+            'is_complete_version': true,
+            'fragment_count': originalMessage.metadata['total_fragments'] ?? 1,
+          }
+        );
+        await _repository.sendMessage(completeMessage);
+        await _repository.updateConversation(
+          userMessage.conversationId,
+          lastMessage: originalMessage.message,
+          incrementUnread: 1,
+        );
+      } catch (e) {
+        print('Error saving complete message: $e');
+      }
+    }
+
+    await _repository.markConversationAsRead(userMessage.conversationId);
+  }
+
+  // MODIFIED: Load messages with fragment detection
   Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit) async {
     try {
       emit(MessageLoading());
@@ -443,7 +592,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         throw Exception('Companion not found');
       }
 
-      // 2. Try cached messages first for immediate response
+      // 2. Try cached messages first
       _currentMessages = _cacheService.getCachedMessages(
         event.userId,
         companionId: event.companionId,
@@ -458,37 +607,44 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
       if (_currentMessages.isNotEmpty) {
         print("Found ${_currentMessages.length} cached messages for companion ${event.companionId}");
+        
+        // CRITICAL: Filter out complete versions if fragments exist
+        _currentMessages = _filterDuplicateMessages(_currentMessages);
+        
         emit(MessageLoaded(
           messages: _currentMessages,
           pendingMessageIds: pendingMessageIds,
         ));
       }
 
-      // 3. If we're online, get messages from server (using centralized service)
+      // 3. If online, get messages from server
       if (_connectivityService.isOnline) {
         try {
           final messages = await _repository.getMessages(event.userId, event.companionId);
 
-          // 4. Check if there are differences and update cache if needed
-          if (messages.isNotEmpty &&
-              (_currentMessages.isEmpty ||
-                  messages.length != _currentMessages.length ||
-                  _messagesNeedUpdate(messages, _currentMessages))) {
-            _currentMessages = messages;
-            // Update companion-specific cache
-            await _cacheService.cacheMessages(
-              event.userId,
-              messages,
-              companionId: event.companionId,
-            );
-            emit(MessageLoaded(
-              messages: _currentMessages,
-              pendingMessageIds: pendingMessageIds,
-            ));
+          if (messages.isNotEmpty) {
+            // Filter out complete versions if fragments exist
+            final filteredMessages = _filterDuplicateMessages(messages);
+            
+            if (filteredMessages.isNotEmpty &&
+                (_currentMessages.isEmpty ||
+                    filteredMessages.length != _currentMessages.length ||
+                    _messagesNeedUpdate(filteredMessages, _currentMessages))) {
+              _currentMessages = filteredMessages;
+              
+              await _cacheService.cacheMessages(
+                event.userId,
+                _currentMessages,
+                companionId: event.companionId,
+              );
+              emit(MessageLoaded(
+                messages: _currentMessages,
+                pendingMessageIds: pendingMessageIds,
+              ));
+            }
           }
         } catch (e) {
           print('Error fetching messages from server: $e');
-          // Continue with cached messages
         }
       }
 
@@ -529,7 +685,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
     } catch (e) {
       print('Error loading messages: $e');
-      // Fallback to cached messages
       if (_currentMessages.isNotEmpty) {
         emit(MessageLoaded(
           messages: _currentMessages,
@@ -557,6 +712,62 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
 
     return false;
+  }
+
+  // NEW: Filter out complete messages if fragments exist
+  List<Message> _filterDuplicateMessages(List<Message> messages) {
+    final fragmentGroups = <String, List<Message>>{};
+    final completeMessages = <String, Message>{};
+    final nonFragmentedMessages = <Message>[];
+
+    // Group messages by content/timestamp
+    for (final message in messages) {
+      if (message.metadata['is_fragment'] == true) {
+        // FIXED: Use base_message_id if available, otherwise extract from ID
+        final baseId = message.metadata['base_message_id']?.toString() ??
+                      (message.id?.contains('_fragment_') == true 
+                        ? message.id!.split('_fragment_')[0]
+                        : message.id?.replaceAll(RegExp(r'_fragment_\d+'), '')) ??
+                      '${message.companionId}_${message.created_at.millisecondsSinceEpoch ~/ 1000}';
+        
+        fragmentGroups.putIfAbsent(baseId, () => []).add(message);
+      } else if (message.metadata['is_complete_version'] == true) {
+        final baseId = message.metadata['original_id']?.toString() ?? 
+                      message.id?.toString() ?? 
+                      '${message.companionId}_${message.created_at.millisecondsSinceEpoch ~/ 1000}';
+        completeMessages[baseId] = message;
+      } else {
+        nonFragmentedMessages.add(message);
+      }
+    }
+
+    final result = <Message>[];
+    
+    // Add non-fragmented messages
+    result.addAll(nonFragmentedMessages);
+    
+    // For each fragment group, add fragments (not complete version)
+    fragmentGroups.forEach((baseId, fragments) {
+      // Sort fragments by index
+      fragments.sort((a, b) {
+        final indexA = a.metadata['fragment_index'] as int? ?? 0;
+        final indexB = b.metadata['fragment_index'] as int? ?? 0;
+        return indexA.compareTo(indexB);
+      });
+      result.addAll(fragments);
+    });
+    
+    // Add complete messages only if no fragments exist for them
+    completeMessages.forEach((baseId, completeMessage) {
+      if (!fragmentGroups.containsKey(baseId)) {
+        result.add(completeMessage);
+      }
+    });
+
+    // Sort by timestamp
+    result.sort((a, b) => a.created_at.compareTo(b.created_at));
+    
+    return result;
   }
 
   Future<void> _onClearConversation(
@@ -713,6 +924,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     _syncTimer?.cancel();
     _connectivitySubscription?.cancel();
     await _typingSubject.close();
+    _fragmentTimer?.cancel();
+    _fragmentController?.close();
 
     // Save current AI state before closing
     if (_currentUserId != null && _currentCompanionId != null) {

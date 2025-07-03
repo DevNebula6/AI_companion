@@ -176,7 +176,11 @@ class ChatRepository implements IChatRepository {
           .eq('conversation_id', conversationId)
           .order('created_at', ascending: true);
 
-      return response.map((item) => Message.fromJson(item)).toList();
+      final messages = response.map((item) => Message.fromJson(item)).toList();
+      
+      // IMPORTANT: Don't filter here - let the MessageBloc handle fragment logic
+      // This ensures we get all data from the database
+      return messages;
     } catch (e) {
       print('Error retrieving messages: $e');
       return [];
