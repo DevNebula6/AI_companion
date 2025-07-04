@@ -533,10 +533,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
     }
 
-    // FIXED: Final state emission with smooth transition
     // Add a small delay to ensure UI has settled before final update
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (!isClosed) {
+    await Future.delayed(const Duration(milliseconds: 200), () {
+      if (!isClosed && !emit.isDone) {
         emit(MessageLoaded(messages: _currentMessages));
         emit(MessageSent());
       }
