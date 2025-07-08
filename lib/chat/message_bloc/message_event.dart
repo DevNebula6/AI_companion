@@ -1,6 +1,8 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
+import 'package:ai_companion/chat/fragments/fragment_manager.dart';
 import 'package:ai_companion/chat/message.dart';
+import 'package:ai_companion/chat/message_queue/message_queue.dart' as queue;
 import 'package:equatable/equatable.dart';
 
 abstract class MessageEvent extends Equatable {
@@ -147,4 +149,45 @@ class RetryChatRequest extends MessageEvent {
 
   @override
   List<Object?> get props => [failedMessage];
+}
+
+// NEW: Enhanced queue system events
+class EnqueueMessageEvent extends MessageEvent {
+  final Message message;
+  final queue.MessagePriority priority;
+  
+  const EnqueueMessageEvent(this.message, {this.priority = queue.MessagePriority.normal});
+  
+  @override
+  List<Object?> get props => [message, priority];
+}
+
+class ProcessQueuedMessageEvent extends MessageEvent {
+  final queue.QueuedMessage queuedMessage;
+  const ProcessQueuedMessageEvent(this.queuedMessage);
+  
+  @override
+  List<Object?> get props => [queuedMessage];
+}
+
+class HandleFragmentEvent extends MessageEvent {
+  final FragmentEvent fragmentEvent;
+  const HandleFragmentEvent(this.fragmentEvent);
+  
+  @override
+  List<Object?> get props => [fragmentEvent];
+}
+
+// Enhanced message processing events
+class MessageQueuedEvent extends MessageEvent {
+  final List<Message> messages;
+  final int queueLength;
+  
+  const MessageQueuedEvent({
+    required this.messages,
+    required this.queueLength,
+  });
+  
+  @override
+  List<Object?> get props => [messages, queueLength];
 }

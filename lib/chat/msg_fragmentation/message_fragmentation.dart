@@ -175,38 +175,43 @@ class MessageFragmenter {
     return sentences.where((s) => s.trim().isNotEmpty).toList();
   }
   
-  /// Enhanced typing delay calculation with emotional awareness and randomness
   static int calculateTypingDelay(String fragment, int fragmentIndex) {
-    final baseDelay = 300 + _random.nextInt(400); // 300-700ms base with randomness
+    // More consistent base delay
+    final baseDelay = 1500; // 1.5 seconds base for better UX
     final wordCount = fragment.split(' ').length;
-    final typingSpeed = 60 + _random.nextInt(40); // 60-100ms per word variation
+    final typingSpeed = 150; // 150ms per word (slightly slower)
     
     int delay = baseDelay + (wordCount * typingSpeed);
     
-    // Emotional content analysis
+    // Emotional content analysis (reduced impact)
     final emotionalWeight = _analyzeEmotionalWeight(fragment);
     delay = (delay * emotionalWeight).round();
     
     // Content-based adjustments
     if (_isQuickReaction(fragment)) {
-      delay = (delay * 0.4).round(); // Much faster for reactions
+      delay = (delay * 0.5).round(); // Faster for reactions
     } else if (_isThoughtfulResponse(fragment)) {
-      delay = (delay * 1.4).round(); // Slower for thoughtful content
+      delay = (delay * 1.2).round(); // Slower for thoughtful content
     }
     
-    // First fragment timing variation
+    // First fragment gets longer delay
     if (fragmentIndex == 0) {
-      final isImmediate = _random.nextDouble() < 0.3; // 30% chance for immediate response
-      if (isImmediate) {
-        delay = (delay * 0.2).round();
-      }
+      delay = (delay * 1.3).round();
     }
     
-    // Add random variation (±20%)
-    final variation = (delay * 0.2 * (_random.nextDouble() * 2 - 1)).round();
+    // Subsequent fragments get consistent delay
+    if (fragmentIndex > 0) {
+      delay = (delay * 1.1).round();
+    }
+    
+    // Reduced random variation for more predictable timing
+    final variation = (delay * 0.03 * (_random.nextDouble() * 2 - 1)).round();
     delay += variation;
     
-    return delay.clamp(50, 2500);
+    // Consistent bounds with better minimum
+    final result = delay.clamp(1200, 4500);
+    print('Fragment $fragmentIndex delay: ${result}ms for "$fragment"');
+    return result;
   }
   
   /// Analyze emotional weight of content

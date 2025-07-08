@@ -5,15 +5,16 @@ import 'package:ai_companion/Companion/bloc/companion_state.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
 import 'package:ai_companion/Views/AI_selection/companion_details_sheet.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
-import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
+import 'package:ai_companion/navigation/routes_name.dart';
 import 'package:ai_companion/utilities/constants/textstyles.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:card_swiper/card_swiper.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:ai_companion/utilities/widgets/floating_connectivity_indicator.dart';
+import 'package:go_router/go_router.dart';
 
 class CompanionSelectionPage extends StatefulWidget {
   const CompanionSelectionPage({super.key});
@@ -34,7 +35,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
 
   void _initializeCompanionData() {
     final authState = context.read<AuthBloc>().state;
-    if (authState is AuthStateSelectCompanion) {
+    if (authState is AuthStateLoggedIn) {
       setState(() {
         user = authState.user;
       });
@@ -52,7 +53,13 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.black),
             onPressed: () {
-              context.read<AuthBloc>().add(AuthEventNavigateToHome(user: user));
+              if (Navigator.canPop(context)) {
+                // If we can pop, go back
+                context.pop();
+              } else {
+                // Otherwise, navigate to home
+                context.pushReplacementNamed(RoutesName.home,);
+              }
             },
           ),
           title: Text(
