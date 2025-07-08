@@ -1,7 +1,8 @@
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/ErrorHandling/auth_exceptions.dart';
-import 'package:ai_companion/chat/chat_repository.dart';
+import 'package:ai_companion/navigation/routes_name.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
@@ -33,7 +34,6 @@ class _UserProfilePageState extends State<UserProfilePage> with SingleTickerProv
   List<Widget>? _cachedCategoryWidgets;
   bool _interestsChanged = false;
   bool _barAnimationsComplete = false;
-  bool _hasConversations = false;
   bool _dailyCheckIns = true;
 bool _personalizedSuggestions = true;
 bool _messageNotifications = true;
@@ -69,7 +69,6 @@ bool _messageNotifications = true;
     _initializeControllers();
     _loadUserData();    
     _barAnimationsComplete = false;
-    _checkForConversations();
   }
 
   void _initializeControllers() {
@@ -95,17 +94,6 @@ bool _messageNotifications = true;
             ? user.interests!.split(',').toSet()
             : {};
         _selectedLanguage = user.chatLanguage ?? 'English';
-      });
-    }
-  }
-  // Add this method to check for conversations
-  Future<void> _checkForConversations() async {
-    final user = await CustomAuthUser.getCurrentUser();
-    if (user != null) {
-      final chatRepository = await ChatRepositoryFactory.getInstance();
-      final hasConversations = await chatRepository.hasConversations(user.id);
-      setState(() {
-        _hasConversations = hasConversations;
       });
     }
   }
@@ -163,21 +151,11 @@ bool _messageNotifications = true;
           }
         }
       },
-      child:PopScope(
-        onPopInvoked: (didPop) {
-          if (!didPop) {
-            // If back button is pressed 
-            context.read<AuthBloc>().add(
-              AuthEventNavigateToHome(user: _currentUser!)
-            );
-          }
-        },
-      child: Scaffold(
+      child:Scaffold(
         backgroundColor: Colors.grey.shade50,
         appBar: _buildAppBar(themeColors),
         body: _buildBody(themeColors),
       ),
-    ),
     );
   }
 
@@ -187,10 +165,13 @@ bool _messageNotifications = true;
       leading:BackButton(
           color: Colors.white,
           onPressed: () {
-            // Navigate to home screen using AuthBloc
-            context.read<AuthBloc>().add(
-              AuthEventNavigateToHome(user: _currentUser!)
-            );
+            if (Navigator.canPop(context)) {
+              // If we can pop, go back
+              context.pop();
+            } else {
+              // Otherwise, navigate to home
+              context.pushReplacementNamed(RoutesName.home,);
+            }
           },
         ),
       backgroundColor: colors.primary,

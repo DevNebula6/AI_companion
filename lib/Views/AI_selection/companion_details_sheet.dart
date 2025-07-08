@@ -1,18 +1,17 @@
 import 'dart:async';
-
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
-import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
-import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
 import 'package:ai_companion/chat/conversation/conversation_event.dart';
 import 'package:ai_companion/chat/conversation/conversation_state.dart';
+import 'package:ai_companion/navigation/routes_name.dart';
 import 'package:ai_companion/utilities/constants/textstyles.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 class CompanionDetailsSheet extends StatefulWidget {
   final AICompanion companion;
@@ -28,7 +27,6 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
   ScrollController? _scrollController;
   bool _isHeaderCollapsed = false;
   late int _currentTabIndex = 0;
-  String _conversationId = '';
 
   @override
   void initState() {
@@ -1142,14 +1140,11 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                       subscription.cancel();
 
                       // Now we have the conversation ID
-                      context.read<AuthBloc>().add(
-                        AuthEventNavigateToChat(
-                          user: widget.user,
-                          conversationId: state.conversationId,
-                          companion: widget.companion,
-                          navigationSource: 'companion_selection', // Add this parameter
-                        ),
-                      );
+                      context.pushReplacement(RoutesName.chat, extra: {
+                        'companion': widget.companion,
+                        'conversationId': state.conversationId,
+                        'navigationSource': 'companionDetails',
+                      });
 
                       // Close the loading dialog
                       Navigator.of(context).pop();

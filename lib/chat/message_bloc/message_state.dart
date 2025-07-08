@@ -1,5 +1,7 @@
 import 'package:ai_companion/Companion/ai_model.dart';
+import 'package:ai_companion/chat/fragments/fragment_manager.dart';
 import 'package:ai_companion/chat/message.dart';
+import 'package:ai_companion/chat/message_queue/message_queue.dart' as queue;
 import 'package:equatable/equatable.dart';
 
 abstract class MessageState extends Equatable {
@@ -85,3 +87,80 @@ class MessageError extends MessageState {
 }
 
 class MessagesCleared extends MessageState {}
+
+class MessageQueued extends MessageState {
+  final List<Message> messages;
+  final int queueLength;
+  
+  const MessageQueued({
+    required this.messages,
+    required this.queueLength,
+  });
+}
+
+class MessageFragmentDisplayed extends MessageState {
+  final Message fragment;
+  final FragmentSequence sequence;
+  final List<Message> messages;
+  
+  const MessageFragmentDisplayed({
+    required this.fragment,
+    required this.sequence,
+    required this.messages,
+  });
+}
+
+class MessageFragmentSequenceCompleted extends MessageState {
+  final FragmentSequence sequence;
+  final List<Message> messages;
+  
+  const MessageFragmentSequenceCompleted({
+    required this.sequence,
+    required this.messages,
+  });
+}
+
+// NEW: Enhanced processing state
+class MessageProcessingQueue extends MessageState {
+  final List<Message> messages;
+  final int queueLength;
+  final queue.QueuedMessage? currentlyProcessing;
+  
+  const MessageProcessingQueue({
+    required this.messages,
+    required this.queueLength,
+    this.currentlyProcessing,
+  });
+
+  @override
+  List<Object?> get props => [messages, queueLength, currentlyProcessing];
+}
+
+// NEW: Enhanced fragment state with better tracking
+class MessageFragmentInProgress extends MessageState {
+  final FragmentSequence sequence;
+  final Message currentFragment;
+  final List<Message> messages;
+  
+  const MessageFragmentInProgress({
+    required this.sequence,
+    required this.currentFragment,
+    required this.messages,
+  });
+
+  @override
+  List<Object> get props => [sequence, currentFragment, messages];
+}
+
+class MessageFragmentTyping extends MessageState {
+  final FragmentSequence sequence;
+  final List<Message> messages;
+  
+  const MessageFragmentTyping({
+    required this.sequence,
+    required this.messages,
+  });
+  
+  @override
+  List<Object?> get props => [sequence, messages];
+}

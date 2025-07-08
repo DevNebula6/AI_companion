@@ -1,12 +1,6 @@
 import 'package:ai_companion/Companion/bloc/companion_bloc.dart';
 import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/companion_repository.dart';
-import 'package:ai_companion/Views/Home/home_screen.dart';
-import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
-import 'package:ai_companion/Views/Starter_Screen/sign_page.dart';
-import 'package:ai_companion/Views/AI_selection/companion_selection.dart';
-import 'package:ai_companion/Views/chat_screen/chat_page.dart';
-import 'package:ai_companion/Views/user_profile_screen.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
 import 'package:ai_companion/services/hive_service.dart';
@@ -28,6 +22,8 @@ import 'package:ai_companion/utilities/Loading/loading_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_companion/services/connectivity_service.dart';
+
+import 'navigation/app_routes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -109,9 +105,10 @@ Future<void> _initializeCoreServices() async {
             create: (context) {
               final repo = context.read<ChatRepository>();
               final cache = context.read<ChatCacheService>();
-              // MessageBloc accesses GeminiService singleton directly
-              return MessageBloc(repo, cache);
+              final messageBloc = MessageBloc(repo, cache);
+              return messageBloc;
             },
+            lazy: false,
           ),
         ],
         child: const MainApp(),
@@ -141,79 +138,33 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    //Default color scheme
     final defaultColorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF3B82F6), // Modern minimalist blue - clean and trustworthy
+      seedColor: const Color(0xFF3B82F6),
       brightness: Brightness.light,
     );
-    return MaterialApp(
-      title: 'Ai_Companion',
-      debugShowCheckedModeBanner: false,
-      theme: createAppTheme(defaultColorScheme),
-      home: BlocConsumer<AuthBloc, AuthState>(
-        listenWhen: (previous, current) =>
-            previous.isLoading != current.isLoading,
-        listener: (context, state) {
-          if (state.isLoading) {
-            LoadingScreen().show(
-              context: context,
-              text: state.loadingText ?? 'Please wait a moment',
-            );
-          } else {
-            LoadingScreen().hide();
-          }
-        },
-        builder: (context, state) => _buildHome(context, state),
+
+    final authBloc = context.read<AuthBloc>();
+    final appRoutes = AppRoutes(authBloc);
+    
+    return BlocListener<AuthBloc, AuthState>(
+      listener: (context, state) {
+        // Handle loading states
+        if (state.isLoading) {
+          LoadingScreen().show(
+            context: context,
+            text: state.loadingText ?? 'Please wait a moment',
+          );
+        } else {
+          LoadingScreen().hide();
+        }
+      },
+      child: MaterialApp.router(
+        title: 'Ai_Companion',
+        debugShowCheckedModeBanner: false,
+        theme: createAppTheme(defaultColorScheme),
+        routerConfig: appRoutes.router,
       ),
     );
-  }
-
-  Widget _buildHome(BuildContext context, AuthState state) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return FadeTransition(opacity: animation, child: child);
-      },
-      child: _buildHomeContent(context, state),
-    );
-  }
-
-  Widget _buildHomeContent(BuildContext context, AuthState state) {
-    if (state is AuthStateUninitialized) {
-      return AppLoadingScreen(key: const ValueKey('Uninitialized'));
-    } else if (state is AuthStateLoggedIn) {
-      return HomeScreen();
-    } else if (state is AuthStateLoggedOut) {
-      return _buildLoggedOutView(state.intendedView,
-          key: ValueKey('LoggedOut_${state.intendedView}'));
-    } else if (state is AuthStateUserProfile) {
-      return UserProfilePage(key: ValueKey('UserProfile_${state.user.id}'));
-    } else if (state is AuthStateSelectCompanion) {
-      return CompanionSelectionPage(
-          key: ValueKey('SelectCompanion_${state.user.id}'));
-    } else if (state is AuthStateChatPage) {
-      return ChatPage(
-        key: ValueKey('ChatPage_${state.conversationId}'),
-        conversationId: state.conversationId,
-        companion: state.companion,
-        navigationSource: state.navigationSource,
-      );
-    } else {
-      return Scaffold(
-        key: const ValueKey('ErrorState'),
-        body: Center(child: Text("Unknown Auth State: $state")),
-      );
-    }
-  }
-
-  Widget _buildLoggedOutView(AuthView view, {Key? key}) {
-    switch (view) {
-      case AuthView.signIn:
-        return SignInView(key: key);
-      case AuthView.onboarding:
-      default:
-        return OnboardingScreenView(key: key);
-    }
   }
 }
 

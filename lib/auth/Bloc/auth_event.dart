@@ -1,4 +1,3 @@
-import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:flutter/foundation.dart' show immutable;
 
@@ -10,19 +9,11 @@ abstract class AuthEvents{
 class AuthEventInitialise extends AuthEvents {
   const AuthEventInitialise();
 }
-class AuthEventNavigateToHome extends AuthEvents {
-  final CustomAuthUser user;
-  
-  const AuthEventNavigateToHome({required this.user});
-}
 
 class AuthEventGoogleSignIn extends AuthEvents {
   const AuthEventGoogleSignIn();
 }
 
-class AuthEventSignInWithFacebook extends AuthEvents {
- const AuthEventSignInWithFacebook();
-}
 
 class AuthEventUserProfile extends AuthEvents {
   final CustomAuthUser user;
@@ -42,37 +33,6 @@ class AuthEventCompanionSelection extends AuthEvents {
   const AuthEventCompanionSelection();
 }
 
-class AuthEventNavigateToUserProfile extends AuthEvents {
-  final CustomAuthUser user;
-  const AuthEventNavigateToUserProfile({required this.user});
-}
-
-
-class AuthEventNavigateToCompanion extends AuthEvents {
-  final CustomAuthUser user;
-  const AuthEventNavigateToCompanion({required this.user});
-}
-
-class AuthEventNavigateToChat extends AuthEvents {
-  final CustomAuthUser user;
-  final AICompanion companion;
-  final String conversationId;
-  final String? navigationSource; // Add this parameter
-  
-  const AuthEventNavigateToChat({
-    required this.conversationId,
-    required this.user,
-    required this.companion,
-    this.navigationSource,
-  });
-}
-class AuthEventNavigateToSignIn extends AuthEvents {
- const AuthEventNavigateToSignIn();
-}
-
-class AuthEventNavigateToOnboarding extends AuthEvents {
- const AuthEventNavigateToOnboarding();
-}
 
 class AuthEventLogOut extends AuthEvents {
  const AuthEventLogOut();

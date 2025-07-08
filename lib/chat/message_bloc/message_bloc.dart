@@ -9,38 +9,42 @@ import 'package:ai_companion/chat/chat_cache_manager.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/chat/gemini/gemini_service.dart';
 import 'package:ai_companion/chat/message.dart';
+import 'package:ai_companion/chat/message_queue/message_queue.dart' as queue;
+import 'package:ai_companion/chat/fragments/fragment_manager.dart';
+import 'package:ai_companion/chat/msg_fragmentation/message_fragmentation.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import '../msg_fragmentation/message_fragmentation.dart';
 
 class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final ChatRepository _repository;
   final GeminiService _geminiService = GeminiService();
   final ChatCacheService _cacheService;
   final ConnectivityService _connectivityService = ConnectivityService();
-
+  
+  // Enhanced queue and fragment system
+  final queue.MessageQueue _messageQueue = queue.MessageQueue();
+  final FragmentManager _fragmentManager = FragmentManager();
+  
   String? _currentUserId;
   String? _currentCompanionId;
   Timer? _syncTimer;
   List<Message> _currentMessages = [];
   
-  // Fragmentation support
-  Timer? _fragmentTimer;
-  StreamController<String>? _fragmentController;
-
   // Offline support
   bool _isOnline = true;
   StreamSubscription? _connectivitySubscription;
+  StreamSubscription? _queueSubscription;
+  StreamSubscription? _fragmentSubscription;
   final List<Message> _pendingMessages = [];
   final String _pendingMessagesKey = 'pending_messages';
 
   // Add a BehaviorSubject for typing indicators
   final BehaviorSubject<bool> _typingSubject = BehaviorSubject.seeded(false);
   Stream<bool> get typingStream => _typingSubject.stream;
+  
 
-  MessageBloc(this._repository, this._cacheService)
-      : super(MessageInitial()) {
+  MessageBloc(this._repository, this._cacheService) : super(MessageInitial()) {
+    // Core message handlers
     on<SendMessageEvent>(_onSendMessage);
     on<LoadMessagesEvent>(_onLoadMessages);
     on<DeleteMessageEvent>(_onDeleteMessage);
@@ -51,31 +55,477 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<RefreshMessages>(_onRefreshMessages);
     on<ConnectivityChangedEvent>(_onConnectivityChanged);
     on<ProcessPendingMessagesEvent>(_onProcessPendingMessages);
-    on<FragmentedMessageReceivedEvent>(_onFragmentedMessageReceived);
-    on<CompleteFragmentedMessageEvent>(_onCompleteFragmentedMessage);
+    
+    // Enhanced queue and fragment handlers
+    on<EnqueueMessageEvent>(_onEnqueueMessage);
+    on<ProcessQueuedMessageEvent>(_onProcessQueuedMessage);
+    on<HandleFragmentEvent>(_onHandleFragment);
+    on<MessageQueuedEvent>(_onMessageQueued);
+    
+    // Fragment handling
     on<AddFragmentMessageEvent>(_onAddFragmentMessage);
     on<NotifyFragmentationCompleteEvent>(_onNotifyFragmentationComplete);
+    on<FragmentedMessageReceivedEvent>(_onFragmentedMessageReceived);
+    on<CompleteFragmentedMessageEvent>(_onCompleteFragmentedMessage);
     
     _setupPeriodicSync();
     _setupConnectivityListener();
+    _setupQueueProcessing();
+    _setupFragmentHandling();
     _loadPendingMessages();
+  }
+
+  void _setupQueueProcessing() {
+    _queueSubscription = _messageQueue.processingStream?.listen((queuedMessage) {
+      add(ProcessQueuedMessageEvent(queuedMessage));
+    });
+  }
+  
+  void _setupFragmentHandling() {
+    _fragmentSubscription = _fragmentManager.events.listen((fragmentEvent) {
+      add(HandleFragmentEvent(fragmentEvent));
+    });
   }
 
   List<Message> get currentMessages => List<Message>.from(_currentMessages);
 
+  // ENHANCED: Message sending with queue integration
+  Future<void> _onSendMessage(SendMessageEvent event, Emitter<MessageState> emit) async {
+    // Route through queue system for better management
+    add(EnqueueMessageEvent(event.message, priority: queue.MessagePriority.normal));
+  }
+
+  // Enhanced queue message handler
+  Future<void> _onEnqueueMessage(EnqueueMessageEvent event, Emitter<MessageState> emit) async {
+    try {
+      // Add message to queue
+      _messageQueue.enqueueUserMessage(event.message);
+      
+      // Optimistic UI update
+      _currentMessages.add(event.message);
+      
+      // Provide immediate feedback
+      emit(MessageQueued(
+        messages: List.from(_currentMessages),
+        queueLength: _messageQueue.queueLength,
+      ));
+      
+      // Cache optimistic update
+      if (_currentUserId != null && _currentCompanionId != null) {
+        await _cacheService.cacheMessages(
+          _currentUserId!,
+          _currentMessages,
+          companionId: _currentCompanionId!,
+        );
+      }
+    } catch (e) {
+      emit(MessageError(error: Exception('Failed to enqueue message: $e')));
+    }
+  }
+
+  // Process queued messages
+  Future<void> _onProcessQueuedMessage(ProcessQueuedMessageEvent event, Emitter<MessageState> emit) async {
+    final queuedMessage = event.queuedMessage;
+    
+    try {
+      switch (queuedMessage.type) {
+        case queue.MessageType.user:
+          await _processUserMessage(queuedMessage.message, emit);
+          break;
+        case queue.MessageType.system:
+          await _processSystemMessage(queuedMessage.message, emit);
+          break;
+        case queue.MessageType.fragment:
+          // Handled by FragmentManager
+          break;
+        case queue.MessageType.notification:
+          await _processNotification(queuedMessage.message, emit);
+          break;
+      }
+    } catch (e) {
+      emit(MessageError(error: Exception('Failed to process queued message: $e')));
+    }
+  }
+
+  // Enhanced user message processing
+  Future<void> _processUserMessage(Message message, Emitter<MessageState> emit) async {
+    try {
+      // Update conversation identifier in GeminiService metadata
+      final metrics = _geminiService.getRelationshipMetrics();
+      if (!metrics.containsKey('conversation_id')) {
+        _geminiService.addMemoryItem('conversation_id', message.conversationId);
+      }
+
+      // Save to repository if online
+      if (_connectivityService.isOnline) {
+        await _repository.sendMessage(message);
+        await _repository.updateConversation(
+          message.conversationId,
+          lastMessage: message.message,
+        );
+      } else {
+        await _addPendingMessage(message);
+      }
+      
+      // Update current state
+      emit(MessageLoaded(messages: List.from(_currentMessages)));
+      
+      // Generate AI response
+      await _processAIResponse(message, emit);
+    } catch (e) {
+      emit(MessageError(error: Exception('Failed to process user message: $e')));
+    }
+  }
+
+  // Enhanced AI response processing with fragment support
+  Future<void> _processAIResponse(Message userMessage, Emitter<MessageState> emit) async {
+    try {
+      // Show typing indicator
+      _typingSubject.add(true);
+      emit(MessageReceiving(userMessage.message, messages: _currentMessages));
+
+      // Generate AI response
+      final String aiResponse = await _geminiService.generateResponse(
+        userMessage.message,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?",
+      );
+
+      // Hide typing indicator
+      _typingSubject.add(false);
+
+      // Create AI message
+      final metrics = _geminiService.getRelationshipMetrics();
+      final aiMessage = Message(
+        id: 'ai_${DateTime.now().millisecondsSinceEpoch}',
+        message: aiResponse,
+        companionId: userMessage.companionId,
+        userId: userMessage.userId,
+        conversationId: userMessage.conversationId,
+        isBot: true,
+        created_at: DateTime.now(),
+        metadata: {
+          'relationship_level': metrics['level'],
+          'emotion': metrics['dominant_emotion'],
+        },
+      );
+
+      // Check if response should be fragmented
+      final fragments = MessageFragmenter.fragmentResponse(aiResponse);
+      
+      if (fragments.length > 1) {
+        // Use FragmentManager for fragmented responses
+        _fragmentManager.startFragmentSequence(aiMessage, fragments);
+      } else {
+        // Single response
+        await _processSingleMessage(aiMessage, userMessage, emit);
+      }
+    } catch (e) {
+      print('Error generating AI response: $e');
+      _typingSubject.add(false);
+      await _handleAIResponseError(userMessage, e, emit);
+    }
+  }
+
+  // Handle AI response errors
+  Future<void> _handleAIResponseError(Message userMessage, dynamic error, Emitter<MessageState> emit) async {
+    final errorMessage = Message(
+      id: 'error_${DateTime.now().millisecondsSinceEpoch}',
+      message: "I'm having trouble responding right now. Please try again later.",
+      companionId: userMessage.companionId,
+      userId: userMessage.userId,
+      conversationId: userMessage.conversationId,
+      isBot: true,
+      created_at: DateTime.now(),
+      metadata: {'error': true},
+    );
+    
+    _currentMessages.add(errorMessage);
+    emit(MessageLoaded(messages: List.from(_currentMessages), hasError: true));
+    
+    // Cache error message
+    if (_currentUserId != null && _currentCompanionId != null) {
+      await _cacheService.cacheMessages(
+        _currentUserId!,
+        _currentMessages,
+        companionId: _currentCompanionId!,
+      );
+    }
+  }
+
+  // FIXED: Enhanced fragment event handler with proper single-sequence handling
+  Future<void> _onHandleFragment(HandleFragmentEvent event, Emitter<MessageState> emit) async {
+    final fragmentEvent = event.fragmentEvent;
+    
+    try {
+      if (fragmentEvent is FragmentSequenceStarted) {
+        print('Fragment sequence started: ${fragmentEvent.sequence.id}');
+
+        // Show initial typing indicator
+        _typingSubject.add(true);
+        
+        emit(MessageFragmentInProgress(
+          sequence: fragmentEvent.sequence,
+          currentFragment: Message(
+            id: 'typing_${DateTime.now().millisecondsSinceEpoch}',
+            message: 'typing...',
+            companionId: fragmentEvent.sequence.originalMessage.companionId,
+            userId: fragmentEvent.sequence.originalMessage.userId,
+            conversationId: fragmentEvent.sequence.originalMessage.conversationId,
+            isBot: true,
+            created_at: DateTime.now(),
+          ),
+          messages: List.from(_currentMessages),
+        ));
+        
+      } else if (fragmentEvent is FragmentTypingStarted) {
+        print('Fragment typing started for fragment: ${fragmentEvent.sequence.currentIndex + 1}');
+        
+        // Show typing indicator for next fragment
+        _typingSubject.add(true);
+        
+        emit(MessageFragmentTyping(
+          sequence: fragmentEvent.sequence,
+          messages: List.from(_currentMessages),
+        ));
+        
+      } else if (fragmentEvent is FragmentDisplayed) {
+        print('Fragment displayed: ${fragmentEvent.fragment.metadata['fragment_index']}');
+        
+        // Hide typing indicator when fragment is displayed
+        _typingSubject.add(false);
+        
+        // Add fragment to current messages
+        _currentMessages.add(fragmentEvent.fragment);
+        
+        // Emit fragment displayed state
+        emit(MessageFragmentDisplayed(
+          fragment: fragmentEvent.fragment,
+          sequence: fragmentEvent.sequence,
+          messages: List.from(_currentMessages),
+        ));
+        
+        // Cache the fragment immediately
+        if (_currentUserId != null && _currentCompanionId != null) {
+          await _cacheService.cacheMessages(
+            _currentUserId!,
+            _currentMessages,
+            companionId: _currentCompanionId!,
+          );
+        }
+        
+        // Save fragment to repository if online
+        if (_connectivityService.isOnline) {
+          await _repository.sendMessage(fragmentEvent.fragment);
+        } else {
+          await _addPendingMessage(fragmentEvent.fragment);
+        }
+        
+      } else if (fragmentEvent is FragmentSequenceCompleted) {
+        print('Fragment sequence completed: ${fragmentEvent.sequence.id}');
+        
+        // Hide typing indicator
+        _typingSubject.add(false);
+        
+        emit(MessageFragmentSequenceCompleted(
+          sequence: fragmentEvent.sequence,
+          messages: List.from(_currentMessages),
+        ));
+        
+        // Update conversation metadata
+        if (_connectivityService.isOnline) {
+          await _repository.updateConversation(
+            fragmentEvent.sequence.originalMessage.conversationId,
+            lastMessage: fragmentEvent.sequence.fragments.last,
+            incrementUnread: 1,
+          );
+        }
+        
+        // Mark conversation as read
+        await _repository.markConversationAsRead(
+          fragmentEvent.sequence.originalMessage.conversationId
+        );
+        
+        // Final emission to stable state
+        emit(MessageLoaded(messages: List.from(_currentMessages)));
+      }
+    } catch (e) {
+      print('Error handling fragment event: $e');
+      _typingSubject.add(false);
+      emit(MessageError(error: Exception('Failed to handle fragment event: $e')));
+    }
+  }
+
+  // Process system messages
+  Future<void> _processSystemMessage(Message message, Emitter<MessageState> emit) async {
+    _currentMessages.add(message);
+    
+    if (_connectivityService.isOnline) {
+      await _repository.sendMessage(message);
+    } else {
+      await _addPendingMessage(message);
+    }
+    
+    emit(MessageLoaded(messages: List.from(_currentMessages)));
+  }
+
+  // Process notification messages
+  Future<void> _processNotification(Message message, Emitter<MessageState> emit) async {
+    _currentMessages.add(message);
+    emit(MessageLoaded(messages: List.from(_currentMessages)));
+  }
+
+  // Enhanced queue state handler
+  Future<void> _onMessageQueued(MessageQueuedEvent event, Emitter<MessageState> emit) async {
+    emit(MessageQueued(
+      messages: event.messages,
+      queueLength: event.queueLength,
+    ));
+  }
+
+  // Process single message (extracted for reuse)
+  Future<void> _processSingleMessage(Message aiMessage, Message userMessage, Emitter<MessageState> emit) async {
+    _currentMessages.add(aiMessage);
+    
+    if (_currentUserId != null && _currentCompanionId != null) {
+      await _cacheService.cacheMessages(
+        _currentUserId!,
+        _currentMessages,
+        companionId: _currentCompanionId!,
+      );
+    }
+
+    emit(MessageLoaded(messages: List.from(_currentMessages)));
+    emit(MessageSent());
+
+    if (_connectivityService.isOnline) {
+      await _repository.sendMessage(aiMessage);
+      await _repository.updateConversation(
+        userMessage.conversationId,
+        lastMessage: aiMessage.message,
+        incrementUnread: 1,
+      );
+    } else {
+      await _addPendingMessage(aiMessage);
+    }
+
+    await _repository.markConversationAsRead(userMessage.conversationId);
+  }
+
+  // Handle individual fragment messages
+  Future<void> _onAddFragmentMessage(AddFragmentMessageEvent event, Emitter<MessageState> emit) async {
+    // Add fragment to current messages
+    _currentMessages.add(event.fragmentMessage);
+    
+    // Cache immediately
+    if (_currentUserId != null && _currentCompanionId != null) {
+      await _cacheService.cacheMessages(
+        _currentUserId!,
+        _currentMessages,
+        companionId: _currentCompanionId!,
+      );
+    }
+
+    // Only emit state if not during active fragmentation
+    if (state is! MessageFragmentInProgress) {
+      emit(MessageLoaded(messages: List.from(_currentMessages)));
+    }
+
+    // Save fragment to database if online
+    if (_connectivityService.isOnline) {
+      try {
+        await _repository.sendMessage(event.fragmentMessage);
+      } catch (e) {
+        print('Error saving fragment to database: $e');
+      }
+    } else {
+      await _addPendingMessage(event.fragmentMessage);
+    }
+  }
+
+  // Handle fragmentation completion notification
+  Future<void> _onNotifyFragmentationComplete(NotifyFragmentationCompleteEvent event, Emitter<MessageState> emit) async {
+    // Update conversation metadata
+    if (_connectivityService.isOnline) {
+      try {
+        await _repository.updateConversation(
+          event.conversationId,
+          lastMessage: "New message",
+          incrementUnread: 1,
+        );
+        
+        await _repository.markConversationAsRead(event.conversationId);
+      } catch (e) {
+        print('Error updating conversation after fragmentation: $e');
+      }
+    }
+
+    // Final state update
+    await Future.delayed(const Duration(milliseconds: 200), () {
+      if (!isClosed && !emit.isDone) {
+        emit(MessageLoaded(messages: List.from(_currentMessages)));
+        emit(MessageSent());
+      }
+    });
+  }
+
+  // Handle fragmented message display
+  Future<void> _onFragmentedMessageReceived(
+    FragmentedMessageReceivedEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    emit(MessageFragmenting(
+      fragments: event.fragments,
+      currentFragmentIndex: 0,
+      messages: _currentMessages,
+      originalMessage: event.originalMessage,
+    ));
+  }
+
+  // Simplified completion handler
+  Future<void> _onCompleteFragmentedMessage(
+    CompleteFragmentedMessageEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    final originalMessage = event.originalMessage;
+    final userMessage = event.userMessage;
+
+    // Save complete message to database for search/backup purposes
+    if (_connectivityService.isOnline) {
+      try {
+        final completeMessage = originalMessage.copyWith(
+          id: 'complete_${DateTime.now().millisecondsSinceEpoch}',
+          metadata: {
+            ...originalMessage.metadata, 
+            'is_complete_version': true,
+            'fragment_count': originalMessage.metadata['total_fragments'] ?? 1,
+          }
+        );
+        await _repository.sendMessage(completeMessage);
+        await _repository.updateConversation(
+          userMessage.conversationId,
+          lastMessage: originalMessage.message,
+          incrementUnread: 1,
+        );
+      } catch (e) {
+        print('Error saving complete message: $e');
+      }
+    }
+
+    await _repository.markConversationAsRead(userMessage.conversationId);
+  }
+
   // Setup connectivity monitoring using centralized service
   void _setupConnectivityListener() {
     try {
-      // Get initial status
       _isOnline = _connectivityService.isOnline;
       
-      // Listen to connectivity changes from centralized service
       _connectivitySubscription = _connectivityService.onConnectivityChanged.listen((isOnline) {
         if (isOnline != _isOnline) {
           _isOnline = isOnline;
           add(ConnectivityChangedEvent(isOnline));
           
-          // Process any pending messages when coming back online
           if (isOnline && _pendingMessages.isNotEmpty) {
             add(ProcessPendingMessagesEvent());
           }
@@ -90,7 +540,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
-  // Handle connectivity changes
   Future<void> _onConnectivityChanged(
     ConnectivityChangedEvent event,
     Emitter<MessageState> emit,
@@ -98,7 +547,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     _isOnline = event.isOnline;
     print('MessageBloc connectivity changed, online: $_isOnline');
     
-    // Process pending messages when back online
     if (_isOnline && _pendingMessages.isNotEmpty) {
       add(ProcessPendingMessagesEvent());
     }
@@ -113,23 +561,18 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     
     print('Processing ${_pendingMessages.length} pending messages');
     
-    // Process one message at a time to maintain order
     for (int i = 0; i < _pendingMessages.length; i++) {
       try {
         final pendingMessage = _pendingMessages[i];
         
-        // Skip messages that are already in the database
         if (!isLocalId(pendingMessage.id!)) continue;
         
-        // Send the message to the database
         await _repository.sendMessage(pendingMessage);
         
-        // If it's a user message, generate AI response
         if (!pendingMessage.isBot) {
           await _processAIResponse(pendingMessage, emit);
         }
         
-        // Update conversation
         await _repository.updateConversation(
           pendingMessage.conversationId,
           lastMessage: pendingMessage.message,
@@ -138,15 +581,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         
       } catch (e) {
         print('Error processing pending message: $e');
-        // Continue with other messages even if one fails
       }
     }
     
-    // Clear pending messages after processing
     _pendingMessages.clear();
     await _savePendingMessages();
     
-    // Refresh messages from server now that we're online
     if (_currentUserId != null && _currentCompanionId != null) {
       add(RefreshMessages());
     }
@@ -207,14 +647,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     if (_currentUserId != null && _currentCompanionId != null) {
       try {
         final messages = await _repository.getMessages(_currentUserId!, _currentCompanionId!);
-        // Update companion-specific cache with latest messages
         await _cacheService.cacheMessages(
           _currentUserId!,
           messages,
           companionId: _currentCompanionId!,
         );
 
-        // Also notify conversation bloc that a sync happened
         _triggerConversationRefresh();
       } catch (e) {
         print('Background sync error: $e');
@@ -224,7 +662,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
   void _triggerConversationRefresh() {
     if (_currentUserId != null) {
-      // Find ConversationBloc instance and add refresh event
       // This is handled by the UI when needed
     }
   }
@@ -233,10 +670,35 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     return id.startsWith('local_') || id.startsWith('fallback-');
   }
 
+  // CRUD operations and other methods remain unchanged
+
+  @override
+  Future<void> close() async {
+    _syncTimer?.cancel();
+    _connectivitySubscription?.cancel();
+    _queueSubscription?.cancel();
+    _fragmentSubscription?.cancel();
+    await _typingSubject.close();
+    _fragmentManager.dispose();
+    _messageQueue.dispose();
+
+    if (_currentUserId != null && _currentCompanionId != null) {
+      await _geminiService.saveState();
+    }
+
+    return super.close();
+  }
+
   Future<void> _onInitializeCompanion(
     InitializeCompanionEvent event,
     Emitter<MessageState> emit,
   ) async {
+    // Check if bloc is still active
+    if (isClosed) {
+      print('MessageBloc is closed, cannot initialize companion');
+      return;
+    }
+    
     try {
       emit(MessageLoading());
 
@@ -258,328 +720,32 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           userProfile: event.user?.toAIFormat(),
         );
 
-        emit(CompanionInitialized(event.companion));
+        if (!isClosed) {
+          emit(CompanionInitialized(event.companion));
+        }
       } catch (e) {
         print('Error in GeminiService.initializeCompanion: $e');
         // Even if Gemini initialization fails, we can still show the UI
-        emit(CompanionInitialized(event.companion));
+        if (!isClosed) {
+          emit(CompanionInitialized(event.companion));
+        }
       }
     } catch (e) {
       print('Error initializing companion: $e');
-      emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
-    }
-  }
-
-  Future<void> _onSendMessage(SendMessageEvent event, Emitter<MessageState> emit) async {
-    try {
-      final userMessage = event.message;
-
-      // Update conversation identifier in GeminiService metadata
-      final metrics = _geminiService.getRelationshipMetrics();
-      if (!metrics.containsKey('conversation_id')) {
-        _geminiService.addMemoryItem('conversation_id', userMessage.conversationId);
-      }
-
-      // 1. Optimistic update for immediate UI feedback
-      final localMessage = event.message.copyWith();
-      _currentMessages.add(localMessage);
-      
-      // Mark message as pending if offline (using centralized service)
-      final isPending = !_connectivityService.isOnline;
-      
-      // 2. Emit state with pending indicator if offline
-      emit(MessageLoaded(
-        messages: _currentMessages, 
-        pendingMessageIds: isPending ? [localMessage.id ?? ''] : []
-      ));
-
-      // 3. Cache current messages with companion-specific key
-      if (_currentUserId != null && _currentCompanionId != null) {
-        await _cacheService.cacheMessages(
-          _currentUserId!,
-          _currentMessages,
-          companionId: _currentCompanionId!,
-        );
-      }
-
-      // 4. If offline, add to pending queue and return
-      if (!_connectivityService.isOnline) {
-        await _addPendingMessage(localMessage);
-        return;
-      }
-
-      // 5. Send to database if online
-      await _repository.sendMessage(userMessage);
-      await _repository.updateConversation(
-        userMessage.conversationId,
-        lastMessage: userMessage.message,
-      );
-
-      // 6. Process AI response
-      await _processAIResponse(userMessage, emit);
-
-      // 7. Trigger conversation list refresh
-      _triggerConversationRefresh();
-      
-    } catch (e) {
-      print('Error sending message: $e');
-      
-      // Remove the optimistically added message if error occurs
-      if (_currentMessages.isNotEmpty) {
-        _currentMessages.removeLast();
-        if (_currentUserId != null && _currentCompanionId != null) {
-          await _cacheService.cacheMessages(
-            _currentUserId!,
-            _currentMessages,
-            companionId: _currentCompanionId!,
-          );
-        }
-      }
-
-      _typingSubject.add(false);
-      emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
-    }
-  }
-
-  // Helper method to process AI response
-  Future<void> _processAIResponse(Message userMessage, Emitter<MessageState> emit) async {
-    // Show typing indicator
-    _typingSubject.add(true);
-    emit(MessageReceiving(userMessage.message, messages: _currentMessages));
-
-    try {
-      // Generate AI response
-      final String aiResponse = await _geminiService.generateResponse(
-        userMessage.message,
-      ).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?",
-      );
-      print('AI response generated: $aiResponse');
-      // Hide typing indicator
-      _typingSubject.add(false);
-
-      // Create AI message
-      final metrics = _geminiService.getRelationshipMetrics();
-      final aiMessage = Message(
-        id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-        message: aiResponse,
-        companionId: userMessage.companionId,
-        userId: userMessage.userId,
-        conversationId: userMessage.conversationId,
-        isBot: true,
-        created_at: DateTime.now(),
-        metadata: {
-          'relationship_level': metrics['level'],
-          'emotion': metrics['dominant_emotion'],
-        },
-      );
-
-      // Check if response should be fragmented
-      final fragments = MessageFragmenter.fragmentResponse(aiResponse);
-      
-      if (fragments.length > 1) {
-        // Emit fragmented response
-        add(FragmentedMessageReceivedEvent(fragments, aiMessage));
-      } else {
-        // Single message - process normally
-        await _processSingleMessage(aiMessage, userMessage, emit);
-      }
-    } catch (e) {
-      print('Error generating AI response: $e');
-      _typingSubject.add(false);
-      
-      // Create error message from AI
-      final errorMessage = Message(
-        id: 'local_error_${DateTime.now().millisecondsSinceEpoch}',
-        message: "I'm having trouble responding right now. Please try again later.",
-        companionId: userMessage.companionId,
-        userId: userMessage.userId,
-        conversationId: userMessage.conversationId,
-        isBot: true,
-        created_at: DateTime.now(),
-        metadata: {'error': true},
-      );
-      
-      _currentMessages.add(errorMessage);
-      emit(MessageLoaded(
-        messages: _currentMessages,
-        hasError: true
-      ));
-      
-      // Cache error message
-      if (_currentUserId != null && _currentCompanionId != null) {
-        await _cacheService.cacheMessages(
-          _currentUserId!,
-          _currentMessages,
-          companionId: _currentCompanionId!,
-        );
+      if (!isClosed) {
+        emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
       }
     }
-  }
-
-  // Handle fragmented message display
-  Future<void> _onFragmentedMessageReceived(
-    FragmentedMessageReceivedEvent event,
-    Emitter<MessageState> emit,
-  ) async {
-    emit(MessageFragmenting(
-      fragments: event.fragments,
-      currentFragmentIndex: 0,
-      messages: _currentMessages,
-      originalMessage: event.originalMessage,
-    ));
-  }
-
-  // Process single message (extracted for reuse)
-  Future<void> _processSingleMessage(Message aiMessage, Message userMessage, Emitter<MessageState> emit) async {
-    _currentMessages.add(aiMessage);
-    
-    if (_currentUserId != null && _currentCompanionId != null) {
-      await _cacheService.cacheMessages(
-        _currentUserId!,
-        _currentMessages,
-        companionId: _currentCompanionId!,
-      );
-    }
-
-    emit(MessageLoaded(messages: _currentMessages));
-    emit(MessageSent());
-
-    if (_isOnline) {
-      await _repository.sendMessage(aiMessage);
-      await _repository.updateConversation(
-        userMessage.conversationId,
-        lastMessage: aiMessage.message,
-        incrementUnread: 1,
-      );
-    } else {
-      await _addPendingMessage(aiMessage);
-    }
-
-    await _repository.markConversationAsRead(userMessage.conversationId);
-  }
-  
-  // NEW: Handle individual fragment messages
-  Future<void> _onAddFragmentMessage(
-    AddFragmentMessageEvent event,
-    Emitter<MessageState> emit,
-  ) async {
-    // Add fragment to current messages
-    _currentMessages.add(event.fragmentMessage);
-    
-    // Cache immediately
-    if (_currentUserId != null && _currentCompanionId != null) {
-      await _cacheService.cacheMessages(
-        _currentUserId!,
-        _currentMessages,
-        companionId: _currentCompanionId!,
-      );
-    }
-
-    // FIXED: Only emit state if this is not during active fragmentation
-    // This prevents reloading fragments while they're being displayed
-    if (state is! MessageFragmenting) {
-      emit(MessageLoaded(messages: _currentMessages));
-    }
-
-    // Save fragment to database if online
-    if (_isOnline) {
-      try {
-        await _repository.sendMessage(event.fragmentMessage);
-      } catch (e) {
-        print('Error saving fragment to database: $e');
-        // Continue - fragment is still in local cache
-      }
-    } else {
-      await _addPendingMessage(event.fragmentMessage);
-    }
-  }
-
-  // NEW: Handle fragmentation completion notification
-  Future<void> _onNotifyFragmentationComplete(
-    NotifyFragmentationCompleteEvent event,
-    Emitter<MessageState> emit,
-  ) async {
-    // Get the last fragment message to use as conversation preview
-    final lastFragmentMessage = _currentMessages
-        .where((m) => m.metadata['is_fragment'] == true)
-        .lastOrNull;
-    
-    // Use the first fragment as preview (more meaningful than last)
-    final firstFragmentMessage = _currentMessages
-        .where((m) => m.metadata['is_fragment'] == true && m.metadata['fragment_index'] == 0)
-        .lastOrNull;
-    
-    final lastMessagePreview = firstFragmentMessage?.message ?? 
-                              lastFragmentMessage?.message ?? 
-                              "New message";
-    
-    // Update conversation metadata with actual fragment content
-    if (_isOnline) {
-      try {
-        await _repository.updateConversation(
-          event.conversationId,
-          lastMessage: lastMessagePreview, // Use actual fragment content
-          incrementUnread: 1,
-        );
-        
-        await _repository.markConversationAsRead(event.conversationId);
-        
-        // Trigger conversation list refresh with updated content
-        _triggerConversationRefresh();
-      } catch (e) {
-        print('Error updating conversation after fragmentation: $e');
-      }
-    }
-
-    // Add a small delay to ensure UI has settled before final update
-    await Future.delayed(const Duration(milliseconds: 200), () {
-      if (!isClosed && !emit.isDone) {
-        emit(MessageLoaded(messages: _currentMessages));
-        emit(MessageSent());
-      }
-    });
-  }
-
-  // MODIFIED: Simplified completion handler
-  Future<void> _onCompleteFragmentedMessage(
-    CompleteFragmentedMessageEvent event,
-    Emitter<MessageState> emit,
-  ) async {
-    // This event is now mainly for database consistency
-    // The fragments are already in _currentMessages via AddFragmentMessageEvent
-    
-    final originalMessage = event.originalMessage;
-    final userMessage = event.userMessage;
-
-    // Save complete message to database for search/backup purposes
-    if (_isOnline) {
-      try {
-        final completeMessage = originalMessage.copyWith(
-          id: 'complete_${DateTime.now().millisecondsSinceEpoch}',
-          metadata: {
-            ...originalMessage.metadata, 
-            'is_complete_version': true,
-            'fragment_count': originalMessage.metadata['total_fragments'] ?? 1,
-          }
-        );
-        await _repository.sendMessage(completeMessage);
-        await _repository.updateConversation(
-          userMessage.conversationId,
-          lastMessage: originalMessage.message,
-          incrementUnread: 1,
-        );
-      } catch (e) {
-        print('Error saving complete message: $e');
-      }
-    }
-
-    await _repository.markConversationAsRead(userMessage.conversationId);
   }
 
   // MODIFIED: Load messages with fragment detection
   Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit) async {
+    // Check if bloc is still active
+    if (isClosed) {
+      print('MessageBloc is closed, cannot load messages');
+      return;
+    }
+    
     try {
       emit(MessageLoading());
       _currentUserId = event.userId;
@@ -590,6 +756,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       if (companion == null) {
         throw Exception('Companion not found');
       }
+
+      // Check if still active before proceeding
+      if (isClosed) return;
 
       // 2. Try cached messages first
       _currentMessages = _cacheService.getCachedMessages(
@@ -604,7 +773,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           .where((id) => id.isNotEmpty)
           .toList();
 
-      if (_currentMessages.isNotEmpty) {
+      if (_currentMessages.isNotEmpty && !isClosed) {
         print("Found ${_currentMessages.length} cached messages for companion ${event.companionId}");
         
         // CRITICAL: Filter out complete versions if fragments exist
@@ -617,11 +786,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
 
       // 3. If online, get messages from server
-      if (_connectivityService.isOnline) {
+      if (_connectivityService.isOnline && !isClosed) {
         try {
           final messages = await _repository.getMessages(event.userId, event.companionId);
 
-          if (messages.isNotEmpty) {
+          if (messages.isNotEmpty && !isClosed) {
             // Filter out complete versions if fragments exist
             final filteredMessages = _filterDuplicateMessages(messages);
             
@@ -636,10 +805,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
                 _currentMessages,
                 companionId: event.companionId,
               );
-              emit(MessageLoaded(
-                messages: _currentMessages,
-                pendingMessageIds: pendingMessageIds,
-              ));
+              
+              if (!isClosed) {
+                emit(MessageLoaded(
+                  messages: _currentMessages,
+                  pendingMessageIds: pendingMessageIds,
+                ));
+              }
             }
           }
         } catch (e) {
@@ -647,12 +819,15 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         }
       }
 
+      // Check if still active before AI initialization
+      if (isClosed) return;
+
       // 5. Get current user
       final user = await CustomAuthUser.getCurrentUser();
 
       // 6. Initialize AI companion if needed
       try {
-        if (!_geminiService.isCompanionInitialized(event.userId, event.companionId)) {
+        if (!_geminiService.isCompanionInitialized(event.userId, event.companionId) && !isClosed) {
           await _geminiService.initializeCompanion(
             companion: companion,
             userId: event.userId,
@@ -667,6 +842,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         print('Error initializing AI in message loading: $e');
       }
 
+      // Check if still active before creating conversation
+      if (isClosed) return;
 
       // 7. Create conversation if needed
       await _repository.getOrCreateConversation(
@@ -675,7 +852,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       );
 
       // 8. Final state emission
-      if (state is! MessageLoaded) {
+      if (state is! MessageLoaded && !isClosed) {
         emit(MessageLoaded(
           messages: _currentMessages,
           pendingMessageIds: pendingMessageIds,
@@ -684,14 +861,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
     } catch (e) {
       print('Error loading messages: $e');
-      if (_currentMessages.isNotEmpty) {
-        emit(MessageLoaded(
-          messages: _currentMessages,
-          isFromCache: true,
-          hasError: true,
-        ));
-      } else {
-        emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
+      if (!isClosed) {
+        if (_currentMessages.isNotEmpty) {
+          emit(MessageLoaded(
+            messages: _currentMessages,
+            isFromCache: true,
+            hasError: true,
+          ));
+        } else {
+          emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
+        }
       }
     }
   }
@@ -917,23 +1096,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
     }
   }
-
-  @override
-  Future<void> close() async {
-    _syncTimer?.cancel();
-    _connectivitySubscription?.cancel();
-    await _typingSubject.close();
-    _fragmentTimer?.cancel();
-    _fragmentController?.close();
-
-    // Save current AI state before closing
-    if (_currentUserId != null && _currentCompanionId != null) {
-      await _geminiService.saveState();
-    }
-
-    return super.close();
-  }
 }
-
 // Helper method to allow unawaited futures
 void unawaited(Future<void> future) {}

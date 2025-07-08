@@ -17,7 +17,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shimmer/shimmer.dart';
+
+import '../../navigation/routes_name.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -153,8 +156,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         floatingActionButton: FloatingActionButton.extended(
           onPressed: () {
             if (_user != null) {
-              context.read<AuthBloc>().add(
-                AuthEventNavigateToCompanion(user: _user!),
+              HapticFeedback.lightImpact();
+              context.push(
+                RoutesName.companionSelection,
+                extra: _user,
               );
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -406,9 +411,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         onTap: () {
           if (_user != null) {
             _toggleDrawer();
-            context.read<AuthBloc>().add(
-              AuthEventNavigateToUserProfile(user: _user!),
-            );
+            context.push(RoutesName.userProfile);
           }
         },
       ),
@@ -418,9 +421,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         onTap: () {
           if (_user != null) {
             _toggleDrawer();
-            context.read<AuthBloc>().add(
-              AuthEventNavigateToCompanion(user: _user!),
-            );
+            context.push(RoutesName.companionSelection);
           }
         },
       ),
@@ -1075,16 +1076,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ],
               ),
               onTap: () {
+                // Provide haptic feedback for tapping
+                HapticFeedback.lightImpact();
+                
                 // Navigate to chat page
                 if (_user != null) {
-                  context.read<AuthBloc>().add(
-                    AuthEventNavigateToChat(
-                      conversationId: conversation.id,
-                      companion: companion,
-                      user: _user!,
-                    ),
-                  );
-
+                  context.push(RoutesName.chat, extra: {
+                    'conversationId': conversation.id,
+                    'companion': companion,
+                    'navigationSource': 'home',
+                  });
+                  
                   // Mark as read when opening
                   if (conversation.unreadCount > 0) {
                     context.read<ConversationBloc>().add(
@@ -1305,8 +1307,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onPressed: () {
               // Navigate to companion selection
               if (_user != null) {
-                context.read<AuthBloc>().add(
-                  AuthEventNavigateToCompanion(user: _user!),
+                context.push(
+                  RoutesName.companionSelection,
+                  extra: {'navigationSource': 'home'},
                 );
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(

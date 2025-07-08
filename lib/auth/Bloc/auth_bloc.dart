@@ -85,71 +85,6 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
     }
       
   });
-
-  //navigate to user profile
-  on<AuthEventNavigateToUserProfile>((event, emit) {
-    try {
-        emit(AuthStateUserProfile(
-        user: event.user,
-        isLoading: false,
-      ));
-    } catch (e) {
-      emit(AuthStateUserProfile(
-        user: event.user,
-        isLoading: false,
-        exception: e as Exception,
-      ));
-    }
-  });
-
-  on<AuthEventNavigateToHome>((event, emit) {
-    try {
-      print('Navigating to home');
-      emit(AuthStateLoggedIn(
-      user: event.user,
-      isLoading: false,
-    ));
-    } catch (e) {
-      emit(AuthStateLoggedIn(
-        user: event.user,
-        isLoading: false,
-        exception: e as Exception,
-      ));
-    }
-  });
-  
-  on<AuthEventNavigateToCompanion>((event, emit) {
-    emit(AuthStateSelectCompanion(
-      user: event.user,
-      isLoading: false,
-    ));
-  });
-  
-  on<AuthEventNavigateToChat>((event, emit) {
-    emit(AuthStateChatPage(
-      user: event.user,
-      companion: event.companion,
-      conversationId: event.conversationId,
-      isLoading: false,
-      navigationSource: event.navigationSource, // Pass the navigation source
-    ));
-  });
-  //navigate to sign in
-  on<AuthEventNavigateToSignIn>((event, emit) {
-      emit(const AuthStateLoggedOut(
-        exception: null,
-        isLoading: false,
-        intendedView: AuthView.signIn,
-      ));
-    });
-  //navigate to onboarding
-  on<AuthEventNavigateToOnboarding>((event, emit) {
-      emit(const AuthStateLoggedOut(
-        exception: null,
-        isLoading: false,
-        intendedView: AuthView.onboarding,
-      ));
-  });
   
   // initialize
   on<AuthEventInitialise>((event, emit) async {
@@ -209,35 +144,5 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
         ));
       }
   });
-    
-  //Facebook Sign In
-  on<AuthEventSignInWithFacebook>((event, emit) async {
-    emit(const AuthStateLoggedOut(
-        exception: null,
-        isLoading: true,
-        loadingText: 'Signing in with Facebook...',
-      ));
-     
-      try {
-        final user = await provider.signInWithFacebook();
-        if (!user.hasCompletedProfile) {
-          emit( AuthStateUserProfile(
-            user: user,
-            isLoading: false,
-          ));
-        } else {
-          emit(AuthStateLoggedIn(
-            user: user,
-            isLoading: false,
-          ));
-        }
-      } on Exception catch (e) {
-        emit(AuthStateLoggedOut(
-          exception: e,
-          isLoading: false,
-          intendedView: AuthView.signIn,
-        ));
-      }
-  });
-   }
+  }
 }
