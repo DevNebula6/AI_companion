@@ -2,8 +2,6 @@ import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
 import 'package:ai_companion/Views/chat_screen/chat_input_field.dart';
 import 'package:ai_companion/Views/chat_screen/message_bubble.dart';
-import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
-import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
 import 'package:ai_companion/chat/conversation/conversation_event.dart';
@@ -144,6 +142,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   Future<void> _loadChatAndInitializeCompanion() async {
     if (!mounted) return;
     
+
     user = await CustomAuthUser.getCurrentUser();
     if (user != null && mounted) {
       setState(() {
@@ -436,10 +435,22 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   // NEW: Enhanced message list with integrated typing indicator
   Widget _buildEnhancedMessageList(List<Message> messages, MessageState state) {
+    if (state is MessageLoading && messages.isEmpty) {
+      return _buildLoadingMessages();
+    }
+
     if (messages.isEmpty) {
       return _emptyMessageWidget();
     }
-    
+    // Filter messages for this conversation only
+    final conversationMessages = messages.where((msg) => 
+      msg.conversationId == widget.conversationId
+    ).toList();
+
+    if (conversationMessages.isEmpty) {
+      return _emptyMessageWidget();
+    }
+
     // Get pending message IDs
     final pendingMessageIds = <String>[];
     if (state is MessageLoaded) {

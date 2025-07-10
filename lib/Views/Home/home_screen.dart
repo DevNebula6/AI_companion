@@ -41,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final Map<String, String?> _companionEmotions = {}; // Track emotions for each companion
   late ConnectivityService _connectivityService;
   bool _isOnline = true;
+  bool _hasLoadedConversations = false;
 
   @override
   void initState() {
@@ -65,9 +66,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         });
       }
     });
-
-    // Load conversations on startup
-    _loadConversations();
 
     // Use injected connectivity service for better performance
     _connectivityService = context.read<ConnectivityService>();
@@ -106,9 +104,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _loadConversations() async {
+    // Prevent duplicate loads
+    if (_hasLoadedConversations) {
+      print('Conversations already loaded, skipping duplicate load');
+      return;
+    }
 
     final user = await CustomAuthUser.getCurrentUser();
     if (user != null) {
+      setState(() {
+      _hasLoadedConversations = true; // Add this line
+    });
       context.read<ConversationBloc>().add(LoadConversations(user.id));
     }
   }
@@ -153,29 +159,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _buildDrawer(colorScheme),
           ],
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () {
-            if (_user != null) {
-              HapticFeedback.lightImpact();
-              context.push(
-                RoutesName.companionSelection,
-                extra: _user,
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Please wait, loading Companion information...')),
-              );
-            }
-          },
-          backgroundColor: colorScheme.primary,
-          icon: const Icon(Icons.add),
-          label: const Text('New Companion'),
-          elevation: 3,
-        ).animate().scale(
-          duration: 400.ms,
-          curve: Curves.easeOutBack,
-          delay: 300.ms,
-        ),
+        floatingActionButton: _buildFAB(colorScheme),
       ),
     );
   }
@@ -188,12 +172,42 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           Expanded(
             child: BlocBuilder<ConversationBloc, ConversationState>(
               builder: (context, state) {
-                return _buildConversationList(state);
+                  if (state is ConversationInitial && !_hasLoadedConversations) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _loadConversations();
+                  });
+                }
+                return _buildConversationList(state);              
               },
             ),
           ),
         ],
       ),
+    );
+  }
+  Widget _buildFAB(ColorScheme colorScheme) {
+    return FloatingActionButton.extended(
+      onPressed: () {
+        if (_user != null) {
+          HapticFeedback.lightImpact();
+          context.push(
+            RoutesName.companionSelection,
+            extra: _user,
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please wait, loading Companion information...')),
+          );
+        }
+      },
+      backgroundColor: colorScheme.primary,
+      icon: const Icon(Icons.add),
+      label: const Text('New Companion'),
+      elevation: 3,
+    ).animate().scale(
+      duration: 400.ms,
+      curve: Curves.easeOutBack,
+      delay: 300.ms,
     );
   }
 
@@ -599,7 +613,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           // Give a moment for cache clearing to complete
           await Future.delayed(const Duration(milliseconds: 500));
         }
-        
         // Perform logout
         context.read<AuthBloc>().add(const AuthEventLogOut());
         Navigator.of(context).pop();

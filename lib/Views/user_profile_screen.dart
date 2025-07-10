@@ -150,6 +150,18 @@ bool _messageNotifications = true;
             );
           }
         }
+        else if (state is AuthStateLoggedIn) {
+          print('UserProfile: Profile saved, navigating to home');
+          if (mounted) {
+            context.go(RoutesName.home);
+          }
+        }
+        else if (state is AuthStateSelectCompanion) {
+          print('UserProfile: Profile saved, navigating to companion selection');
+          if (mounted) {
+            context.go(RoutesName.companionSelection);
+          }
+        }
       },
       child:Scaffold(
         backgroundColor: Colors.grey.shade50,
@@ -684,86 +696,88 @@ Widget _buildAnimatedChip({
   required IconData icon,
   required Function(bool) onSelected,
 }) {
-  return Material(
-    color: Colors.transparent,
-    child: InkWell(
-      borderRadius: BorderRadius.circular(30),
-      splashColor: selectedColor.withOpacity(0.1),
-      highlightColor: selectedColor.withOpacity(0.05),
-      onTap: () => onSelected(!isSelected),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected 
-              ? selectedColor 
-              : Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(
+  return RepaintBoundary(
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(30),
+        splashColor: selectedColor.withOpacity(0.1),
+        highlightColor: selectedColor.withOpacity(0.05),
+        onTap: () => onSelected(!isSelected),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
             color: isSelected 
-                ? Colors.transparent 
-                : Colors.grey.shade300,
-            width: 1,
+                ? selectedColor 
+                : Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(
+              color: isSelected 
+                  ? Colors.transparent 
+                  : Colors.grey.shade300,
+              width: 1,
+            ),
+            boxShadow: isSelected 
+                ? [
+                    BoxShadow(
+                      color: selectedColor.withOpacity(0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ] 
+                : null,
           ),
-          boxShadow: isSelected 
-              ? [
-                  BoxShadow(
-                    color: selectedColor.withOpacity(0.25),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ] 
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icon with subtle animation
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: isSelected 
-                    ? Colors.white.withOpacity(0.2) 
-                    : selectedColor.withOpacity(0.07),
-                borderRadius: BorderRadius.circular(20),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icon with subtle animation
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: isSelected 
+                      ? Colors.white.withOpacity(0.2) 
+                      : selectedColor.withOpacity(0.07),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Icon(
+                  icon,
+                  size: 14,
+                  color: isSelected ? Colors.white : selectedColor,
+                ),
               ),
-              child: Icon(
-                icon,
-                size: 14,
-                color: isSelected ? Colors.white : selectedColor,
-              ),
-            ),
-            const SizedBox(width: 8),
-            
-            // Label with animated text style
-            Text(
-              label,
-              style: isSelected 
-                  ? AppTextStyles.chipLabel.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.2,
-                    )
-                  : AppTextStyles.chipLabel,
-            ),
-            
-            // Selected indicator with animation
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              width: isSelected ? 20 : 0,
-              child: isSelected
-                  ? const Padding(
-                      padding: EdgeInsets.only(left: 4),
-                      child: Icon(
-                        Icons.check,
-                        size: 14,
+              const SizedBox(width: 8),
+              
+              // Label with animated text style
+              Text(
+                label,
+                style: isSelected 
+                    ? AppTextStyles.chipLabel.copyWith(
                         color: Colors.white,
-                      ),
-                    )
-                  : null,
-            ),
-          ],
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.2,
+                      )
+                    : AppTextStyles.chipLabel,
+              ),
+              
+              // Selected indicator with animation
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: isSelected ? 20 : 0,
+                child: isSelected
+                    ? const Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Icon(
+                          Icons.check,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      )
+                    : null,
+              ),
+            ],
+          ),
         ),
       ),
     ),

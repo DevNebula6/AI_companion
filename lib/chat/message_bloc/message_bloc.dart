@@ -10,7 +10,7 @@ import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/chat/gemini/gemini_service.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:ai_companion/chat/message_queue/message_queue.dart' as queue;
-import 'package:ai_companion/chat/fragments/fragment_manager.dart';
+import 'package:ai_companion/chat/msg_fragmentation/fragments/fragment_manager.dart';
 import 'package:ai_companion/chat/msg_fragmentation/message_fragmentation.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -748,6 +748,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     
     try {
       emit(MessageLoading());
+
       _currentUserId = event.userId;
       _currentCompanionId = event.companionId;
 

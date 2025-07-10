@@ -20,6 +20,16 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
   String? _currentUserId;
   bool _isOnline = true;
 
+  // Debouncing and deduplication
+  Timer? _networkSyncDebouncer;
+  Timer? _metadataUpdateDebouncer;
+  bool _isNetworkSyncInProgress = false;
+  bool _hasLoadedConversations = false;
+  String? _lastLoadedUserId;
+  DateTime? _lastNetworkSync;
+  static const Duration _networkSyncCooldown = Duration(seconds: 2);
+  static const Duration _debounceDelay = Duration(milliseconds: 500);
+
   ConversationBloc(this._repository, this._cacheService) : super(ConversationInitial()) {
     on<LoadConversations>(_onLoadConversations);
     on<MarkConversationAsRead>(_onMarkAsRead);
@@ -48,9 +58,9 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
           _isOnline = isOnline;
           add(ConnectivityChangedEvent(isOnline));
           
-          // If we're coming back online, sync data
+          // If we're coming back online, debounce the sync
           if (isOnline && _currentUserId != null) {
-            add(RefreshConversations(userId: _currentUserId!));
+            _debouncedNetworkSync(_currentUserId!);
           }
         }
       }, onError: (e) {
@@ -61,6 +71,33 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       print('Failed to setup connectivity listener in ConversationBloc: $e');
       _isOnline = true;
     }
+  }
+
+  // Debounced network sync to prevent rapid consecutive calls
+  void _debouncedNetworkSync(String userId) {
+    _networkSyncDebouncer?.cancel();
+    _networkSyncDebouncer = Timer(_debounceDelay, () {
+      if (!_isNetworkSyncInProgress && _connectivityService.isOnline) {
+        // Check cooldown period
+        if (_lastNetworkSync != null && 
+            DateTime.now().difference(_lastNetworkSync!) < _networkSyncCooldown) {
+          print('Network sync skipped due to cooldown period');
+          return;
+        }
+        
+        add(RefreshConversations(userId: userId));
+      }
+    });
+  }
+
+  // Debounced metadata updates to batch rapid changes
+  void _debouncedMetadataUpdate(String conversationId, Map<String, dynamic> updates) {
+    _metadataUpdateDebouncer?.cancel();
+    _metadataUpdateDebouncer = Timer(_debounceDelay, () {
+      if (_connectivityService.isOnline) {
+        _repository.updateConversationMetadata(conversationId, updates: updates);
+      }
+    });
   }
   
   Future<void> _onConnectivityChanged(
@@ -76,7 +113,16 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
     Emitter<ConversationState> emit,
   ) async {
     try {
+      // Prevent duplicate loads for same user
+      if (_hasLoadedConversations && 
+          _lastLoadedUserId == event.userId && 
+          state is ConversationLoaded) {
+        print('Conversations already loaded for user ${event.userId}, skipping duplicate load');
+        return;
+      }
+
       _currentUserId = event.userId;
+      _lastLoadedUserId = event.userId;
       
       // DEBUG: Check what's in cache first
       _cacheService.debugCacheContents(event.userId);
@@ -95,6 +141,8 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
           regularConversations: enrichedConversations.where((c) => !c.isPinned).toList(),
           isFromCache: true,
         ));
+        
+        _hasLoadedConversations = true;
       } else if (state is! ConversationLoaded) {
         emit(ConversationLoading());
       }
@@ -114,24 +162,41 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         return;
       }
       
+      // Prevent duplicate network calls
+      if (_isNetworkSyncInProgress) {
+        print('Network sync already in progress, skipping duplicate call');
+        return;
+      }
+      
+      _isNetworkSyncInProgress = true;
+      
       // If we're online, try to sync with server
       try {
         print('App is online. Syncing conversations with server...');
         final conversations = await _repository.getConversations(event.userId);
         
-        // Enrich conversations with companion names
-        final enrichedConversations = await _enrichConversationsWithCompanionNames(conversations);
+        // Only update if data has changed
+        if (!_conversationsEqual(conversations, cachedConversations)) {
+          // Enrich conversations with companion names
+          final enrichedConversations = await _enrichConversationsWithCompanionNames(conversations);
+          
+          // Cache the fresh conversations with companion names
+          await _cacheService.cacheConversations(event.userId, enrichedConversations);
+          
+          // Update state with fresh data
+          emit(ConversationLoaded(
+            conversations: enrichedConversations,
+            pinnedConversations: enrichedConversations.where((c) => c.isPinned).toList(),
+            regularConversations: enrichedConversations.where((c) => !c.isPinned).toList(),
+            isFromCache: false,
+          ));
+        } else {
+          print('No changes in conversations, skipping state update');
+        }
         
-        // Cache the fresh conversations with companion names
-        await _cacheService.cacheConversations(event.userId, enrichedConversations);
+        _hasLoadedConversations = true;
+        _lastNetworkSync = DateTime.now();
         
-        // Update state with fresh data
-        emit(ConversationLoaded(
-          conversations: enrichedConversations,
-          pinnedConversations: enrichedConversations.where((c) => c.isPinned).toList(),
-          regularConversations: enrichedConversations.where((c) => !c.isPinned).toList(),
-          isFromCache: false,
-        ));
       } catch (e) {
         print('Error syncing conversations with server: $e');
         
@@ -148,11 +213,34 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         } else {
           emit(ConversationError('Failed to load conversations: $e'));
         }
+      } finally {
+        _isNetworkSyncInProgress = false;
       }
     } catch (e) {
+      _isNetworkSyncInProgress = false;
       print('Error in _onLoadConversations: $e');
       emit(ConversationError('Failed to load conversations: $e'));
     }
+  }
+
+  // Helper method to compare conversations for changes
+  bool _conversationsEqual(List<Conversation> a, List<Conversation> b) {
+    if (a.length != b.length) return false;
+    
+    // Create maps for efficient lookup
+    final mapB = {for (var conv in b) conv.id: conv};
+    
+    for (final conv in a) {
+      final other = mapB[conv.id];
+      if (other == null || 
+          conv.lastMessage != other.lastMessage ||
+          conv.lastUpdated != other.lastUpdated ||
+          conv.unreadCount != other.unreadCount ||
+          conv.isPinned != other.isPinned) {
+        return false;
+      }
+    }
+    return true;
   }
   
   // Helper method to enrich conversations with companion names
@@ -237,9 +325,9 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         }
       }
       
-      // Update the database if online (using centralized service)
+      // Debounce database update
       if (_connectivityService.isOnline) {
-        await _repository.markConversationAsRead(event.conversationId);
+        _debouncedMetadataUpdate(event.conversationId, {'unread_count': 0});
       }
     } catch (e) {
       print('Error marking conversation as read: $e');
@@ -270,7 +358,6 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         
         // Also update the cache
         if (_currentUserId != null) {
-          // Find conversation safely without using orElse: () => null
           final matchingConversations = updatedConversations
               .where((c) => c.id == event.conversationId)
               .toList();
@@ -284,16 +371,12 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         }
       }
       
-      // Update the database if online
+      // Debounce database update
       if (_connectivityService.isOnline) {
-        await _repository.togglePinConversation(
-          event.conversationId, 
-          event.isPinned
-        );
+        _debouncedMetadataUpdate(event.conversationId, {'is_pinned': event.isPinned});
       }
     } catch (e) {
       print('Error updating pin status: $e');
-      // Don't emit error state to prevent UI disruption
     }
   }
   
@@ -334,14 +417,10 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         }
       }
       
-      // If we have internet, delete from the server
+      // If we have internet, delete from the server (no debouncing for delete operations)
       if (_connectivityService.isOnline) {
-        // Delete from database
         await _repository.deleteConversation(event.conversationId);
         
-        // Delete that conversation from the cache
-        await _cacheService.removeCachedConversation(_currentUserId!, event.conversationId);
-
         // Delete messages from cache if we have the companion ID
         if (companionId != null && _currentUserId != null) {
           await _repository.clearMessageCache(
@@ -352,7 +431,6 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       }
     } catch (e) {
       print('Error in _onDeleteConversation: $e');
-      // Don't emit error to avoid UI disruption
     }
   }
   
@@ -384,7 +462,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         
         emit(ConversationCreated(conversationId));
         
-        // **FIX: Immediately cache the new conversation**
+        // Immediately cache the new conversation
         try {
           final companion = await _repository.getCompanion(event.companionId);
           if (companion != null) {
@@ -392,7 +470,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
               id: conversationId,
               userId: userId,
               companionId: event.companionId,
-              companionName: companion.name, // Include companion name
+              companionName: companion.name,
               lastMessage: 'Start a conversation',
               unreadCount: 0,
               lastUpdated: DateTime.now(),
@@ -420,8 +498,8 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
           print('Error caching new conversation: $e');
         }
         
-        // Refresh conversation list with the new conversation
-        add(RefreshConversations(userId: userId));
+        // Debounce the refresh to avoid immediate network call
+        _debouncedNetworkSync(userId);
       } else {
         emit(ConversationError('User not authenticated'));
       }
@@ -445,13 +523,13 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
       }
       if (event.unreadCount != null) {
         if (event.markAsRead){
-          updates['unread_count'] = 0; // Mark as read
+          updates['unread_count'] = 0;
         } else {
           updates['unread_count'] = event.unreadCount;
         }
       }
       if (event.markAsRead){
-          updates['unread_count'] = 0; // Mark as read
+          updates['unread_count'] = 0;
         }
       
       // Only proceed if we have updates to make
@@ -471,7 +549,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
           final updatedConversation = conversation.copyWith(
             lastMessage: event.lastMessage ?? conversation.lastMessage,
             lastUpdated: event.lastUpdated ?? conversation.lastUpdated,
-            unreadCount: event.unreadCount ?? conversation.unreadCount,
+            unreadCount: event.markAsRead ? 0 : (event.unreadCount ?? conversation.unreadCount),
           );
           
           // Update in memory state
@@ -493,41 +571,31 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
             isFromCache: currentState.isFromCache,
           ));
           
-          // **FIX: Always update cache immediately**
+          // Always update cache immediately
           await _cacheService.updateCachedConversation(_currentUserId!, updatedConversation);
         }
       }
       
-      // Update the database if online
+      // Debounce database update
       if (_connectivityService.isOnline) {
-        await _repository.updateConversationMetadata(
-          event.conversationId,
-          updates: updates,
-        );
+        _debouncedMetadataUpdate(event.conversationId, updates);
       }
     } catch (e) {
       print('Error updating conversation metadata: $e');
-      // Don't emit error state to prevent UI disruption
     }
-  }
-
-  @override
-  Future<void> close() {
-    _conversationSubscription?.cancel();
-    _connectivitySubscription?.cancel();
-    _refreshTimer?.cancel();
-    return super.close();
   }
 
   Future<void> _onRefreshConversations(
     RefreshConversations event, 
     Emitter<ConversationState> emit
   ) async {
-    // Skip if offline (using centralized service)
-    if (!_connectivityService.isOnline) {
-      print('Skipping refresh while offline');
+    // Skip if offline or already syncing
+    if (!_connectivityService.isOnline || _isNetworkSyncInProgress) {
+      print('Skipping refresh - offline: ${!_connectivityService.isOnline}, syncing: $_isNetworkSyncInProgress');
       return;
     }
+    
+    _isNetworkSyncInProgress = true;
     
     try {
       // Get conversations from network
@@ -543,8 +611,12 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         regularConversations: conversations.where((c) => !c.isPinned).toList(),
         isFromCache: false,
       ));
+      
+      _lastNetworkSync = DateTime.now();
     } catch (e) {
       print('Error refreshing conversations: $e');
+    } finally {
+      _isNetworkSyncInProgress = false;
     }
   }
 
@@ -554,15 +626,22 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
   ) async {
     try {
       if (_currentUserId != null) {
-        
-        // 2. Clear companion states from GeminiService
+        // Clear companion states from GeminiService
         await GeminiService().clearAllUserStates(_currentUserId!);
         
-        // 3. Clear any chat repository caches
+        // Clear any chat repository caches
         await _repository.clearAllUserCaches(_currentUserId!);
       
         // Reset current state
         _currentUserId = null;
+        _lastLoadedUserId = null;
+        _hasLoadedConversations = false;
+        _isNetworkSyncInProgress = false;
+        _lastNetworkSync = null;
+        
+        // Cancel any pending timers
+        _networkSyncDebouncer?.cancel();
+        _metadataUpdateDebouncer?.cancel();
         
         // Emit initial state
         emit(ConversationInitial());
@@ -572,6 +651,16 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
     } catch (e) {
       print('Error clearing all cache for user: $e');
     }
+  }
+
+  @override
+  Future<void> close() {
+    _conversationSubscription?.cancel();
+    _connectivitySubscription?.cancel();
+    _refreshTimer?.cancel();
+    _networkSyncDebouncer?.cancel();
+    _metadataUpdateDebouncer?.cancel();
+    return super.close();
   }
 }
 

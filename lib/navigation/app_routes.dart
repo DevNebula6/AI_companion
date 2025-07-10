@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
@@ -26,8 +27,11 @@ class AppRoutes {
       redirect: (context, state) {
         final authState = authBloc.state;
         final currentLocation = state.matchedLocation;
-        
-        print('GoRouter Redirect: Current location: $currentLocation, Auth state: ${authState.runtimeType}');
+        final fullPath = state.fullPath;
+
+        if (kDebugMode) {
+          print('GoRouter Redirect: $currentLocation -> ${authState.runtimeType} (fullPath: $fullPath)');
+        }
         
         // During initialization, always show splash
         if (authState is AuthStateUninitialized) {
@@ -35,10 +39,10 @@ class AppRoutes {
             print('GoRouter: Redirecting to splash during initialization');
             return RoutesName.splash;
           }
-          return null; // Stay on splash
+          return null;
         }
         
-        // Handle logged out states - BASE: Onboarding
+        // Handle logged out states
         if (authState is AuthStateLoggedOut) {
           final protectedRoutes = [
             RoutesName.home,
@@ -46,30 +50,23 @@ class AppRoutes {
             RoutesName.companionSelection,
             RoutesName.chat,
           ];
-          
-          // If trying to access protected routes while logged out
           if (protectedRoutes.contains(currentLocation)) {
             print('GoRouter: Redirecting unauthenticated user from protected route');
             return authState.intendedView == AuthView.signIn 
                 ? RoutesName.signIn 
                 : RoutesName.onboarding;
           }
-          
-          // If on splash, redirect to appropriate auth screen
           if (currentLocation == RoutesName.splash) {
             print('GoRouter: Redirecting from splash to auth screen');
             return authState.intendedView == AuthView.signIn 
                 ? RoutesName.signIn 
                 : RoutesName.onboarding;
           }
-          
-          // User is logged out and on valid auth screen
           return null;
         }
         
-        // Handle user profile setup
+        // Handle user profile setup - MANDATORY profile completion
         if (authState is AuthStateUserProfile) {
-          // If not on user profile page, redirect there
           if (currentLocation != RoutesName.userProfile) {
             print('GoRouter: Redirecting to user profile setup');
             return RoutesName.userProfile;
@@ -79,31 +76,26 @@ class AppRoutes {
         
         // Handle companion selection
         if (authState is AuthStateSelectCompanion) {
-          // If not on companion selection page, redirect there
-          if (currentLocation != RoutesName.companionSelection) {
-            print('GoRouter: Redirecting to companion selection');
-            return RoutesName.companionSelection;
-          }
-          return null;
+          print('GoRouter: Redirecting to companion selection from $currentLocation');
+          return RoutesName.companionSelection;
         }
         
-        // Handle logged in states - BASE: Home
+        // Handle logged in states - THE KEY FIX
         if (authState is AuthStateLoggedIn) {
-          // If user is logged in but on auth screens or splash, redirect to home
+          // Redirect from auth screens and splash to home
           if (currentLocation == RoutesName.signIn || 
               currentLocation == RoutesName.onboarding ||
               currentLocation == RoutesName.splash) {
-            print('GoRouter: Redirecting authenticated user to home');
+            print('GoRouter: Redirecting authenticated user to home from $currentLocation');
             return RoutesName.home;
           }
-          // User is logged in and on a valid route
+                  
           return null;
         }
         
-        // Default: no redirect needed
         return null;
       },
-      errorPageBuilder: (context, state) => MaterialPage(
+        errorPageBuilder: (context, state) => MaterialPage(
         key: state.pageKey,
         child: Scaffold(
           appBar: AppBar(

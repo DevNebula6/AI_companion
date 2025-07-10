@@ -12,13 +12,11 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
-import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/supabase_authProvider.dart';
 import 'package:ai_companion/chat/message_bloc/message_bloc.dart';
 import 'package:ai_companion/chat/chat_cache_manager.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/themes/theme.dart';
-import 'package:ai_companion/utilities/Loading/loading_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_companion/services/connectivity_service.dart';
@@ -146,24 +144,11 @@ class MainApp extends StatelessWidget {
     final authBloc = context.read<AuthBloc>();
     final appRoutes = AppRoutes(authBloc);
     
-    return BlocListener<AuthBloc, AuthState>(
-      listener: (context, state) {
-        // Handle loading states
-        if (state.isLoading) {
-          LoadingScreen().show(
-            context: context,
-            text: state.loadingText ?? 'Please wait a moment',
-          );
-        } else {
-          LoadingScreen().hide();
-        }
-      },
-      child: MaterialApp.router(
-        title: 'Ai_Companion',
-        debugShowCheckedModeBanner: false,
-        theme: createAppTheme(defaultColorScheme),
-        routerConfig: appRoutes.router,
-      ),
+    return MaterialApp.router(
+      title: 'Ai_Companion',
+      debugShowCheckedModeBanner: false,
+      theme: createAppTheme(defaultColorScheme),
+      routerConfig: appRoutes.router,
     );
   }
 }
