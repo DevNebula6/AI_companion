@@ -1,6 +1,6 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
-import 'package:ai_companion/chat/fragments/fragment_manager.dart';
+import 'package:ai_companion/chat/msg_fragmentation/fragments/fragment_manager.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:ai_companion/chat/message_queue/message_queue.dart' as queue;
 import 'package:equatable/equatable.dart';

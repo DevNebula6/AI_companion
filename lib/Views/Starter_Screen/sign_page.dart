@@ -13,6 +13,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lottie/lottie.dart';
 import 'dart:math';
 
+import '../../utilities/Loading/loading_screen.dart' show LoadingScreen;
+
 class SignInView extends StatefulWidget {
   const SignInView({super.key});
 
@@ -103,12 +105,22 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
           });
           message = ErrorTranslator.translate(state.exception!);
         }
+        //Show loading indicator when logging in
+        if (state.isLoading) {
+          LoadingScreen().show(
+            context: context,
+            text: state.loadingText ?? 'Please wait a moment',
+          );
+        } else {
+          LoadingScreen().hide();
+        }
+
         if (message.isNotEmpty) {
           showMessage(
             message: message,
             context: context,
             icon: Icons.error,
-            backgroundColor: Colors.red.withOpacity(0.8),
+            backgroundColor: Colors.red,
           );
         }
       },

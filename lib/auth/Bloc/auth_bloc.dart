@@ -49,34 +49,31 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
   //user profile
   on<AuthEventUserProfile>((event, emit) async {
     final currentUser = event.user;
+
     try {
 
-    await provider.updateUserProfile(event.user);
+      await provider.updateUserProfile(event.user);
 
-    emit(AuthStateUserProfile(
-      user: currentUser,
-      isLoading: false,
-    ));
-
-    // Use factory to get repository instance
-    final chatRepository = await ChatRepositoryFactory.getInstance();
-    final hasConversations = await chatRepository.hasConversations(currentUser.id);
-    
-    if (!hasConversations) {
-      // No conversations - navigate to companion selection
-      emit(AuthStateSelectCompanion(
-        user: currentUser,
-        isLoading: false,
-      ));
-    } else {
-      // User has conversations - navigate to home
-      emit(AuthStateLoggedIn(
-        user: currentUser,
-        isLoading: false,
-      ));
-    }
+      // Use factory to get repository instance
+      final chatRepository = await ChatRepositoryFactory.getInstance();
+      final hasConversations = await chatRepository.hasConversations(currentUser.id);
+      
+      if (!hasConversations) {
+      print('AuthBloc: No conversations, emitting AuthStateSelectCompanion');
+        emit(AuthStateSelectCompanion(
+          user: currentUser,
+          isLoading: false,
+        ));
+      } else {
+      print('AuthBloc: Has conversations, emitting AuthStateLoggedIn');
+        emit(AuthStateLoggedIn(
+          user: currentUser,
+          isLoading: false,
+        ));
+      }
     }
     catch (e) {
+    print('AuthBloc: Error updating profile: $e');
       emit(AuthStateUserProfile(
         user: currentUser,
         isLoading: false,
@@ -123,9 +120,18 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       ));
 
       try {
-        final user = await provider.signInWithGoogle();
+        await provider.signInWithGoogle();
+        final user = await CustomAuthUser.getCurrentUser();
+        
+        if (user == null) {
+          emit(const AuthStateLoggedOut(
+            exception: null,
+            isLoading: false,
+            intendedView: AuthView.onboarding,
+          ));
+          return;
+        }
         if (!user.hasCompletedProfile) {
-
           emit( AuthStateUserProfile(
             user: user,
             isLoading: false,
