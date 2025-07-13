@@ -61,22 +61,14 @@ class Message {
     this.mediaMetadata,
   });
 
-  // Create from database record
+  // Create from database record (expects JSONB array format for message field)
   factory Message.fromJson(Map<String, dynamic> json) {
   try {
-    // Handle both String and List formats for backward compatibility
-    List<String> fragments;
+    // Parse message fragments from JSONB array format
     final messageData = json['message'];
-    if (messageData is String) {
-      // Legacy format: single string message
-      fragments = [messageData];
-    } else if (messageData is List) {
-      // New format: array of fragments
-      fragments = List<String>.from(messageData);
-    } else {
-      // Fallback: empty list
-      fragments = [];
-    }
+    final List<String> fragments = messageData is List 
+        ? List<String>.from(messageData)
+        : <String>[]; // Empty list if no data
 
     return Message(
       id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),

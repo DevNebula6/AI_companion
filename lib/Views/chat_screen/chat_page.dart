@@ -52,7 +52,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   
   int? _activeFragmentIndex;
   bool _isShowingTypingBetweenFragments = false;
-  bool _isTypingFromStream = false; // Track typing from stream
+  bool _isTypingFromStream = false; // NEW: Track typing state from stream
 
   @override
   void initState() {
@@ -69,18 +69,18 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _companionColors = getCompanionColorScheme(widget.companion);
     _loadChatAndInitializeCompanion();
     
+    // FIXED: Properly listen to typing stream and update UI state
     _typingSubscription = _messageBloc.typingStream.listen((isTyping) {
       if (mounted) {
         setState(() {
           _isTypingFromStream = isTyping;
         });
+        print('Typing stream update: $isTyping');
         
-        // Auto-scroll to bottom when typing indicator appears
+        // Auto-scroll to bottom when typing starts to keep indicator visible
         if (isTyping) {
           Future.delayed(const Duration(milliseconds: 100), () {
-            if (mounted) {
-              _scrollToBottom();
-            }
+            if (mounted) _scrollToBottom();
           });
         }
       }
@@ -147,6 +147,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         setState(() {
           _activeFragmentIndex = null;
           _isShowingTypingBetweenFragments = false;
+          _isTypingFromStream = false; // Also reset stream typing state
         });
       }
     } catch (e) {
@@ -507,12 +508,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       itemBuilder: (context, index) {
         // If this is the typing indicator position
         if (shouldShowTyping && index == conversationMessages.length) {
-          // Auto-scroll when typing indicator is built
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              _scrollToBottom();
-            }
-          });
           return _buildIntegratedTypingIndicator();
         }
         
@@ -644,18 +639,47 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     ).animate().fadeIn(duration: 300.ms);
   }
 
-  // Determine when to show typing indicator (uses both state and stream)
+  // Determine when to show typing indicator
   bool _shouldShowTypingIndicator(MessageState state) {
+    // PRIMARY: Check typing stream from MessageBloc (most reliable)
+    if (_isTypingFromStream) {
+      print('Showing typing: _isTypingFromStream = true');
+      return true;
+    }
+    
     // Show typing during initial AI response generation
     if (state is MessageReceiving) {
       print('Showing typing: MessageReceiving');
       return true;
     }
     
-    // Show typing from the stream (for fragments)
-    if (_isTypingFromStream) {
-      print('Showing typing: Stream');
+    // Show typing during fragment sequence start
+    if (state is MessageFragmentInProgress) {
+      print('Showing typing: MessageFragmentInProgress');
       return true;
+    }
+    
+    // Show typing between fragments
+    if (state is MessageFragmentTyping) {
+      print('Showing typing: MessageFragmentTyping');
+      return true;
+    }
+    
+    // Also check local state for typing between fragments (fallback)
+    if (_isShowingTypingBetweenFragments) {
+      print('Showing typing: _isShowingTypingBetweenFragments');
+      return true;
+    }
+    
+    // Hide typing when fragments are being displayed
+    if (state is MessageFragmentDisplayed) {
+      print('Hiding typing: MessageFragmentDisplayed');
+      return false;
+    }
+    
+    if (state is MessageFragmentSequenceCompleted) {
+      print('Hiding typing: MessageFragmentSequenceCompleted');
+      return false;
     }
     
     return false;
