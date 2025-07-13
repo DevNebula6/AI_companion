@@ -28,6 +28,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final queue.MessageQueue _messageQueue = queue.MessageQueue();
   final FragmentManager _fragmentManager = FragmentManager();
   
+  // FIXED: Companion-specific state isolation
   String? _currentUserId;
   String? _currentCompanionId;
   Timer? _syncTimer;
@@ -48,7 +49,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final List<Message> _pendingMessages = [];
   final String _pendingMessagesKey = 'pending_messages';
 
-  // Add a BehaviorSubject for typing indicators
+  // FIXED: Companion-specific typing indicators to prevent bleeding
   final BehaviorSubject<bool> _typingSubject = BehaviorSubject.seeded(false);
   Stream<bool> get typingStream => _typingSubject.stream;
   
@@ -305,7 +306,15 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   // SIMPLIFIED: AI response processing with streamlined fragment support
   Future<void> _processAIResponse(Message userMessage, Emitter<MessageState> emit) async {
     try {
-      // Show typing indicator
+      // CRITICAL: Verify this is still the active companion before processing
+      if (_currentCompanionId != userMessage.companionId) {
+        print('⚠️ Ignoring AI response for ${userMessage.companionId} - current companion is $_currentCompanionId');
+        return;
+      }
+      
+      print('🤖 Processing AI response for companion: ${userMessage.companionId}');
+      
+      // Show typing indicator for current companion only
       _typingSubject.add(true);
       emit(MessageReceiving(userMessage.messageFragments.join(' '), messages: _currentMessages));
 
@@ -316,6 +325,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         const Duration(seconds: 15),
         onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?",
       );
+
+      // CRITICAL: Double-check companion hasn't changed during AI processing
+      if (_currentCompanionId != userMessage.companionId) {
+        print('⚠️ Companion changed during AI processing - discarding response');
+        _typingSubject.add(false);
+        return;
+      }
 
       // Hide typing indicator after AI response generation
       _typingSubject.add(false);
@@ -358,8 +374,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         emit(MessageLoaded(messages: List.from(_currentMessages)));
       }
 
-      // OPTIMIZATION: Update all cache levels after AI response
-      if (_currentUserId != null && _currentCompanionId != null) {
+      // OPTIMIZATION: Update all cache levels after AI response for this companion only
+      if (_currentUserId != null && _currentCompanionId != null && 
+          _currentCompanionId == userMessage.companionId) {
         await _updateAllCacheLevels(_currentUserId!, _currentCompanionId!, _currentMessages);
       }
 
@@ -797,8 +814,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     return id.startsWith('local_') || id.startsWith('fallback-');
   }
 
-  // CRUD operations and other methods remain unchanged
-
   @override
   Future<void> close() async {
     _syncTimer?.cancel();
@@ -828,32 +843,34 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
     
     try {
+      print('🔄 Initializing companion: ${event.companion.name} (ID: ${event.companion.id})');
+      
+      // CRITICAL: Reset all state when switching companions to prevent mixing
+      final previousCompanionId = _currentCompanionId;
+      final isCompanionSwitch = previousCompanionId != null && previousCompanionId != event.companion.id;
+      
+      if (isCompanionSwitch) {
+        print('👥 Companion switch detected: $previousCompanionId → ${event.companion.id}');
+        
+        // Force stop any ongoing typing or fragments from previous companion
+        _forceStopTyping();
+        forceCompleteAllActiveFragments();
+        
+        // Clear queue and current messages
+        _clearMessageQueue();
+        _currentMessages.clear();
+        
+        // Save state for previous companion before switching
+        if (_geminiService.isInitialized) {
+          await _geminiService.saveState();
+        }
+      }
+
       emit(MessageLoading());
 
+      // Update companion context
       _currentUserId = event.userId;
       _currentCompanionId = event.companion.id;
-
-      // OPTIMIZED: Check if companion is already initialized to avoid redundant operations
-      if (_geminiService.isInitialized && 
-          _geminiService.isCompanionActive(event.userId, event.companion.id)) {
-        print('Companion already initialized, skipping initialization');
-        
-        // Skip to loading messages if requested
-        if (event.shouldLoadMessages && !isClosed) {
-          add(LoadMessagesEvent(
-            userId: event.userId,
-            companionId: event.companion.id,
-          ));
-        } else if (!isClosed) {
-          emit(CompanionInitialized(event.companion));
-        }
-        return;
-      }
-
-      // Save current state if there's an active companion
-      if (_geminiService.isInitialized) {
-        await _geminiService.saveState();
-      }
 
       // Initialize the AI companion with user information
       try {
@@ -865,41 +882,44 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           userProfile: event.user?.toAIFormat(),
         );
 
+        print('✅ Companion ${event.companion.name} initialized successfully');
+
         if (!isClosed) {
           emit(CompanionInitialized(event.companion));
           
-          // OPTIMIZED: Automatically load messages if requested
-          if (event.shouldLoadMessages && !isClosed) {
+          // Auto-load messages if requested
+          if (event.shouldLoadMessages) {
+            print('📨 Auto-loading messages for ${event.companion.name}');
             add(LoadMessagesEvent(
-              userId: event.userId,
-              companionId: event.companion.id,
+              userId: event.userId, 
+              companionId: event.companion.id
             ));
           }
         }
       } catch (e) {
-        print('Error in GeminiService.initializeCompanion: $e');
+        print('❌ Error in GeminiService.initializeCompanion: $e');
         // Even if Gemini initialization fails, we can still show the UI
         if (!isClosed) {
           emit(CompanionInitialized(event.companion));
           
-          // Still load messages if requested
-          if (event.shouldLoadMessages && !isClosed) {
+          // Still auto-load messages if requested
+          if (event.shouldLoadMessages) {
             add(LoadMessagesEvent(
-              userId: event.userId,
-              companionId: event.companion.id,
+              userId: event.userId, 
+              companionId: event.companion.id
             ));
           }
         }
       }
     } catch (e) {
-      print('Error initializing companion: $e');
+      print('❌ Error initializing companion: $e');
       if (!isClosed) {
         emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
       }
     }
   }
 
-  // OPTIMIZED: Load messages with comprehensive cache hierarchy
+  // OPTIMIZED: Load messages with comprehensive cache hierarchy and companion isolation
   Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit) async {
     // Check if bloc is still active
     if (isClosed) {
@@ -908,6 +928,14 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
     
     try {
+      print('📨 Loading messages for companion: ${event.companionId}');
+      
+      // CRITICAL: Verify this request is for the current companion to prevent mixing
+      if (_currentCompanionId != null && _currentCompanionId != event.companionId) {
+        print('⚠️ Ignoring load request for ${event.companionId} - current companion is $_currentCompanionId');
+        return;
+      }
+      
       // Force complete any existing fragments before loading new conversation
       if(hasActiveSequences){
         forceCompleteAllActiveFragments();
@@ -915,6 +943,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       
       emit(MessageLoading());
 
+      // Update current context
       _currentUserId = event.userId;
       _currentCompanionId = event.companionId;
 
@@ -922,9 +951,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       List<Message> loadedMessages = [];
       bool foundInCache = false;
       
-      print('Loading messages for conversation: $conversationKey');
+      print('🔍 Loading messages for conversation: $conversationKey');
 
-      // STEP 1: Check memory cache first (fastest)
+      // STEP 1: Check memory cache first (fastest) - with companion isolation
       loadedMessages = _cacheService.getCachedMessages(
         event.userId,
         companionId: event.companionId,
@@ -932,30 +961,19 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       
       if (loadedMessages.isNotEmpty) {
         foundInCache = true;
-        print('Messages loaded from memory cache: ${loadedMessages.length} messages');
+        print('💾 Messages loaded from memory cache: ${loadedMessages.length} messages');
+        
+        // Ensure all loaded messages belong to this companion
+        loadedMessages = loadedMessages.where((msg) => 
+          msg.companionId == event.companionId && msg.userId == event.userId
+        ).toList();
+        
+        print('✅ Filtered messages for companion: ${loadedMessages.length} messages');
       }
 
-      // STEP 2: If memory cache empty, try persistent storage (Hive)
-      if (loadedMessages.isEmpty) {
-        try {
-          loadedMessages = await _loadMessagesFromPersistentStorage(event.userId, event.companionId);
-          if (loadedMessages.isNotEmpty) {
-            foundInCache = true;
-            print('Messages loaded from persistent storage: ${loadedMessages.length} messages');
-            
-            // Populate memory cache from persistent storage
-            await _cacheService.cacheMessages(
-              event.userId,
-              loadedMessages,
-              companionId: event.companionId,
-            );
-          }
-        } catch (e) {
-          print('Error loading from persistent storage: $e');
-        }
-      }
-
-      // STEP 3: Process pending messages
+      // STEP 2: Remove persistent storage (Hive) as requested - memory cache and DB only
+      
+      // STEP 3: Process pending messages for this specific companion
       final pendingMessageIds = _pendingMessages
           .where((m) => m.companionId == event.companionId && m.userId == event.userId)
           .map((m) => m.id ?? '')
@@ -964,8 +982,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
       // STEP 4: If we have cached messages, show them immediately
       if (loadedMessages.isNotEmpty && !isClosed) {
-        // CRITICAL: Filter out complete versions if fragments exist
-        _currentMessages = _filterDuplicateMessages(loadedMessages);
+        // CRITICAL: Filter out complete versions if fragments exist AND ensure companion isolation
+        _currentMessages = _filterDuplicateMessages(loadedMessages).where((msg) => 
+          msg.companionId == event.companionId && msg.userId == event.userId
+        ).toList();
+        
+        print('🎯 Current messages for companion ${event.companionId}: ${_currentMessages.length}');
         
         emit(MessageLoaded(
           messages: _currentMessages,
@@ -980,15 +1002,18 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           final serverMessages = await _repository.getMessages(event.userId, event.companionId);
           
           if (serverMessages.isNotEmpty && !isClosed) {
-            final filteredServerMessages = _filterDuplicateMessages(serverMessages);
+            // CRITICAL: Ensure server messages belong to this companion
+            final filteredServerMessages = _filterDuplicateMessages(serverMessages)
+                .where((msg) => msg.companionId == event.companionId && msg.userId == event.userId)
+                .toList();
             
             // Check if server has newer/different messages
             if (_shouldUpdateFromServer(filteredServerMessages, loadedMessages)) {
-              print('Updating messages from server: ${filteredServerMessages.length} messages');
+              print('🔄 Updating messages from server: ${filteredServerMessages.length} messages');
               
               _currentMessages = filteredServerMessages;
               
-              // CRITICAL: Update ALL cache levels simultaneously
+              // CRITICAL: Update cache levels only for this companion
               await _updateAllCacheLevels(
                 event.userId,
                 event.companionId,
@@ -1003,11 +1028,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
                 ));
               }
             } else {
-              print('Local cache is up-to-date, no server sync needed');
+              print('✅ Local cache is up-to-date for companion ${event.companionId}');
             }
           }
         } catch (e) {
-          print('Error fetching messages from server: $e');
+          print('❌ Error fetching messages from server: $e');
           // If we have cached messages, continue with them
           if (loadedMessages.isEmpty && !isClosed) {
             emit(MessageError(error: Exception('Failed to load messages: $e')));
@@ -1016,6 +1041,8 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         }
       } else if (loadedMessages.isEmpty && !isClosed) {
         // Offline and no cached messages
+        print('📭 No cached messages found for companion ${event.companionId}');
+        _currentMessages = [];
         emit(MessageLoaded(
           messages: [],
           pendingMessageIds: pendingMessageIds,
@@ -1029,7 +1056,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
 
     } catch (e) {
-      print('Error in _onLoadMessages: $e');
+      print('❌ Error in _onLoadMessages: $e');
       if (!isClosed) {
         emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
       }
@@ -1037,17 +1064,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   }
 
   // OPTIMIZATION: Load messages from persistent storage (Hive)
-  Future<List<Message>> _loadMessagesFromPersistentStorage(String userId, String companionId) async {
-    try {
-      // Implementation would use Hive or another persistent storage
-      // For now, return empty list as this needs Hive integration
-      return [];
-    } catch (e) {
-      print('Error loading from persistent storage: $e');
-      return [];
-    }
-  }
-
   // OPTIMIZATION: Check if server messages are newer than cached messages
   bool _shouldUpdateFromServer(List<Message> serverMessages, List<Message> cachedMessages) {
     if (cachedMessages.isEmpty) return true;
@@ -1497,27 +1513,48 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   }
 
   // OPTIMIZED: Display fragments with proper typing indicators between each fragment
+  // OPTIMIZED: Display fragments with proper typing indicators and companion isolation
   Future<void> _displayFragmentsWithTiming(Message aiMessage, Emitter<MessageState> emit) async {
     try {
+      // CRITICAL: Verify this fragment display is for the current companion
+      if (_currentCompanionId != aiMessage.companionId) {
+        print('⚠️ Ignoring fragment display for ${aiMessage.companionId} - current companion is $_currentCompanionId');
+        return;
+      }
+      
       final fragments = aiMessage.messageFragments;
-      print('Starting fragment display for ${fragments.length} fragments');
+      print('🎬 Starting fragment display for ${fragments.length} fragments (companion: ${aiMessage.companionId})');
       
       // Start with current messages without any version of the AI message
       final baseMessages = List<Message>.from(_currentMessages);
       final List<Message> finalFragments = []; // Track fragments for final state
       
       for (int i = 0; i < fragments.length; i++) {
-        print('Displaying fragment ${i + 1}/${fragments.length}');
+        // CRITICAL: Check if companion changed during fragment display
+        if (_currentCompanionId != aiMessage.companionId) {
+          print('⚠️ Companion changed during fragment display - stopping fragments');
+          _typingSubject.add(false);
+          return;
+        }
+        
+        print('📝 Displaying fragment ${i + 1}/${fragments.length} for companion ${aiMessage.companionId}');
         
         // Show typing indicator before each fragment (except first which should already be showing)
         if (i > 0) {
           // Show typing indicator between fragments
           _typingSubject.add(true);
-          print('Showing typing indicator for fragment ${i + 1}');
+          print('⌨️ Showing typing indicator for fragment ${i + 1}');
           
           // Calculate delay for typing animation
           final typingDelay = MessageFragmenter.calculateTypingDelay(fragments[i], i);
           await Future.delayed(Duration(milliseconds: typingDelay));
+          
+          // Check again after delay
+          if (_currentCompanionId != aiMessage.companionId) {
+            print('⚠️ Companion changed during typing delay - stopping fragments');
+            _typingSubject.add(false);
+            return;
+          }
         }
         
         // Hide typing indicator before showing fragment
@@ -1555,30 +1592,64 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         
         // Emit state with current fragments
         emit(MessageLoaded(messages: currentDisplayMessages));
-        print('Emitted fragment ${i + 1}, total messages: ${currentDisplayMessages.length}');
+        print('✅ Emitted fragment ${i + 1}, total messages: ${currentDisplayMessages.length}');
         
         // Small delay between fragments for natural flow (but only if not the last fragment)
         if (i < fragments.length - 1) {
           await Future.delayed(const Duration(milliseconds: 300));
+          
+          // Final check after inter-fragment delay
+          if (_currentCompanionId != aiMessage.companionId) {
+            print('⚠️ Companion changed during inter-fragment delay - stopping fragments');
+            _typingSubject.add(false);
+            return;
+          }
         }
+      }
+      
+      // CRITICAL: Final companion check before updating state
+      if (_currentCompanionId != aiMessage.companionId) {
+        print('⚠️ Companion changed before final state update - aborting fragment completion');
+        _typingSubject.add(false);
+        return;
       }
       
       // CRITICAL FIX: Keep fragments in _currentMessages for UI display, NOT the complete message
       _currentMessages.addAll(finalFragments);
-      print('Fragment display complete, added ${finalFragments.length} individual fragments to _currentMessages');
+      print('✅ Fragment display complete for companion ${aiMessage.companionId}, added ${finalFragments.length} individual fragments to _currentMessages');
       
       // Emit final state with fragments (NOT complete message)
       emit(MessageLoaded(messages: List.from(_currentMessages)));
       
     } catch (e) {
-      print('Error displaying fragments: $e');
+      print('❌ Error displaying fragments for companion ${aiMessage.companionId}: $e');
       _typingSubject.add(false); // Ensure typing indicator is hidden on error
       
-      // Fallback: add complete message and emit
-      if (!_currentMessages.any((m) => m.id == aiMessage.id)) {
+      // Fallback: add complete message and emit (only if still current companion)
+      if (_currentCompanionId == aiMessage.companionId && !_currentMessages.any((m) => m.id == aiMessage.id)) {
         _currentMessages.add(aiMessage);
+        emit(MessageLoaded(messages: List.from(_currentMessages)));
       }
-      emit(MessageLoaded(messages: List.from(_currentMessages)));
+    }
+  }
+
+  // UTILITY: Clear message queue for companion switching
+  void _clearMessageQueue() {
+    try {
+      _messageQueue.clear();
+      print('🧹 Message queue cleared for companion switch');
+    } catch (e) {
+      print('❌ Error clearing message queue: $e');
+    }
+  }
+
+  // UTILITY: Force stop typing indicator for companion isolation
+  void _forceStopTyping() {
+    try {
+      _typingSubject.add(false);
+      print('⏹️ Typing indicator stopped for companion switch');
+    } catch (e) {
+      print('❌ Error stopping typing indicator: $e');
     }
   }
 }
