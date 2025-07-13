@@ -1001,34 +1001,52 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         try {
           final serverMessages = await _repository.getMessages(event.userId, event.companionId);
           
-          if (serverMessages.isNotEmpty && !isClosed) {
-            // CRITICAL: Ensure server messages belong to this companion
-            final filteredServerMessages = _filterDuplicateMessages(serverMessages)
-                .where((msg) => msg.companionId == event.companionId && msg.userId == event.userId)
-                .toList();
-            
-            // Check if server has newer/different messages
-            if (_shouldUpdateFromServer(filteredServerMessages, loadedMessages)) {
-              print('🔄 Updating messages from server: ${filteredServerMessages.length} messages');
+          // CRITICAL: Always handle server response, even if empty
+          if (!isClosed) {
+            if (serverMessages.isNotEmpty) {
+              // CRITICAL: Ensure server messages belong to this companion
+              final filteredServerMessages = _filterDuplicateMessages(serverMessages)
+                  .where((msg) => msg.companionId == event.companionId && msg.userId == event.userId)
+                  .toList();
               
-              _currentMessages = filteredServerMessages;
-              
-              // CRITICAL: Update cache levels only for this companion
-              await _updateAllCacheLevels(
-                event.userId,
-                event.companionId,
-                filteredServerMessages,
-              );
-              
-              if (!isClosed) {
+              // Check if server has newer/different messages
+              if (_shouldUpdateFromServer(filteredServerMessages, loadedMessages)) {
+                print('🔄 Updating messages from server: ${filteredServerMessages.length} messages');
+                
+                _currentMessages = filteredServerMessages;
+                
+                // CRITICAL: Update cache levels only for this companion
+                await _updateAllCacheLevels(
+                  event.userId,
+                  event.companionId,
+                  filteredServerMessages,
+                );
+                
                 emit(MessageLoaded(
                   messages: _currentMessages,
                   pendingMessageIds: pendingMessageIds,
                   isFromCache: false,
                 ));
+              } else {
+                print('✅ Local cache is up-to-date for companion ${event.companionId}');
               }
             } else {
-              print('✅ Local cache is up-to-date for companion ${event.companionId}');
+              // CRITICAL FIX: Handle empty server response for new companions
+              print('📭 No messages found on server for new companion ${event.companionId}');
+              _currentMessages = [];
+              
+              // Cache empty state to avoid repeated server calls
+              await _updateAllCacheLevels(
+                event.userId,
+                event.companionId,
+                [],
+              );
+              
+              emit(MessageLoaded(
+                messages: [],
+                pendingMessageIds: pendingMessageIds,
+                isFromCache: false,
+              ));
             }
           }
         } catch (e) {
@@ -1053,6 +1071,21 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       // STEP 6: Initialize AI companion if needed (only after messages are loaded)
       if (!isClosed) {
         await _initializeCompanionIfNeeded(event.userId, event.companionId);
+      }
+      
+      // CRITICAL SAFETY CHECK: Ensure we always emit a final MessageLoaded state
+      // This handles edge cases where no state was emitted above
+      if (!isClosed && state is MessageLoading) {
+        print('⚠️ Safety check: Still in loading state, emitting final MessageLoaded');
+        emit(MessageLoaded(
+          messages: _currentMessages,
+          pendingMessageIds: _pendingMessages
+              .where((m) => m.companionId == event.companionId && m.userId == event.userId)
+              .map((m) => m.id ?? '')
+              .where((id) => id.isNotEmpty)
+              .toList(),
+          isFromCache: false,
+        ));
       }
 
     } catch (e) {

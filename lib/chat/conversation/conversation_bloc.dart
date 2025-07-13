@@ -144,6 +144,7 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
         
         _hasLoadedConversations = true;
       } else if (state is! ConversationLoaded) {
+        print('No cached conversations found, emitting loading state');
         emit(ConversationLoading());
       }
       
@@ -190,8 +191,22 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
             regularConversations: enrichedConversations.where((c) => !c.isPinned).toList(),
             isFromCache: false,
           ));
+          
+          print('Updated conversations: ${enrichedConversations.length} conversations loaded');
         } else {
-          print('No changes in conversations, skipping state update');
+          print('No changes in conversations, but ensuring final state is emitted');
+          
+          // This handles the case where cache and server both return empty lists
+          final enrichedConversations = await _enrichConversationsWithCompanionNames(conversations);
+          
+          emit(ConversationLoaded(
+            conversations: enrichedConversations,
+            pinnedConversations: enrichedConversations.where((c) => c.isPinned).toList(),
+            regularConversations: enrichedConversations.where((c) => !c.isPinned).toList(),
+            isFromCache: false,
+          ));
+          
+          print('Emitted final state with ${enrichedConversations.length} conversations (no changes detected)');
         }
         
         _hasLoadedConversations = true;
