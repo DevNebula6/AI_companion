@@ -405,14 +405,15 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 Expanded(
                   child: Stack(
                     children: [
-                      if (baseMessages.isNotEmpty)
-                        _buildEnhancedMessageList(baseMessages, state),
-                      if (baseMessages.isEmpty)
-                        _emptyMessageWidget(),
+                      // CRITICAL FIX: Mutually exclusive states to prevent overlapping widgets
                       if (state is MessageLoading)
-                        _buildLoadingMessages(),
-                      if (state is MessageError)
-                        _buildErrorWidget(state),
+                        _buildLoadingMessages()
+                      else if (state is MessageError)
+                        _buildErrorWidget(state)
+                      else if (baseMessages.isNotEmpty)
+                        _buildEnhancedMessageList(baseMessages, state)
+                      else
+                        _emptyMessageWidget(),
                       
                       // Queue status indicator (keep this as overlay)
                       if (state is MessageQueued && state.queueLength > 1)
@@ -459,10 +460,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   // FIXED: Enhanced message list with integrated typing indicator and debug logging
   Widget _buildEnhancedMessageList(List<Message> messages, MessageState state) {
-    if (state is MessageLoading && messages.isEmpty) {
-      return _buildLoadingMessages();
-    }
-
+    // This method should only be called when we know we want to display messages
+    // Loading and error states are handled by the parent widget
+    
     if (messages.isEmpty) {
       print('No messages received for conversation ${widget.conversationId}');
       return _emptyMessageWidget();
