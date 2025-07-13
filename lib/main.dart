@@ -103,7 +103,10 @@ Future<void> _initializeCoreServices() async {
             create: (context) {
               final repo = context.read<ChatRepository>();
               final cache = context.read<ChatCacheService>();
-              final messageBloc = MessageBloc(repo, cache);
+              final conversationBloc = context.read<ConversationBloc>();
+
+              final messageBloc = MessageBloc(repo, cache,conversationBloc);
+      
               return messageBloc;
             },
             lazy: false,

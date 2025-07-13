@@ -20,7 +20,6 @@ class _FloatingConnectivityIndicatorState extends State<FloatingConnectivityIndi
   final ConnectivityService _connectivityService = ConnectivityService();
   
   bool _isOnline = true;
-  bool _wasOffline = false;
   bool _showOfflineIndicator = false;
   bool _showOnlineIndicator = false;
   
@@ -100,7 +99,6 @@ class _FloatingConnectivityIndicatorState extends State<FloatingConnectivityIndi
     
     setState(() {
       _showOnlineIndicator = true;
-      _wasOffline = true;
     });
     
     // Show "Back Online" message for 2.5 seconds
@@ -110,7 +108,6 @@ class _FloatingConnectivityIndicatorState extends State<FloatingConnectivityIndi
         setState(() {
           _showOnlineIndicator = false;
           _showOfflineIndicator = false;
-          _wasOffline = false;
         });
         _slideController.reverse();
       }

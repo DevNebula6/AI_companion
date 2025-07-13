@@ -102,7 +102,7 @@ class FragmentManager {
     // Create fragment message
     final fragmentMessage = Message(
       id: '${sequence.id}_fragment_${sequence.currentIndex}',
-      message: fragment,
+      messageFragments: [fragment],
       companionId: sequence.originalMessage.companionId,
       userId: sequence.originalMessage.userId,
       conversationId: sequence.originalMessage.conversationId,
@@ -156,6 +156,78 @@ class FragmentManager {
       _activeSequences.remove(sequenceId);
       _displayTimer?.cancel();
     }
+  }
+  
+  /// Force complete all remaining fragments in a sequence immediately (no delays)
+  void forceCompleteSequence(String sequenceId) {
+    final sequence = _activeSequences[sequenceId];
+    if (sequence == null) return;
+    
+    print('Force completing sequence: $sequenceId');
+    
+    // Cancel any pending timers
+    _displayTimer?.cancel();
+    
+    // Display all remaining fragments immediately
+    while (!sequence.isComplete) {
+      final fragment = sequence.currentFragment!;
+      
+      // Create fragment message
+      final fragmentMessage = Message(
+        id: '${sequence.id}_fragment_forced_${sequence.currentIndex}',
+        messageFragments: [fragment],
+        companionId: sequence.originalMessage.companionId,
+        userId: sequence.originalMessage.userId,
+        conversationId: sequence.originalMessage.conversationId,
+        isBot: true,
+        created_at: DateTime.now(),
+        metadata: {
+          'is_fragment': true,
+          'fragment_index': sequence.currentIndex,
+          'total_fragments': sequence.fragments.length,
+          'sequence_id': sequence.id,
+          'base_message_id': sequence.originalMessage.id,
+          'force_completed': true,
+        },
+      );
+      
+      sequence.displayedFragments.add(fragmentMessage);
+      
+      // Emit fragment displayed event immediately
+      _eventController.add(FragmentDisplayed(fragmentMessage, sequence));
+      
+      // Advance to next fragment
+      sequence.advance();
+    }
+    
+    // Complete the sequence
+    _completeSequence(sequence);
+  }
+  
+  /// Force complete ALL active sequences immediately
+  void forceCompleteAllSequences() {
+    print('Force completing all active sequences- fragment manager');
+    final sequenceIds = List<String>.from(_activeSequences.keys);
+    
+    for (final sequenceId in sequenceIds) {
+      forceCompleteSequence(sequenceId);
+    }
+  }
+  
+  /// Get all active sequence IDs
+  List<String> get activeSequenceIds => List<String>.from(_activeSequences.keys);
+  
+  /// Check if there are any active sequences
+  bool get hasActiveSequences => _activeSequences.isNotEmpty;
+  
+  /// Get information about active sequences for debugging
+  Map<String, String> getActiveSequencesInfo() {
+    final info = <String, String>{};
+    for (final entry in _activeSequences.entries) {
+      final sequence = entry.value;
+      info[entry.key] = 'Fragments: ${sequence.currentIndex}/${sequence.fragments.length}, State: ${sequence.state}';
+    }
+    return info;
   }
   
   void dispose() {

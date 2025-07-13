@@ -22,7 +22,7 @@ enum MessageStatus {
 @immutable
 class Message {
   final String? id;
-  final String message;
+  final List<String> messageFragments;
   final String userId;
   final String companionId;
   final String conversationId;
@@ -44,7 +44,7 @@ class Message {
 
   const Message({
     this.id,
-    required this.message,
+    required this.messageFragments,
     required this.userId,
     required this.companionId,
     required this.conversationId,
@@ -64,9 +64,23 @@ class Message {
   // Create from database record
   factory Message.fromJson(Map<String, dynamic> json) {
   try {
+    // Handle both String and List formats for backward compatibility
+    List<String> fragments;
+    final messageData = json['message'];
+    if (messageData is String) {
+      // Legacy format: single string message
+      fragments = [messageData];
+    } else if (messageData is List) {
+      // New format: array of fragments
+      fragments = List<String>.from(messageData);
+    } else {
+      // Fallback: empty list
+      fragments = [];
+    }
+
     return Message(
       id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
-      message: json['message']?.toString() ?? '',
+      messageFragments: fragments,
       userId: json['user_id']?.toString() ?? '',
       companionId: json['companion_id']?.toString() ?? '',
       conversationId: json['conversation_id']?.toString() ?? '',
@@ -75,11 +89,17 @@ class Message {
           ? DateTime.parse(json['created_at']) 
           : DateTime.now(),
       type: MessageType.text,
-      metadata: json['metadata'] as Map<String, dynamic>? ?? {},
+      metadata: json['metadata'] != null 
+          ? Map<String, dynamic>.from(json['metadata'] as Map)
+          : <String, dynamic>{},
       confidence: json['confidence']?.toDouble(),
-      aiContext: json['ai_context'] as Map<String, dynamic>?,
+      aiContext: json['ai_context'] != null 
+          ? Map<String, dynamic>.from(json['ai_context'] as Map)
+          : null,
       intent: json['intent']?.toString(),
-      entities: json['entities'] as Map<String, dynamic>?,
+      entities: json['entities'] != null 
+          ? Map<String, dynamic>.from(json['entities'] as Map)
+          : null,
       mediaUrl: json['media_url']?.toString(),
       mediaType: json['media_type'] != null 
           ? MediaType.values.firstWhere(
@@ -87,14 +107,16 @@ class Message {
               orElse: () => MediaType.image,
             )
           : null,
-      mediaMetadata: json['media_metadata'] as Map<String, dynamic>?,
+      mediaMetadata: json['media_metadata'] != null 
+          ? Map<String, dynamic>.from(json['media_metadata'] as Map)
+          : null,
     );
   } catch (e) {
     print('Error parsing message JSON: $e');
     // Return a default message on error
     return Message(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      message: '',
+      messageFragments: [] ,
       companionId:'',
       userId: '',
       conversationId: '',
@@ -108,7 +130,7 @@ class Message {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'message': message,
+      'message': messageFragments,
       'user_id': userId,
       'companion_id': companionId,
       'conversation_id': conversationId,
@@ -128,7 +150,7 @@ class Message {
 
   Message copyWith({
     String? id,
-    String? text,
+    List<String>? text,
     Map<String, dynamic>? metadata,
     double? confidence,
     List<String>? references,
@@ -139,12 +161,12 @@ class Message {
   }) {
     return Message(
       id: id ?? this.id,
-      message: text ?? message,
+      messageFragments: text ?? messageFragments,
       userId: userId,
       companionId: companionId,
       conversationId: conversationId,
       isBot: isBot,
-      created_at: created_at ?? this.created_at, // FIXED: Allow timestamp updates
+      created_at: created_at ?? this.created_at,
       type: type,
       metadata: metadata ?? Map<String, dynamic>.from(this.metadata),
       confidence: confidence ?? this.confidence,
@@ -171,6 +193,12 @@ class Message {
   
   // NEW: Get fragment creation timestamp
   int? get fragmentTimestamp => metadata['fragment_timestamp'] as int?;
+
+  // Helper method to get complete message as string
+  String get message => messageFragments.join(' ');
+  
+  // Helper method to check if message has multiple fragments
+  bool get hasFragments => messageFragments.length > 1;
 
   @override
   bool operator ==(Object other) =>

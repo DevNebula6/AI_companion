@@ -195,7 +195,7 @@ class ChatRepository implements IChatRepository {
       'user_id': message.userId,
       'companion_id': message.companionId,
       'conversation_id': message.conversationId,
-      'message': message.message,
+      'message': message.messageFragments, // Store as array in database
       'created_at': message.created_at.toIso8601String(),
       'is_bot': message.isBot,
       'metadata': message.metadata
