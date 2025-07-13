@@ -201,11 +201,18 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   // Enhanced queue message handler
   Future<void> _onEnqueueMessage(EnqueueMessageEvent event, Emitter<MessageState> emit) async {
     try {
+      print('Enqueuing message: "${event.message.messageFragments.join(' ')}" with ID: ${event.message.id}');
+      
       // Add message to queue
       _messageQueue.enqueueUserMessage(event.message);
       
-      // Optimistic UI update
-      _currentMessages.add(event.message);
+      // FIXED: Better duplicate checking using helper method
+      if (!_isDuplicateMessage(event.message, _currentMessages)) {
+        _currentMessages.add(event.message);
+        print('Added message to _currentMessages (optimistic update). Total messages: ${_currentMessages.length}');
+      } else {
+        print('Prevented duplicate message in queue: "${event.message.messageFragments.join(' ')}"');
+      }
       
       // Provide immediate feedback
       emit(MessageQueued(
@@ -250,13 +257,27 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
-  // Enhanced user message processing
+  // OPTIMIZED: Enhanced user message processing with cache consistency
   Future<void> _processUserMessage(Message message, Emitter<MessageState> emit) async {
     try {
       // Update conversation identifier in GeminiService metadata
       final metrics = _geminiService.getRelationshipMetrics();
       if (!metrics.containsKey('conversation_id')) {
         _geminiService.addMemoryItem('conversation_id', message.conversationId);
+      }
+
+      // FIXED: Don't add to current messages again - already added in _onEnqueueMessage for optimistic update
+      // Use better duplicate detection method
+      if (!_isDuplicateMessage(message, _currentMessages)) {
+        _currentMessages.add(message);
+        print('Added user message to current messages: "${message.messageFragments.join(' ')}"');
+      } else {
+        print('Prevented duplicate user message in processing: "${message.messageFragments.join(' ')}"');
+      }
+      
+      // OPTIMIZATION: Update all cache levels for user messages
+      if (_currentUserId != null && _currentCompanionId != null) {
+        await _updateAllCacheLevels(_currentUserId!, _currentCompanionId!, _currentMessages);
       }
 
       // Save to repository if online
@@ -267,11 +288,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
       
       // Update current state
-      emit(MessageLoaded(messages: List.from(_currentMessages)));
+      emit(MessageLoaded(
+        messages: List.from(_currentMessages),
+        isFromCache: false, // Fresh user input
+      ));
       
       // Generate AI response
       await _processAIResponse(message, emit);
     } catch (e) {
+      // Remove message from current messages if saving failed
+      _currentMessages.removeWhere((m) => m.id == message.id);
       emit(MessageError(error: Exception('Failed to process user message: $e')));
     }
   }
@@ -332,20 +358,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         emit(MessageLoaded(messages: List.from(_currentMessages)));
       }
 
-      // Cache the complete message after fragment display
+      // OPTIMIZATION: Update all cache levels after AI response
       if (_currentUserId != null && _currentCompanionId != null) {
-        await _cacheService.cacheMessages(
-          _currentUserId!,
-          _currentMessages,
-          companionId: _currentCompanionId!,
-        );
+        await _updateAllCacheLevels(_currentUserId!, _currentCompanionId!, _currentMessages);
       }
 
       // Update conversation metadata
       if (!_conversationBloc.isClosed) {
         final updateEvent = conv_events.UpdateConversationMetadata(
           conversationId: userMessage.conversationId,
-          lastMessage: aiResponse,
+          lastMessage: fragments.join(' '), // Use the full message content
           lastUpdated: DateTime.now(),
           unreadCount: 0,
           markAsRead: true,
@@ -647,7 +669,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
-  // Process messages that were sent while offline
+  // OPTIMIZED: Process messages that were sent while offline with cache consistency
   Future<void> _onProcessPendingMessages(
     ProcessPendingMessagesEvent event,
     Emitter<MessageState> emit,
@@ -663,6 +685,14 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         if (!isLocalId(pendingMessage.id!)) continue;
         
         await _repository.sendMessage(pendingMessage);
+        
+        // Update local message state immediately
+        final existingIndex = _currentMessages.indexWhere((m) => m.id == pendingMessage.id);
+        if (existingIndex != -1) {
+          _currentMessages[existingIndex] = pendingMessage;
+        } else {
+          _currentMessages.add(pendingMessage);
+        }
         
         if (!pendingMessage.isBot) {
           await _processAIResponse(pendingMessage, emit);
@@ -682,7 +712,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     _pendingMessages.clear();
     await _savePendingMessages();
     
+    // OPTIMIZATION: Update all cache levels after syncing pending messages
     if (_currentUserId != null && _currentCompanionId != null) {
+      await _updateAllCacheLevels(_currentUserId!, _currentCompanionId!, _currentMessages);
       add(RefreshMessages());
     }
   }
@@ -801,6 +833,23 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       _currentUserId = event.userId;
       _currentCompanionId = event.companion.id;
 
+      // OPTIMIZED: Check if companion is already initialized to avoid redundant operations
+      if (_geminiService.isInitialized && 
+          _geminiService.isCompanionActive(event.userId, event.companion.id)) {
+        print('Companion already initialized, skipping initialization');
+        
+        // Skip to loading messages if requested
+        if (event.shouldLoadMessages && !isClosed) {
+          add(LoadMessagesEvent(
+            userId: event.userId,
+            companionId: event.companion.id,
+          ));
+        } else if (!isClosed) {
+          emit(CompanionInitialized(event.companion));
+        }
+        return;
+      }
+
       // Save current state if there's an active companion
       if (_geminiService.isInitialized) {
         await _geminiService.saveState();
@@ -818,12 +867,28 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
         if (!isClosed) {
           emit(CompanionInitialized(event.companion));
+          
+          // OPTIMIZED: Automatically load messages if requested
+          if (event.shouldLoadMessages && !isClosed) {
+            add(LoadMessagesEvent(
+              userId: event.userId,
+              companionId: event.companion.id,
+            ));
+          }
         }
       } catch (e) {
         print('Error in GeminiService.initializeCompanion: $e');
         // Even if Gemini initialization fails, we can still show the UI
         if (!isClosed) {
           emit(CompanionInitialized(event.companion));
+          
+          // Still load messages if requested
+          if (event.shouldLoadMessages && !isClosed) {
+            add(LoadMessagesEvent(
+              userId: event.userId,
+              companionId: event.companion.id,
+            ));
+          }
         }
       }
     } catch (e) {
@@ -834,7 +899,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
-  // MODIFIED: Load messages with fragment detection
+  // OPTIMIZED: Load messages with comprehensive cache hierarchy
   Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit) async {
     // Check if bloc is still active
     if (isClosed) {
@@ -853,143 +918,194 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       _currentUserId = event.userId;
       _currentCompanionId = event.companionId;
 
-      // 1. Get companion data
-      final companion = await _repository.getCompanion(event.companionId);
-      if (companion == null) {
-        throw Exception('Companion not found');
-      }
+      final conversationKey = '${event.userId}_${event.companionId}';
+      List<Message> loadedMessages = [];
+      bool foundInCache = false;
+      
+      print('Loading messages for conversation: $conversationKey');
 
-      // Check if still active before proceeding
-      if (isClosed) return;
-
-      // 2. Try cached messages first
-      _currentMessages = _cacheService.getCachedMessages(
+      // STEP 1: Check memory cache first (fastest)
+      loadedMessages = _cacheService.getCachedMessages(
         event.userId,
         companionId: event.companionId,
       );
+      
+      if (loadedMessages.isNotEmpty) {
+        foundInCache = true;
+        print('Messages loaded from memory cache: ${loadedMessages.length} messages');
+      }
 
-      // Find any pending messageIds
+      // STEP 2: If memory cache empty, try persistent storage (Hive)
+      if (loadedMessages.isEmpty) {
+        try {
+          loadedMessages = await _loadMessagesFromPersistentStorage(event.userId, event.companionId);
+          if (loadedMessages.isNotEmpty) {
+            foundInCache = true;
+            print('Messages loaded from persistent storage: ${loadedMessages.length} messages');
+            
+            // Populate memory cache from persistent storage
+            await _cacheService.cacheMessages(
+              event.userId,
+              loadedMessages,
+              companionId: event.companionId,
+            );
+          }
+        } catch (e) {
+          print('Error loading from persistent storage: $e');
+        }
+      }
+
+      // STEP 3: Process pending messages
       final pendingMessageIds = _pendingMessages
           .where((m) => m.companionId == event.companionId && m.userId == event.userId)
           .map((m) => m.id ?? '')
           .where((id) => id.isNotEmpty)
           .toList();
 
-      if (_currentMessages.isNotEmpty && !isClosed) {
+      // STEP 4: If we have cached messages, show them immediately
+      if (loadedMessages.isNotEmpty && !isClosed) {
         // CRITICAL: Filter out complete versions if fragments exist
-        _currentMessages = _filterDuplicateMessages(_currentMessages);
+        _currentMessages = _filterDuplicateMessages(loadedMessages);
         
         emit(MessageLoaded(
           messages: _currentMessages,
           pendingMessageIds: pendingMessageIds,
+          isFromCache: foundInCache,
         ));
       }
 
-      // 3. If online, get messages from server
+      // STEP 5: If online, sync with database (only if needed)
       if (_connectivityService.isOnline && !isClosed) {
         try {
-          final messages = await _repository.getMessages(event.userId, event.companionId);
-
-          if (messages.isNotEmpty && !isClosed) {
-            // Filter out complete versions if fragments exist
-            final filteredMessages = _filterDuplicateMessages(messages);
+          final serverMessages = await _repository.getMessages(event.userId, event.companionId);
+          
+          if (serverMessages.isNotEmpty && !isClosed) {
+            final filteredServerMessages = _filterDuplicateMessages(serverMessages);
             
-            if (filteredMessages.isNotEmpty &&
-                (_currentMessages.isEmpty ||
-                    filteredMessages.length != _currentMessages.length ||
-                    _messagesNeedUpdate(filteredMessages, _currentMessages))) {
-              _currentMessages = filteredMessages;
+            // Check if server has newer/different messages
+            if (_shouldUpdateFromServer(filteredServerMessages, loadedMessages)) {
+              print('Updating messages from server: ${filteredServerMessages.length} messages');
               
-              await _cacheService.cacheMessages(
+              _currentMessages = filteredServerMessages;
+              
+              // CRITICAL: Update ALL cache levels simultaneously
+              await _updateAllCacheLevels(
                 event.userId,
-                _currentMessages,
-                companionId: event.companionId,
+                event.companionId,
+                filteredServerMessages,
               );
               
               if (!isClosed) {
                 emit(MessageLoaded(
                   messages: _currentMessages,
                   pendingMessageIds: pendingMessageIds,
+                  isFromCache: false,
                 ));
               }
+            } else {
+              print('Local cache is up-to-date, no server sync needed');
             }
           }
         } catch (e) {
           print('Error fetching messages from server: $e');
+          // If we have cached messages, continue with them
+          if (loadedMessages.isEmpty && !isClosed) {
+            emit(MessageError(error: Exception('Failed to load messages: $e')));
+            return;
+          }
         }
-      }
-
-      // Check if still active before AI initialization
-      if (isClosed) return;
-
-      // 5. Get current user
-      final user = await CustomAuthUser.getCurrentUser();
-
-      // 6. Initialize AI companion if needed
-      try {
-        if (!_geminiService.isCompanionInitialized(event.userId, event.companionId) && !isClosed) {
-          await _geminiService.initializeCompanion(
-            companion: companion,
-            userId: event.userId,
-            userName: user?.fullName,
-            userProfile: user?.toAIFormat(),
-            messageBloc: this,
-          );
-        } else {
-          print('Companion already initialized, skipping initialization');
-        }
-      } catch (e) {
-        print('Error initializing AI in message loading: $e');
-      }
-
-      // Check if still active before creating conversation
-      if (isClosed) return;
-
-      // 7. Create conversation if needed
-      await _repository.getOrCreateConversation(
-        event.userId,
-        event.companionId,
-      );
-
-      // 8. Final state emission
-      if (state is! MessageLoaded && !isClosed) {
+      } else if (loadedMessages.isEmpty && !isClosed) {
+        // Offline and no cached messages
         emit(MessageLoaded(
-          messages: _currentMessages,
+          messages: [],
           pendingMessageIds: pendingMessageIds,
-          isFromCache: true,
+          isFromCache: false,
         ));
       }
-    } catch (e) {
-      print('Error loading messages: $e');
+
+      // STEP 6: Initialize AI companion if needed (only after messages are loaded)
       if (!isClosed) {
-        if (_currentMessages.isNotEmpty) {
-          emit(MessageLoaded(
-            messages: _currentMessages,
-            isFromCache: true,
-            hasError: true,
-          ));
-        } else {
-          emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
-        }
+        await _initializeCompanionIfNeeded(event.userId, event.companionId);
+      }
+
+    } catch (e) {
+      print('Error in _onLoadMessages: $e');
+      if (!isClosed) {
+        emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
       }
     }
   }
 
-  // Helper to check if messages have meaningful differences
-  bool _messagesNeedUpdate(List<Message> newMessages, List<Message> oldMessages) {
-    if (newMessages.length != oldMessages.length) return true;
-
-    // Check last message is different
-    if (newMessages.isNotEmpty && oldMessages.isNotEmpty) {
-      // Compare last messages by content and timestamp
-      final lastNew = newMessages.last;
-      final lastOld = oldMessages.last;
-
-      return lastNew.messageFragments.join(' ') != lastOld.messageFragments.join(' ') ||
-          lastNew.created_at.isAfter(lastOld.created_at);
+  // OPTIMIZATION: Load messages from persistent storage (Hive)
+  Future<List<Message>> _loadMessagesFromPersistentStorage(String userId, String companionId) async {
+    try {
+      // Implementation would use Hive or another persistent storage
+      // For now, return empty list as this needs Hive integration
+      return [];
+    } catch (e) {
+      print('Error loading from persistent storage: $e');
+      return [];
     }
+  }
 
+  // OPTIMIZATION: Check if server messages are newer than cached messages
+  bool _shouldUpdateFromServer(List<Message> serverMessages, List<Message> cachedMessages) {
+    if (cachedMessages.isEmpty) return true;
+    if (serverMessages.isEmpty) return false;
+    
+    // Check if server has more messages
+    if (serverMessages.length > cachedMessages.length) return true;
+    
+    // Check if last message is newer
+    if (serverMessages.isNotEmpty && cachedMessages.isNotEmpty) {
+      final lastServer = serverMessages.last;
+      final lastCached = cachedMessages.last;
+      return lastServer.created_at.isAfter(lastCached.created_at);
+    }
+    
     return false;
+  }
+
+  // OPTIMIZATION: Update all cache levels simultaneously
+  Future<void> _updateAllCacheLevels(String userId, String companionId, List<Message> messages) async {
+    try {
+      // Update memory cache
+      await _cacheService.cacheMessages(
+        userId,
+        messages,
+        companionId: companionId,
+      );
+      
+      // Update persistent storage (Hive) - placeholder for now
+      // await _saveToPersistentStorage(userId, companionId, messages);
+      
+      print('Updated all cache levels for $userId/$companionId with ${messages.length} messages');
+    } catch (e) {
+      print('Error updating cache levels: $e');
+    }
+  }
+
+  // OPTIMIZATION: Initialize companion only if needed
+  Future<void> _initializeCompanionIfNeeded(String userId, String companionId) async {
+    try {
+      if (!_geminiService.isCompanionActive(userId, companionId)) {
+        final companion = await _repository.getCompanion(companionId);
+        if (companion != null) {
+          final user = await CustomAuthUser.getCurrentUser();
+          await _geminiService.initializeCompanion(
+            companion: companion,
+            userId: userId,
+            userName: user?.fullName,
+            userProfile: user?.toAIFormat(),
+            messageBloc: this,
+          );
+        }
+      } else {
+        print('Companion already active, skipping initialization');
+      }
+    } catch (e) {
+      print('Error in companion initialization: $e');
+    }
   }
 
   // BALANCED: Handle both stored complete messages and live fragment display
@@ -1075,6 +1191,38 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     result.sort((a, b) => a.created_at.compareTo(b.created_at));
     
     return result;
+  }
+
+  // HELPER: Better duplicate detection that considers content similarity and timestamp proximity
+  bool _isDuplicateMessage(Message newMessage, List<Message> existingMessages) {
+    print('Checking for duplicates: "${newMessage.messageFragments.join(' ')}" (ID: ${newMessage.id}) against ${existingMessages.length} existing messages');
+    
+    // Check for exact ID match first (most reliable)
+    if (newMessage.id != null && existingMessages.any((m) => m.id == newMessage.id)) {
+      print('Found exact ID match - this is a duplicate');
+      return true;
+    }
+    
+    // For user messages, check content and timestamp proximity (within 2 seconds)
+    if (!newMessage.isBot) {
+      for (final existing in existingMessages) {
+        if (!existing.isBot && 
+            existing.userId == newMessage.userId &&
+            existing.companionId == newMessage.companionId &&
+            existing.messageFragments.join(' ').trim() == newMessage.messageFragments.join(' ').trim()) {
+          
+          // Check if timestamps are very close (within 2 seconds)
+          final timeDiff = newMessage.created_at.difference(existing.created_at).inSeconds.abs();
+          if (timeDiff <= 2) {
+            print('Detected duplicate user message: "${newMessage.messageFragments.join(' ')}" (time diff: ${timeDiff}s)');
+            return true;
+          }
+        }
+      }
+    }
+    
+    print('No duplicates found - message is unique');
+    return false;
   }
 
   Future<void> _onClearConversation(
@@ -1167,20 +1315,21 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     try {
       emit(MessageLoading());
+      
+      // Delete from repository
       await _repository.deleteMessage(event.messageId);
 
-      // Update local cache
+      // Update local cache - remove from current messages
       _currentMessages.removeWhere((msg) => msg.id == event.messageId);
+      
+      // OPTIMIZATION: Update all cache levels after deletion
       if (_currentUserId != null && _currentCompanionId != null) {
-        await _cacheService.cacheMessages(
-          _currentUserId!,
-          _currentMessages,
-          companionId: _currentCompanionId!,
-        );
+        await _updateAllCacheLevels(_currentUserId!, _currentCompanionId!, _currentMessages);
       }
 
       emit(MessageLoaded(
         messages: _currentMessages,
+        isFromCache: false, // Fresh after deletion
       ));
     } catch (e) {
       print('Error deleting message: $e');

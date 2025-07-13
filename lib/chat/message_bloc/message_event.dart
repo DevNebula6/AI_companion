@@ -28,15 +28,17 @@ class InitializeCompanionEvent extends MessageEvent {
   final AICompanion companion;
   final String userId;
   final CustomAuthUser? user;
+  final bool shouldLoadMessages;
 
   const InitializeCompanionEvent({
     required this.companion,
     required this.userId,
     this.user,
+    this.shouldLoadMessages = false,
   });
 
   @override
-  List<Object?> get props => [companion, userId, user];
+  List<Object?> get props => [companion, userId, user, shouldLoadMessages];
 }
 
 class SendMessageEvent extends MessageEvent {

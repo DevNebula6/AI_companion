@@ -196,20 +196,13 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       });
       
       if (!_messageBloc.isClosed && mounted) {
+        // OPTIMIZED: Single event that combines initialization and loading
         _messageBloc.add(InitializeCompanionEvent(
           companion: widget.companion,
           userId: user!.id,
           user: user,
+          shouldLoadMessages: true, // Signal to load messages immediately
         ));
-        
-        await Future.delayed(const Duration(milliseconds: 100));
-        
-        if (!_messageBloc.isClosed && mounted) {
-          _messageBloc.add(LoadMessagesEvent(
-            userId: user!.id,
-            companionId: widget.companion.id,
-          ));
-        }
       }
     }
   }
@@ -224,6 +217,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
     
     final userMessage = Message(
+      id: 'user_${DateTime.now().millisecondsSinceEpoch}_${_currentUserId}', // Provide unique ID
       messageFragments: [_messageController.text.trim()],
       userId: _currentUserId!,
       companionId: widget.companion.id,
