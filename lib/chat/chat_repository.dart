@@ -103,6 +103,9 @@ class ChatRepository implements IChatRepository {
   static const int _maxCacheSize = 100;
   final Map<String, DateTime> _cacheAccessTimes = {};
   final LinkedHashMap<String, AICompanion> _memoryCache = LinkedHashMap();
+  
+  // OPTIMIZATION: Conversation ID cache to avoid repeated database lookups
+  final Map<String, String> _conversationIdCache = {}; // key: "userId_companionId", value: conversationId
 
   // Private constructor - use factory methods instead
   ChatRepository._({
@@ -363,6 +366,12 @@ class ChatRepository implements IChatRepository {
   Future<String> getOrCreateConversation(String userId, String companionId) async {
     await _ensureInitialized();
 
+    // OPTIMIZATION: Check cache first to avoid database lookup
+    final cacheKey = '${userId}_$companionId';
+    if (_conversationIdCache.containsKey(cacheKey)) {
+      return _conversationIdCache[cacheKey]!;
+    }
+
     try {
       // Check for existing conversation
       final response = await _supabase
@@ -375,7 +384,10 @@ class ChatRepository implements IChatRepository {
 
       // Return existing conversation ID if found
       if (response != null && response['id'] != null) {
-        return response['id'];
+        final conversationId = response['id'];
+        // Cache the result
+        _conversationIdCache[cacheKey] = conversationId;
+        return conversationId;
       }
 
       // Get companion data before creating conversation
@@ -398,10 +410,15 @@ class ChatRepository implements IChatRepository {
           .select('id')
           .single();
 
-      return newConversation['id'];
+      final conversationId = newConversation['id'];
+      // Cache the new conversation ID
+      _conversationIdCache[cacheKey] = conversationId;
+      return conversationId;
     } catch (e) {
       print('Error finding/creating conversation: $e');
-      return 'fallback-$companionId-${DateTime.now().millisecondsSinceEpoch}';
+      final fallbackId = 'fallback-$companionId-${DateTime.now().millisecondsSinceEpoch}';
+      // Don't cache fallback IDs
+      return fallbackId;
     }
   }
 
@@ -578,6 +595,17 @@ class ChatRepository implements IChatRepository {
   // Set the CompanionBloc instance
   void setCompanionBloc(CompanionBloc bloc) {
     _companionBloc = bloc;
+  }
+
+  // OPTIMIZATION: Clear conversation cache (useful during logout or data refresh)
+  void clearConversationCache() {
+    _conversationIdCache.clear();
+  }
+
+  // OPTIMIZATION: Cache conversation ID for future use
+  void cacheConversationId(String userId, String companionId, String conversationId) {
+    final cacheKey = '${userId}_$companionId';
+    _conversationIdCache[cacheKey] = conversationId;
   }
 }
 
