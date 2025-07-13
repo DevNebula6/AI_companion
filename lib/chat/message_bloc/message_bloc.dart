@@ -291,7 +291,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?",
       );
 
-      // Hide typing indicator
+      // Hide typing indicator after AI response generation
       _typingSubject.add(false);
 
       // Fragment the response
@@ -315,26 +315,19 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         },
       );
 
-      // Don't add to current messages yet - prevent flickering during fragment display
-
-      // DEBUG: Log fragment system efficiency
-      debugFragmentSystem(aiMessage);
-
-      // Save SINGLE message to repository (complete message with fragments)
+      // FIXED: Don't add to _currentMessages yet - let fragment display handle it
+      // Store SINGLE message to repository first (complete message with fragments)
       if (_connectivityService.isOnline) {
         await _repository.sendMessage(aiMessage);
       } else {
         await _addPendingMessage(aiMessage);
       }
 
-      // Don't add to _currentMessages yet - let fragment display handle it
-      // This prevents the flickering issue
-
-      // NEW: For real-time display, create individual fragments
+      // NEW: For real-time display, show fragments progressively with typing indicators
       if (fragments.length > 1) {
         await _displayFragmentsWithTiming(aiMessage, emit);
       } else {
-        // Single fragment - add to current messages and display immediately
+        // Single fragment - add to messages and display immediately
         _currentMessages.add(aiMessage);
         emit(MessageLoaded(messages: List.from(_currentMessages)));
       }
@@ -1354,33 +1347,37 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
-  // FIXED: Display fragments for real-time chat experience with proper typing indicators
+  // OPTIMIZED: Display fragments with proper typing indicators between each fragment
   Future<void> _displayFragmentsWithTiming(Message aiMessage, Emitter<MessageState> emit) async {
     try {
       final fragments = aiMessage.messageFragments;
+      print('Starting fragment display for ${fragments.length} fragments');
       
-      // Remove the complete message temporarily during fragment display
-      final originalMessagesWithoutAI = _currentMessages.where((m) => m.id != aiMessage.id).toList();
+      // Start with current messages without any version of the AI message
+      final baseMessages = List<Message>.from(_currentMessages);
+      final List<Message> finalFragments = []; // Track fragments for final state
       
       for (int i = 0; i < fragments.length; i++) {
-        // Show typing indicator before each fragment (except the first one)
+        print('Displaying fragment ${i + 1}/${fragments.length}');
+        
+        // Show typing indicator before each fragment (except first which should already be showing)
         if (i > 0) {
-          // Show typing indicator using the stream
+          // Show typing indicator between fragments
           _typingSubject.add(true);
-          print('🔄 Showing typing indicator for fragment ${i + 1}/${fragments.length}');
+          print('Showing typing indicator for fragment ${i + 1}');
           
-          // Calculate and wait for typing delay
-          final delay = MessageFragmenter.calculateTypingDelay(fragments[i], i);
-          await Future.delayed(Duration(milliseconds: delay));
-          
-          // Hide typing indicator
-          _typingSubject.add(false);
+          // Calculate delay for typing animation
+          final typingDelay = MessageFragmenter.calculateTypingDelay(fragments[i], i);
+          await Future.delayed(Duration(milliseconds: typingDelay));
         }
         
-        // Create current display state with fragments up to current index
-        final currentDisplayMessages = List<Message>.from(originalMessagesWithoutAI);
+        // Hide typing indicator before showing fragment
+        _typingSubject.add(false);
         
-        // Add all fragments up to current index for smooth display
+        // Create current display state with fragments up to current index
+        final currentDisplayMessages = List<Message>.from(baseMessages);
+        
+        // Add all fragments up to current index for smooth progressive display
         for (int j = 0; j <= i; j++) {
           final displayFragment = Message(
             id: '${aiMessage.id}_fragment_$j',
@@ -1400,55 +1397,40 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
             },
           );
           currentDisplayMessages.add(displayFragment);
+          
+          // Track this fragment for final state (only add once)
+          if (j == i) {
+            finalFragments.add(displayFragment);
+          }
         }
         
-        // Emit state with current fragments (no typing indicator)
-        print('✅ Displayed fragment ${i + 1}/${fragments.length}: "${fragments[i].substring(0, fragments[i].length.clamp(0, 30))}..."');
+        // Emit state with current fragments
         emit(MessageLoaded(messages: currentDisplayMessages));
+        print('Emitted fragment ${i + 1}, total messages: ${currentDisplayMessages.length}');
         
-        // Small delay between fragments for natural flow (except for the last fragment)
+        // Small delay between fragments for natural flow (but only if not the last fragment)
         if (i < fragments.length - 1) {
           await Future.delayed(const Duration(milliseconds: 300));
         }
       }
       
-      // Ensure typing indicator is hidden after all fragments are displayed
-      _typingSubject.add(false);
+      // CRITICAL FIX: Keep fragments in _currentMessages for UI display, NOT the complete message
+      _currentMessages.addAll(finalFragments);
+      print('Fragment display complete, added ${finalFragments.length} individual fragments to _currentMessages');
       
-      // After fragment display is complete, replace fragments with complete message in _currentMessages
-      // This ensures persistence works correctly while maintaining fragment display experience
-      final finalMessages = _currentMessages.where((m) => m.id != aiMessage.id).toList();
-      finalMessages.add(aiMessage); // Add back the complete message
-      _currentMessages = finalMessages;
-      
-      // Cache the complete message for persistence
-      if (_currentUserId != null && _currentCompanionId != null) {
-        await _cacheService.cacheMessages(
-          _currentUserId!,
-          _currentMessages,
-          companionId: _currentCompanionId!,
-        );
-      }
+      // Emit final state with fragments (NOT complete message)
+      emit(MessageLoaded(messages: List.from(_currentMessages)));
       
     } catch (e) {
       print('Error displaying fragments: $e');
-      // Ensure typing indicator is hidden on error
-      _typingSubject.add(false);
+      _typingSubject.add(false); // Ensure typing indicator is hidden on error
+      
+      // Fallback: add complete message and emit
+      if (!_currentMessages.any((m) => m.id == aiMessage.id)) {
+        _currentMessages.add(aiMessage);
+      }
       emit(MessageLoaded(messages: List.from(_currentMessages)));
     }
-  }
-
-  // DEBUG: Method to verify fragment storage and retrieval efficiency
-  void debugFragmentSystem(Message aiMessage) {
-    print('=== FRAGMENT SYSTEM DEBUG ===');
-    print('Message ID: ${aiMessage.id}');
-    print('Total fragments: ${aiMessage.messageFragments.length}');
-    print('Fragments: ${aiMessage.messageFragments}');
-    print('Has fragments: ${aiMessage.hasFragments}');
-    print('Complete message: ${aiMessage.message}');
-    print('Metadata: ${aiMessage.metadata}');
-    print('toJson fragments: ${aiMessage.toJson()['message']}');
-    print('=============================');
   }
 }
 // Helper method to allow unawaited futures
