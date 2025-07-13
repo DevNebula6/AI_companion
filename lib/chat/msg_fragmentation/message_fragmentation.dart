@@ -177,9 +177,9 @@ class MessageFragmenter {
   
   static int calculateTypingDelay(String fragment, int fragmentIndex) {
     // More consistent base delay
-    final baseDelay = 1500; // 1.5 seconds base for better UX
+    final baseDelay = 400; 
     final wordCount = fragment.split(' ').length;
-    final typingSpeed = 150; // 150ms per word (slightly slower)
+    final typingSpeed = 50; 
     
     int delay = baseDelay + (wordCount * typingSpeed);
     
@@ -209,7 +209,7 @@ class MessageFragmenter {
     delay += variation;
     
     // Consistent bounds with better minimum
-    final result = delay.clamp(1200, 4500);
+    final result = delay.clamp(100, 4500);
     print('Fragment $fragmentIndex delay: ${result}ms for "$fragment"');
     return result;
   }
@@ -267,11 +267,10 @@ class MessageFragmenter {
     return (baseDelay + randomVariation).clamp(10, 80);
   }
   
-  /// Determine if fragment should show avatar (with slight randomness for last fragment)
+  /// Determine if fragment should show avatar
   static bool shouldShowAvatar(int fragmentIndex, int totalFragments) {
     if (fragmentIndex == totalFragments - 1) {
-      // 95% chance to show on last fragment, 5% chance to show on second-to-last for variation
-      return _random.nextDouble() < 0.95;
+      return true; // Always show avatar for last fragment
     }
     return false;
   }

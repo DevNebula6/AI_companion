@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
 import 'package:ai_companion/services/connectivity_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/message_bloc/message_event.dart';
 import 'package:ai_companion/chat/message_bloc/message_state.dart';
+import 'package:ai_companion/chat/message_bloc/fragment_sequence_status.dart';
+import 'package:ai_companion/chat/conversation/conversation_event.dart' as conv_events;
 import 'package:ai_companion/chat/chat_cache_manager.dart';
 import 'package:ai_companion/chat/chat_repository.dart';
 import 'package:ai_companion/chat/gemini/gemini_service.dart';
@@ -30,6 +33,13 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   Timer? _syncTimer;
   List<Message> _currentMessages = [];
   
+  // NEW: Fragment sequence tracking
+  final Map<String, FragmentSequenceStatus> _fragmentSequences = {};
+  String? _currentActiveSequenceId;
+  
+  // Cross-bloc communication
+  final ConversationBloc _conversationBloc;
+  
   // Offline support
   bool _isOnline = true;
   StreamSubscription? _connectivitySubscription;
@@ -42,8 +52,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   final BehaviorSubject<bool> _typingSubject = BehaviorSubject.seeded(false);
   Stream<bool> get typingStream => _typingSubject.stream;
   
+  // OPTIMIZATION: Debounce conversation metadata updates to prevent spam
+  Timer? _conversationUpdateDebouncer;
+  final Duration _conversationUpdateDelay = const Duration(milliseconds: 500);
+  final Map<String, conv_events.UpdateConversationMetadata> _pendingConversationUpdates = {};
 
-  MessageBloc(this._repository, this._cacheService) : super(MessageInitial()) {
+  MessageBloc(this._repository, this._cacheService, this._conversationBloc,) : super(MessageInitial()) {
     // Core message handlers
     on<SendMessageEvent>(_onSendMessage);
     on<LoadMessagesEvent>(_onLoadMessages);
@@ -68,6 +82,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     on<FragmentedMessageReceivedEvent>(_onFragmentedMessageReceived);
     on<CompleteFragmentedMessageEvent>(_onCompleteFragmentedMessage);
     
+    // NEW: Fragment sequence completion handlers
+    on<ForceCompleteFragmentationEvent>(_onForceCompleteFragmentation);
+    on<CheckFragmentCompletionStatusEvent>(_onCheckFragmentCompletionStatus);
+    on<RenderFragmentsImmediatelyEvent>(_onRenderFragmentsImmediately);
+    
     _setupPeriodicSync();
     _setupConnectivityListener();
     _setupQueueProcessing();
@@ -88,8 +107,92 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   }
 
   List<Message> get currentMessages => List<Message>.from(_currentMessages);
+  
+  /// Get the currently active fragment sequence ID
+  String? get currentActiveSequenceId => _currentActiveSequenceId;
 
-  // ENHANCED: Message sending with queue integration
+  /// Check if there are any active sequences
+  bool get hasActiveSequences => _fragmentSequences.values.any((seq) => !seq.isCompleted);
+  
+  /// SIMPLIFIED: Force complete method (not needed with simplified approach)
+  void forceCompleteAllActiveFragments() {
+    print('Force completing all active fragments - simplified approach');
+    
+    // With simplified approach, just ensure typing indicators are cleared
+    _typingSubject.add(false);
+    
+    // Clear any fragment tracking (backward compatibility)
+    _fragmentSequences.clear();
+    _currentActiveSequenceId = null;
+    
+    print('Fragment force completion done - simplified');
+  }
+  
+  
+  /// OPTIMIZATION: Debounced conversation metadata update to prevent spam
+  void _debouncedConversationUpdate(conv_events.UpdateConversationMetadata updateEvent) {
+    // Store the latest update for this conversation
+    _pendingConversationUpdates[updateEvent.conversationId] = updateEvent;
+    
+    // Cancel previous timer and start new one
+    _conversationUpdateDebouncer?.cancel();
+    _conversationUpdateDebouncer = Timer(_conversationUpdateDelay, () {
+      // Send all pending updates
+      final updates = Map<String, conv_events.UpdateConversationMetadata>.from(_pendingConversationUpdates);
+      _pendingConversationUpdates.clear();
+      
+      if (!_conversationBloc.isClosed) {
+        for (final update in updates.values) {
+          _conversationBloc.add(update);
+          print('Debounced conversation update: ${update.conversationId} (unread: ${update.unreadCount})');
+        }
+      }
+    });
+  }
+
+  // NEW: Update fragment progress
+  void _updateFragmentProgress(String sequenceId) {
+    final sequence = _fragmentSequences[sequenceId];
+    if (sequence != null && !sequence.isCompleted) {
+      _fragmentSequences[sequenceId] = sequence.copyWith(
+        displayedCount: sequence.displayedCount + 1,
+      );
+      
+      // Check if sequence is now complete
+      if (sequence.displayedCount + 1 >= sequence.totalFragments) {
+        _fragmentSequences[sequenceId] = sequence.copyWith(
+          isCompleted: true,
+          completedAt: DateTime.now(),
+        );
+        
+        if (_currentActiveSequenceId == sequenceId) {
+          _currentActiveSequenceId = null;
+        }
+      }
+    }
+  }
+
+  // NEW: Calculate unread fragment count for a conversation
+  int _calculateUnreadFragmentCount(String conversationId) {
+    int unreadCount = 0;
+    
+    for (final sequence in _fragmentSequences.values) {
+      if (sequence.originalMessage.conversationId == conversationId && !sequence.isCompleted) {
+        // Count remaining fragments as unread
+        unreadCount += sequence.remainingFragments.length;
+      }
+    }
+    
+    return unreadCount;
+  }
+
+  // SIMPLIFIED: Remove complex fragment sequence tracking (not needed with our approach)
+  bool hasIncompleteFragments(String conversationId) {
+    // With simplified approach, fragments are stored in single messages
+    // No incomplete fragments to track
+    return false;
+  }
+
   Future<void> _onSendMessage(SendMessageEvent event, Emitter<MessageState> emit) async {
     // Route through queue system for better management
     add(EnqueueMessageEvent(event.message, priority: queue.MessagePriority.normal));
@@ -159,10 +262,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       // Save to repository if online
       if (_connectivityService.isOnline) {
         await _repository.sendMessage(message);
-        await _repository.updateConversation(
-          message.conversationId,
-          lastMessage: message.message,
-        );
       } else {
         await _addPendingMessage(message);
       }
@@ -177,16 +276,16 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
   }
 
-  // Enhanced AI response processing with fragment support
+  // SIMPLIFIED: AI response processing with streamlined fragment support
   Future<void> _processAIResponse(Message userMessage, Emitter<MessageState> emit) async {
     try {
       // Show typing indicator
       _typingSubject.add(true);
-      emit(MessageReceiving(userMessage.message, messages: _currentMessages));
+      emit(MessageReceiving(userMessage.messageFragments.join(' '), messages: _currentMessages));
 
       // Generate AI response
       final String aiResponse = await _geminiService.generateResponse(
-        userMessage.message,
+        userMessage.messageFragments.join(' '),
       ).timeout(
         const Duration(seconds: 15),
         onTimeout: () => "I'm having trouble with my thoughts right now. Could you give me a moment?",
@@ -195,11 +294,14 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       // Hide typing indicator
       _typingSubject.add(false);
 
-      // Create AI message
+      // Fragment the response
+      final fragments = MessageFragmenter.fragmentResponse(aiResponse);
+
+      // Create a SINGLE AI message with fragments stored directly
       final metrics = _geminiService.getRelationshipMetrics();
       final aiMessage = Message(
         id: 'ai_${DateTime.now().millisecondsSinceEpoch}',
-        message: aiResponse,
+        messageFragments: fragments,
         companionId: userMessage.companionId,
         userId: userMessage.userId,
         conversationId: userMessage.conversationId,
@@ -208,19 +310,56 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         metadata: {
           'relationship_level': metrics['level'],
           'emotion': metrics['dominant_emotion'],
+          'has_fragments': fragments.length > 1,
+          'total_fragments': fragments.length,
         },
       );
 
-      // Check if response should be fragmented
-      final fragments = MessageFragmenter.fragmentResponse(aiResponse);
-      
-      if (fragments.length > 1) {
-        // Use FragmentManager for fragmented responses
-        _fragmentManager.startFragmentSequence(aiMessage, fragments);
+      // Don't add to current messages yet - prevent flickering during fragment display
+
+      // DEBUG: Log fragment system efficiency
+      debugFragmentSystem(aiMessage);
+
+      // Save SINGLE message to repository (complete message with fragments)
+      if (_connectivityService.isOnline) {
+        await _repository.sendMessage(aiMessage);
       } else {
-        // Single response
-        await _processSingleMessage(aiMessage, userMessage, emit);
+        await _addPendingMessage(aiMessage);
       }
+
+      // Don't add to _currentMessages yet - let fragment display handle it
+      // This prevents the flickering issue
+
+      // NEW: For real-time display, create individual fragments
+      if (fragments.length > 1) {
+        await _displayFragmentsWithTiming(aiMessage, emit);
+      } else {
+        // Single fragment - add to current messages and display immediately
+        _currentMessages.add(aiMessage);
+        emit(MessageLoaded(messages: List.from(_currentMessages)));
+      }
+
+      // Cache the complete message after fragment display
+      if (_currentUserId != null && _currentCompanionId != null) {
+        await _cacheService.cacheMessages(
+          _currentUserId!,
+          _currentMessages,
+          companionId: _currentCompanionId!,
+        );
+      }
+
+      // Update conversation metadata
+      if (!_conversationBloc.isClosed) {
+        final updateEvent = conv_events.UpdateConversationMetadata(
+          conversationId: userMessage.conversationId,
+          lastMessage: aiResponse,
+          lastUpdated: DateTime.now(),
+          unreadCount: 0,
+          markAsRead: true,
+        );
+        _debouncedConversationUpdate(updateEvent);
+      }
+
     } catch (e) {
       print('Error generating AI response: $e');
       _typingSubject.add(false);
@@ -232,7 +371,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   Future<void> _handleAIResponseError(Message userMessage, dynamic error, Emitter<MessageState> emit) async {
     final errorMessage = Message(
       id: 'error_${DateTime.now().millisecondsSinceEpoch}',
-      message: "I'm having trouble responding right now. Please try again later.",
+      messageFragments: ["I'm having trouble responding right now. Please try again later."],
       companionId: userMessage.companionId,
       userId: userMessage.userId,
       conversationId: userMessage.conversationId,
@@ -269,7 +408,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           sequence: fragmentEvent.sequence,
           currentFragment: Message(
             id: 'typing_${DateTime.now().millisecondsSinceEpoch}',
-            message: 'typing...',
+            messageFragments: ['typing...'],
             companionId: fragmentEvent.sequence.originalMessage.companionId,
             userId: fragmentEvent.sequence.originalMessage.userId,
             conversationId: fragmentEvent.sequence.originalMessage.conversationId,
@@ -314,14 +453,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
             companionId: _currentCompanionId!,
           );
         }
-        
-        // Save fragment to repository if online
-        if (_connectivityService.isOnline) {
-          await _repository.sendMessage(fragmentEvent.fragment);
-        } else {
-          await _addPendingMessage(fragmentEvent.fragment);
-        }
-        
       } else if (fragmentEvent is FragmentSequenceCompleted) {
         print('Fragment sequence completed: ${fragmentEvent.sequence.id}');
         
@@ -384,41 +515,23 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     ));
   }
 
-  // Process single message (extracted for reuse)
-  Future<void> _processSingleMessage(Message aiMessage, Message userMessage, Emitter<MessageState> emit) async {
-    _currentMessages.add(aiMessage);
-    
-    if (_currentUserId != null && _currentCompanionId != null) {
-      await _cacheService.cacheMessages(
-        _currentUserId!,
-        _currentMessages,
-        companionId: _currentCompanionId!,
-      );
-    }
-
-    emit(MessageLoaded(messages: List.from(_currentMessages)));
-    emit(MessageSent());
-
-    if (_connectivityService.isOnline) {
-      await _repository.sendMessage(aiMessage);
-      await _repository.updateConversation(
-        userMessage.conversationId,
-        lastMessage: aiMessage.message,
-        incrementUnread: 1,
-      );
-    } else {
-      await _addPendingMessage(aiMessage);
-    }
-
-    await _repository.markConversationAsRead(userMessage.conversationId);
-  }
-
   // Handle individual fragment messages
   Future<void> _onAddFragmentMessage(AddFragmentMessageEvent event, Emitter<MessageState> emit) async {
-    // Add fragment to current messages
-    _currentMessages.add(event.fragmentMessage);
+    final fragmentMessage = event.fragmentMessage;
     
-    // Cache immediately
+    // Add fragment to current messages
+    _currentMessages.add(fragmentMessage);
+    
+    // Check if this is a force-completed fragment (batch processing optimization)
+    final isForceCompleted = fragmentMessage.metadata['force_completed'] == true;
+    final sequenceId = fragmentMessage.metadata['sequence_id']?.toString();
+    
+    // Update fragment progress tracking
+    if (sequenceId != null) {
+      _updateFragmentProgress(sequenceId);
+    }
+    
+    // Cache immediately (but don't emit state for force-completed fragments to avoid UI spam)
     if (_currentUserId != null && _currentCompanionId != null) {
       await _cacheService.cacheMessages(
         _currentUserId!,
@@ -427,20 +540,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       );
     }
 
-    // Only emit state if not during active fragmentation
-    if (state is! MessageFragmentInProgress) {
+    // Only emit state for natural fragments, not force-completed ones
+    if (!isForceCompleted && state is! MessageFragmentInProgress) {
       emit(MessageLoaded(messages: List.from(_currentMessages)));
-    }
-
-    // Save fragment to database if online
-    if (_connectivityService.isOnline) {
-      try {
-        await _repository.sendMessage(event.fragmentMessage);
-      } catch (e) {
-        print('Error saving fragment to database: $e');
-      }
-    } else {
-      await _addPendingMessage(event.fragmentMessage);
     }
   }
 
@@ -488,30 +590,30 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     CompleteFragmentedMessageEvent event,
     Emitter<MessageState> emit,
   ) async {
-    final originalMessage = event.originalMessage;
     final userMessage = event.userMessage;
-
-    // Save complete message to database for search/backup purposes
-    if (_connectivityService.isOnline) {
-      try {
-        final completeMessage = originalMessage.copyWith(
-          id: 'complete_${DateTime.now().millisecondsSinceEpoch}',
-          metadata: {
-            ...originalMessage.metadata, 
-            'is_complete_version': true,
-            'fragment_count': originalMessage.metadata['total_fragments'] ?? 1,
-          }
-        );
-        await _repository.sendMessage(completeMessage);
-        await _repository.updateConversation(
-          userMessage.conversationId,
-          lastMessage: originalMessage.message,
-          incrementUnread: 1,
-        );
-      } catch (e) {
-        print('Error saving complete message: $e');
-      }
-    }
+    
+    /// ai response is saved in the database in _processAIResponse method so no need to save it again here
+    // // Save complete message to database for search/backup purposes
+    // if (_connectivityService.isOnline) {
+    //   try {
+    //     final completeMessage = originalMessage.copyWith(
+    //       id: 'complete_${DateTime.now().millisecondsSinceEpoch}',
+    //       metadata: {
+    //         ...originalMessage.metadata, 
+    //         'is_complete_version': true,
+    //         'fragment_count': originalMessage.metadata['total_fragments'] ?? 1,
+    //       }
+    //     );
+    //     await _repository.sendMessage(completeMessage);
+    //     await _repository.updateConversation(
+    //       userMessage.conversationId,
+    //       lastMessage: originalMessage.message,
+    //       incrementUnread: 1,
+    //     );
+    //   } catch (e) {
+    //     print('Error saving complete message: $e');
+    //   }
+    // }
 
     await _repository.markConversationAsRead(userMessage.conversationId);
   }
@@ -575,7 +677,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         
         await _repository.updateConversation(
           pendingMessage.conversationId,
-          lastMessage: pendingMessage.message,
+          lastMessage: pendingMessage.messageFragments.join(' '),
           incrementUnread: pendingMessage.isBot ? 1 : 0,
         );
         
@@ -678,6 +780,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     _connectivitySubscription?.cancel();
     _queueSubscription?.cancel();
     _fragmentSubscription?.cancel();
+    _conversationUpdateDebouncer?.cancel(); // Clean up debouncer
     await _typingSubject.close();
     _fragmentManager.dispose();
     _messageQueue.dispose();
@@ -747,6 +850,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     }
     
     try {
+      // Force complete any existing fragments before loading new conversation
+      if(hasActiveSequences){
+        forceCompleteAllActiveFragments();
+      }
+      
       emit(MessageLoading());
 
       _currentUserId = event.userId;
@@ -767,7 +875,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         companionId: event.companionId,
       );
 
-      // Find any pending messages
+      // Find any pending messageIds
       final pendingMessageIds = _pendingMessages
           .where((m) => m.companionId == event.companionId && m.userId == event.userId)
           .map((m) => m.id ?? '')
@@ -775,8 +883,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           .toList();
 
       if (_currentMessages.isNotEmpty && !isClosed) {
-        print("Found ${_currentMessages.length} cached messages for companion ${event.companionId}");
-        
         // CRITICAL: Filter out complete versions if fragments exist
         _currentMessages = _filterDuplicateMessages(_currentMessages);
         
@@ -886,14 +992,14 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       final lastNew = newMessages.last;
       final lastOld = oldMessages.last;
 
-      return lastNew.message != lastOld.message ||
+      return lastNew.messageFragments.join(' ') != lastOld.messageFragments.join(' ') ||
           lastNew.created_at.isAfter(lastOld.created_at);
     }
 
     return false;
   }
 
-  // NEW: Filter out complete messages if fragments exist
+  // BALANCED: Handle both stored complete messages and live fragment display
   List<Message> _filterDuplicateMessages(List<Message> messages) {
     final fragmentGroups = <String, List<Message>>{};
     final completeMessages = <String, Message>{};
@@ -902,7 +1008,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     // Group messages by content/timestamp
     for (final message in messages) {
       if (message.metadata['is_fragment'] == true) {
-        // FIXED: Use base_message_id if available, otherwise extract from ID
+        // Individual fragment messages (from live display)
         final baseId = message.metadata['base_message_id']?.toString() ??
                       (message.id?.contains('_fragment_') == true 
                         ? message.id!.split('_fragment_')[0]
@@ -911,11 +1017,40 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         
         fragmentGroups.putIfAbsent(baseId, () => []).add(message);
       } else if (message.metadata['is_complete_version'] == true) {
+        // Complete version messages (rarely used)
         final baseId = message.metadata['original_id']?.toString() ?? 
                       message.id?.toString() ?? 
                       '${message.companionId}_${message.created_at.millisecondsSinceEpoch ~/ 1000}';
         completeMessages[baseId] = message;
+      } else if (message.metadata['has_fragments'] == true && message.messageFragments.length > 1) {
+        // Complete messages with multiple fragments (from storage) - expand for consistent UI
+        final baseId = message.id ?? '${message.companionId}_${message.created_at.millisecondsSinceEpoch}';
+        final expandedFragments = <Message>[];
+        
+        for (int i = 0; i < message.messageFragments.length; i++) {
+          final fragmentMessage = Message(
+            id: '${baseId}_fragment_$i',
+            messageFragments: [message.messageFragments[i]],
+            companionId: message.companionId,
+            userId: message.userId,
+            conversationId: message.conversationId,
+            isBot: message.isBot,
+            created_at: message.created_at.add(Duration(milliseconds: i * 100)),
+            metadata: {
+              'is_fragment': true,
+              'fragment_index': i,
+              'total_fragments': message.messageFragments.length,
+              'base_message_id': baseId,
+              'is_from_storage': true, // Mark as loaded from storage
+              ...message.metadata,
+            },
+          );
+          expandedFragments.add(fragmentMessage);
+        }
+        
+        fragmentGroups[baseId] = expandedFragments;
       } else {
+        // Regular single messages (no fragments)
         nonFragmentedMessages.add(message);
       }
     }
@@ -974,16 +1109,20 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         event.userId,
         event.companionId,
       );
-      await _repository.updateConversation(
-        conversationId,
+      final updateEvent = conv_events.UpdateConversationMetadata(
+        conversationId: conversationId,
         lastMessage: "Start a conversation",
-        incrementUnread: 0,
+        lastUpdated: DateTime.now(),
+        markAsRead: true,
       );
+        
+      _conversationBloc.add(updateEvent);
 
       emit(MessageLoaded(messages: const []));
 
       // Trigger conversation list refresh
       _triggerConversationRefresh();
+      print('Conversation cleared successfully');
     } catch (e) {
       print('Error clearing conversation: $e');
       emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
@@ -1080,7 +1219,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
             companionId: _currentCompanionId!,
           );
           
-          // Find any pending messages
+          // Find any pending messageIds
           final pendingMessageIds = _pendingMessages
               .where((m) => m.companionId == _currentCompanionId && m.userId == _currentUserId)
               .map((m) => m.id ?? '')
@@ -1096,6 +1235,220 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         print('Error refreshing messages: $e');
       }
     }
+  }
+
+  // NEW: Force complete fragmentation event handler
+  Future<void> _onForceCompleteFragmentation(
+    ForceCompleteFragmentationEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    print('Force completing fragment sequence: ${event.sequenceId}');
+    
+    final sequenceStatus = _fragmentSequences[event.sequenceId];
+    if (sequenceStatus == null) {
+      print('No sequence found for ID: ${event.sequenceId}');
+      return;
+    }
+    
+    // Calculate unread count BEFORE updating sequence (this is the key fix)
+    final remainingFragmentCount = sequenceStatus.remainingFragments.length;
+    print('Remaining fragments to complete: $remainingFragmentCount');
+    
+    // Force complete in FragmentManager (this will emit events for each remaining fragment)
+    _fragmentManager.forceCompleteSequence(event.sequenceId);
+    
+    // Update sequence status to completed
+    _fragmentSequences[event.sequenceId] = sequenceStatus.copyWith(
+      isCompleted: true,
+      displayedCount: sequenceStatus.totalFragments,
+      completedAt: DateTime.now(),
+    );
+    
+      // Calculate final unread count based on force completion
+    int finalUnreadCount;
+    if (event.markAsRead) {
+      finalUnreadCount = 0; // User explicitly marked as read
+      print('Marking all fragments as read due to markAsRead=true');
+    } else {
+      // Count remaining fragments as unread since user didn't see them naturally
+      finalUnreadCount = remainingFragmentCount;
+      print('Counting $remainingFragmentCount fragments as unread');
+    }
+    
+    // Update conversation metadata with proper unread count
+    if (!_conversationBloc.isClosed) {
+      final updateEvent = conv_events.UpdateConversationMetadata(
+        conversationId: sequenceStatus.originalMessage.conversationId,
+        unreadCount: finalUnreadCount,
+        markAsRead: event.markAsRead,
+        lastUpdated: DateTime.now(),
+        lastMessage: sequenceStatus.originalMessage.messageFragments.join(' '), // Use original message for last message
+      );
+      
+      print('Updating conversation unread count to: $finalUnreadCount');
+      // Use debounced update to prevent spam
+      _debouncedConversationUpdate(updateEvent);
+    }
+    
+    // Emit completion state
+    emit(MessageFragmentCompleted(
+      messages: List.from(_currentMessages),
+      completedFragmentSequenceId: event.sequenceId,
+      totalFragmentsCompleted: sequenceStatus.totalFragments,
+    ));
+  }
+
+  // NEW: Fragment completion status checker
+  Future<void> _onCheckFragmentCompletionStatus(
+    CheckFragmentCompletionStatusEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    final unreadCount = _calculateUnreadFragmentCount(event.conversationId);
+    
+    if (!_conversationBloc.isClosed) {
+      // Create UpdateConversationMetadata event
+      final updateEvent = conv_events.UpdateConversationMetadata(
+        conversationId: event.conversationId,
+        unreadCount: unreadCount,
+        markAsRead: unreadCount == 0,
+        lastUpdated: DateTime.now(),
+      );
+      
+      _conversationBloc.add(updateEvent);
+    }
+  }
+
+  // NEW: Render fragments immediately when re-entering chat
+  Future<void> _onRenderFragmentsImmediately(
+    RenderFragmentsImmediatelyEvent event,
+    Emitter<MessageState> emit,
+  ) async {
+    print('Rendering fragments immediately for conversation: ${event.conversationId}');
+    
+    // Find any incomplete fragment sequences for this conversation
+    final incompleteSequences = _fragmentSequences.values.where((sequence) =>
+      !sequence.isCompleted &&
+      sequence.originalMessage.conversationId == event.conversationId
+    ).toList();
+    
+    if (incompleteSequences.isNotEmpty) {
+      for (final sequence in incompleteSequences) {
+        print('Force completing sequence immediately: ${sequence.sequenceId}');
+        
+        // Force complete this sequence with zero delays
+        _fragmentManager.forceCompleteSequence(sequence.sequenceId);
+        
+        // Update our tracking
+        _fragmentSequences[sequence.sequenceId] = sequence.copyWith(
+          isCompleted: true,
+          displayedCount: sequence.totalFragments,
+          completedAt: DateTime.now(),
+        );
+      }
+      
+      // Emit the current messages state
+      emit(MessageLoaded(
+        messages: List.from(_currentMessages),
+        pendingMessageIds: [],
+      ));
+    }
+  }
+
+  // FIXED: Display fragments for real-time chat experience with proper typing indicators
+  Future<void> _displayFragmentsWithTiming(Message aiMessage, Emitter<MessageState> emit) async {
+    try {
+      final fragments = aiMessage.messageFragments;
+      
+      // Remove the complete message temporarily during fragment display
+      final originalMessagesWithoutAI = _currentMessages.where((m) => m.id != aiMessage.id).toList();
+      
+      for (int i = 0; i < fragments.length; i++) {
+        // Show typing indicator before each fragment (except the first one)
+        if (i > 0) {
+          // Show typing indicator using the stream
+          _typingSubject.add(true);
+          print('🔄 Showing typing indicator for fragment ${i + 1}/${fragments.length}');
+          
+          // Calculate and wait for typing delay
+          final delay = MessageFragmenter.calculateTypingDelay(fragments[i], i);
+          await Future.delayed(Duration(milliseconds: delay));
+          
+          // Hide typing indicator
+          _typingSubject.add(false);
+        }
+        
+        // Create current display state with fragments up to current index
+        final currentDisplayMessages = List<Message>.from(originalMessagesWithoutAI);
+        
+        // Add all fragments up to current index for smooth display
+        for (int j = 0; j <= i; j++) {
+          final displayFragment = Message(
+            id: '${aiMessage.id}_fragment_$j',
+            messageFragments: [fragments[j]],
+            companionId: aiMessage.companionId,
+            userId: aiMessage.userId,
+            conversationId: aiMessage.conversationId,
+            isBot: true,
+            created_at: aiMessage.created_at.add(Duration(milliseconds: j * 100)),
+            metadata: {
+              'is_fragment': true,
+              'fragment_index': j,
+              'total_fragments': fragments.length,
+              'base_message_id': aiMessage.id,
+              'relationship_level': aiMessage.metadata['relationship_level'],
+              'emotion': aiMessage.metadata['emotion'],
+            },
+          );
+          currentDisplayMessages.add(displayFragment);
+        }
+        
+        // Emit state with current fragments (no typing indicator)
+        print('✅ Displayed fragment ${i + 1}/${fragments.length}: "${fragments[i].substring(0, fragments[i].length.clamp(0, 30))}..."');
+        emit(MessageLoaded(messages: currentDisplayMessages));
+        
+        // Small delay between fragments for natural flow (except for the last fragment)
+        if (i < fragments.length - 1) {
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+      }
+      
+      // Ensure typing indicator is hidden after all fragments are displayed
+      _typingSubject.add(false);
+      
+      // After fragment display is complete, replace fragments with complete message in _currentMessages
+      // This ensures persistence works correctly while maintaining fragment display experience
+      final finalMessages = _currentMessages.where((m) => m.id != aiMessage.id).toList();
+      finalMessages.add(aiMessage); // Add back the complete message
+      _currentMessages = finalMessages;
+      
+      // Cache the complete message for persistence
+      if (_currentUserId != null && _currentCompanionId != null) {
+        await _cacheService.cacheMessages(
+          _currentUserId!,
+          _currentMessages,
+          companionId: _currentCompanionId!,
+        );
+      }
+      
+    } catch (e) {
+      print('Error displaying fragments: $e');
+      // Ensure typing indicator is hidden on error
+      _typingSubject.add(false);
+      emit(MessageLoaded(messages: List.from(_currentMessages)));
+    }
+  }
+
+  // DEBUG: Method to verify fragment storage and retrieval efficiency
+  void debugFragmentSystem(Message aiMessage) {
+    print('=== FRAGMENT SYSTEM DEBUG ===');
+    print('Message ID: ${aiMessage.id}');
+    print('Total fragments: ${aiMessage.messageFragments.length}');
+    print('Fragments: ${aiMessage.messageFragments}');
+    print('Has fragments: ${aiMessage.hasFragments}');
+    print('Complete message: ${aiMessage.message}');
+    print('Metadata: ${aiMessage.metadata}');
+    print('toJson fragments: ${aiMessage.toJson()['message']}');
+    print('=============================');
   }
 }
 // Helper method to allow unawaited futures

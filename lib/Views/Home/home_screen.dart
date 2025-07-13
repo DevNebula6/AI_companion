@@ -104,6 +104,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _loadConversations() async {
+    print('_loadConversations called, _hasLoadedConversations: $_hasLoadedConversations');
+    
     // Prevent duplicate loads
     if (_hasLoadedConversations) {
       print('Conversations already loaded, skipping duplicate load');
@@ -111,11 +113,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
 
     final user = await CustomAuthUser.getCurrentUser();
+    print('Got user: ${user?.id}');
+    
     if (user != null) {
       setState(() {
-      _hasLoadedConversations = true; // Add this line
-    });
+        _hasLoadedConversations = true;
+      });
+      print('Dispatching LoadConversations event for user: ${user.id}');
       context.read<ConversationBloc>().add(LoadConversations(user.id));
+    } else {
+      print('No user found, cannot load conversations');
     }
   }
 
@@ -172,11 +179,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           Expanded(
             child: BlocBuilder<ConversationBloc, ConversationState>(
               builder: (context, state) {
-                  if (state is ConversationInitial && !_hasLoadedConversations) {
+                print('HomeScreen BlocBuilder state: $state');
+                
+                // Auto-trigger loading if not loaded yet
+                if (state is ConversationInitial && !_hasLoadedConversations) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
+                    print('Triggering _loadConversations from ConversationInitial state');
+                    _loadConversations();
+                  });
+                } else if (state is ConversationLoading && !_hasLoadedConversations) {
+                  // Also try to load if we're in loading state but haven't triggered load yet
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    print('Backup trigger: Loading state detected, ensuring load is called');
                     _loadConversations();
                   });
                 }
+                
                 return _buildConversationList(state);              
               },
             ),
@@ -633,7 +651,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildConversationList(ConversationState state) {
     final colorScheme = Theme.of(context).colorScheme;
-
+    print('Building conversation list with state: $state');
     if (state is ConversationLoading) {
       return _buildLoadingList();
     } else if (state is ConversationLoaded) {

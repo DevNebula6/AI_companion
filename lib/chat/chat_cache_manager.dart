@@ -545,7 +545,7 @@ class ChatCacheService {
       final testMessages = [
         Message(
           id: 'test1',
-          message: 'Test message',
+          messageFragments: ['Test message'],
           userId: userId,
           companionId: 'companion1',
           conversationId: 'conv1',

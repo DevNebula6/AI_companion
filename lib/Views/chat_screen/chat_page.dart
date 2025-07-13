@@ -52,6 +52,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   
   int? _activeFragmentIndex;
   bool _isShowingTypingBetweenFragments = false;
+  bool _isTypingFromStream = false; // Track typing from stream
 
   @override
   void initState() {
@@ -68,7 +69,22 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _companionColors = getCompanionColorScheme(widget.companion);
     _loadChatAndInitializeCompanion();
     
-    _typingSubscription = _messageBloc.typingStream.listen((isTyping) {});
+    _typingSubscription = _messageBloc.typingStream.listen((isTyping) {
+      if (mounted) {
+        setState(() {
+          _isTypingFromStream = isTyping;
+        });
+        
+        // Auto-scroll to bottom when typing indicator appears
+        if (isTyping) {
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted) {
+              _scrollToBottom();
+            }
+          });
+        }
+      }
+    });
     
     _connectivityService = context.read<ConnectivityService>();
     _setupConnectivityMonitoring();
@@ -105,7 +121,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   
   @override
   void dispose() {
+    // Stop any ongoing fragment animations
+    if(_isShowingTypingBetweenFragments || _activeFragmentIndex != null) {
+      print('Disposing ChatPage: stopping fragment animations');
+      _forceCompleteAllFragments();
+    }
+    
     _syncConversationOnExit();
+    
     _messageController.dispose();
     _focusNode.dispose();
     _scrollController.dispose();
@@ -114,11 +137,30 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // SIMPLIFIED: Force complete any ongoing fragment display animation
+  void _forceCompleteAllFragments() {
+    try {
+      if (!_messageBloc.isClosed) {
+        print('Stopping any ongoing fragment animation');
+        // With simplified approach, just ensure all messages are fully displayed
+        // No complex sequence tracking needed
+        setState(() {
+          _activeFragmentIndex = null;
+          _isShowingTypingBetweenFragments = false;
+        });
+      }
+    } catch (e) {
+      print('Error stopping fragment animation: $e');
+    }
+  }
+
+  // SIMPLIFIED: Fragment-aware conversation sync
   void _syncConversationOnExit() {
     if (widget.conversationId.isEmpty) return;
     
     try {
       if (!_conversationBloc.isClosed) {
+        // With simplified approach, just sync the current state
         final messages = _messageBloc.currentMessages;
         
         if (messages.isNotEmpty) {
@@ -127,21 +169,24 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           _conversationBloc.add(UpdateConversationMetadata(
             markAsRead: true,
             conversationId: widget.conversationId,
-            lastMessage: lastMessage.message,
+            lastMessage: lastMessage.message, // Uses our messageFragments.join(' ')
             lastUpdated: lastMessage.created_at,
+            unreadCount: 0, // Mark as read when exiting
           ));
           
           print('Synced conversation metadata on exit: ${widget.conversationId}');
         }
       }
     } catch (e) {
-      print('Error syncing conversation on exit: $e');
+      print('Error in conversation sync: $e');
     }
   }
   
   Future<void> _loadChatAndInitializeCompanion() async {
     if (!mounted) return;
     
+    // Stop any existing fragment animations before loading new chat
+    _forceCompleteAllFragments();
 
     user = await CustomAuthUser.getCurrentUser();
     if (user != null && mounted) {
@@ -178,7 +223,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
     
     final userMessage = Message(
-      message: _messageController.text.trim(),
+      messageFragments: [_messageController.text.trim()],
       userId: _currentUserId!,
       companionId: widget.companion.id,
       conversationId: widget.conversationId,
@@ -290,75 +335,58 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         ),
         body: BlocConsumer<MessageBloc, MessageState>(
           listener: (context, state) {
-            // Standard message handling
+            // Standard message handling with auto-scroll
             if (state is MessageLoaded || state is MessageQueued) {
               Future.delayed(const Duration(milliseconds: 50), () {
-                _scrollToBottom();
+                if (mounted) _scrollToBottom();
               });
             }
             
-            // Enhanced fragment handling
+            // Typing indicator during AI response (simplified approach uses this)
+            if (state is MessageReceiving) {
+              Future.delayed(const Duration(milliseconds: 100), () {
+                if (mounted) _scrollToBottom();
+              });
+            }
+            
+            // Backward compatibility: Enhanced fragment handling (if old system is still used)
             if (state is MessageFragmentInProgress) {
-              print('UI: Fragment sequence in progress - ${state.sequence.id}');
               setState(() {
                 _activeFragmentIndex = null;
                 _isShowingTypingBetweenFragments = false;
               });
-              
-              // Scroll to show typing indicator
               Future.delayed(const Duration(milliseconds: 100), () {
-                _scrollToBottom();
+                if (mounted) _scrollToBottom();
               });
             }
             
             if (state is MessageFragmentTyping) {
-              print('UI: Fragment typing state');
               setState(() {
                 _isShowingTypingBetweenFragments = true;
               });
-              
-              // Scroll to show typing indicator
               Future.delayed(const Duration(milliseconds: 100), () {
-                _scrollToBottom();
+                if (mounted) _scrollToBottom();
               });
             }
             
             if (state is MessageFragmentDisplayed) {
               final fragmentIndex = state.fragment.metadata['fragment_index'] as int?;
-              print('UI: Fragment displayed - index: $fragmentIndex');
-              
               setState(() {
                 _activeFragmentIndex = fragmentIndex;
                 _isShowingTypingBetweenFragments = false;
               });
-              
-              // Scroll to show new fragment
               Future.delayed(const Duration(milliseconds: 200), () {
-                if (mounted) {
-                  _scrollToBottom();
-                }
+                if (mounted) _scrollToBottom();
               });
             }
             
             if (state is MessageFragmentSequenceCompleted) {
-              print('UI: Fragment sequence completed');
               setState(() {
                 _activeFragmentIndex = null;
                 _isShowingTypingBetweenFragments = false;
               });
-              
-              // Final scroll to ensure everything is visible
               Future.delayed(const Duration(milliseconds: 200), () {
-                if (mounted) {
-                  _scrollToBottom();
-                }
-              });
-            }
-            
-            // Standard message receiving
-            if (state is MessageReceiving) {
-              Future.delayed(const Duration(milliseconds: 100), () {
-                _scrollToBottom();
+                if (mounted) _scrollToBottom();
               });
             }
             
@@ -366,9 +394,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             if (state is MessageLoaded && !state.isFromCache && state.hasError) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Having trouble connecting.'),
-                  duration: Duration(seconds: 3),
-                )
+                  content: Text('Failed to send message'),
+                  backgroundColor: Colors.red,
+                ),
               );
             }
           },
@@ -416,6 +444,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       ),
     );
   }
+
   // NEW: Get messages from various states
   List<Message> _getMessagesFromState(MessageState state) {
     if (state is MessageLoaded) {
@@ -433,19 +462,29 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
   }
 
-  // NEW: Enhanced message list with integrated typing indicator
+  // FIXED: Enhanced message list with integrated typing indicator and debug logging
   Widget _buildEnhancedMessageList(List<Message> messages, MessageState state) {
     if (state is MessageLoading && messages.isEmpty) {
       return _buildLoadingMessages();
     }
 
     if (messages.isEmpty) {
+      print('No messages received for conversation ${widget.conversationId}');
       return _emptyMessageWidget();
     }
-    // Filter messages for this conversation only
-    final conversationMessages = messages.where((msg) => 
+    
+    // ROBUST: Filter messages for this conversation with fallback logic
+    var conversationMessages = messages.where((msg) => 
       msg.conversationId == widget.conversationId
     ).toList();
+    
+    // FALLBACK: If no messages match conversationId, try filtering by companionId and userId
+    if (conversationMessages.isEmpty && _currentUserId != null) {
+      conversationMessages = messages.where((msg) => 
+        msg.companionId == widget.companion.id && 
+        msg.userId == _currentUserId
+      ).toList();
+    }
 
     if (conversationMessages.isEmpty) {
       return _emptyMessageWidget();
@@ -464,14 +503,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       controller: _scrollController,
       padding: const EdgeInsets.all(16),
       reverse: false,
-      itemCount: messages.length + (shouldShowTyping ? 1 : 0), // Add 1 for typing indicator
+      itemCount: conversationMessages.length + (shouldShowTyping ? 1 : 0), // FIXED: Use filtered messages
       itemBuilder: (context, index) {
         // If this is the typing indicator position
-        if (shouldShowTyping && index == messages.length) {
+        if (shouldShowTyping && index == conversationMessages.length) {
+          // Auto-scroll when typing indicator is built
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _scrollToBottom();
+            }
+          });
           return _buildIntegratedTypingIndicator();
         }
         
-        final message = messages[index];
+        final message = conversationMessages[index]; // FIXED: Use filtered messages
         final isUser = !message.isBot;
         
         // Calculate sender relationships
@@ -479,10 +524,10 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         bool isNextSameSender = false;
         
         if (index > 0) {
-          isPreviousSameSender = messages[index - 1].isBot == message.isBot;
+          isPreviousSameSender = conversationMessages[index - 1].isBot == message.isBot; // FIXED: Use filtered messages
         }
-        if (index < messages.length - 1) {
-          isNextSameSender = messages[index + 1].isBot == message.isBot;
+        if (index < conversationMessages.length - 1) {
+          isNextSameSender = conversationMessages[index + 1].isBot == message.isBot; // FIXED: Use filtered messages
         } else if (shouldShowTyping && !isUser) {
           // If typing indicator follows this message and it's from bot, consider it same sender
           isNextSameSender = true;
@@ -524,7 +569,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         );
         
         // Add date dividers for non-fragments
-        if (!isFragment && (index == 0 || !_isSameDay(messages[index - 1].created_at, message.created_at))) {
+        if (!isFragment && (index == 0 || !_isSameDay(conversationMessages[index - 1].created_at, message.created_at))) {
           return Column(
             children: [
               _buildDateDivider(message.created_at),
@@ -599,7 +644,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     ).animate().fadeIn(duration: 300.ms);
   }
 
-  // Determine when to show typing indicator
+  // Determine when to show typing indicator (uses both state and stream)
   bool _shouldShowTypingIndicator(MessageState state) {
     // Show typing during initial AI response generation
     if (state is MessageReceiving) {
@@ -607,33 +652,10 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       return true;
     }
     
-    // Show typing during fragment sequence start
-    if (state is MessageFragmentInProgress) {
-      print('Showing typing: MessageFragmentInProgress');
+    // Show typing from the stream (for fragments)
+    if (_isTypingFromStream) {
+      print('Showing typing: Stream');
       return true;
-    }
-    
-    // Show typing between fragments
-    if (state is MessageFragmentTyping) {
-      print('Showing typing: MessageFragmentTyping');
-      return true;
-    }
-    
-    // Also check local state for typing between fragments
-    if (_isShowingTypingBetweenFragments) {
-      print('Showing typing: _isShowingTypingBetweenFragments');
-      return true;
-    }
-    
-    // Hide typing when fragments are being displayed
-    if (state is MessageFragmentDisplayed) {
-      print('Hiding typing: MessageFragmentDisplayed');
-      return false;
-    }
-    
-    if (state is MessageFragmentSequenceCompleted) {
-      print('Hiding typing: MessageFragmentSequenceCompleted');
-      return false;
     }
     
     return false;
@@ -950,7 +972,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         userId: _currentUserId!,
         companionId: widget.companion.id,
       ));
-      Navigator.of(context).pop();
+      _syncConversationOnExit();
     }
   }
 }

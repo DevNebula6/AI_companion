@@ -164,3 +164,18 @@ class MessageFragmentTyping extends MessageState {
   @override
   List<Object?> get props => [sequence, messages];
 }
+
+class MessageFragmentCompleted extends MessageState {
+  final List<Message> messages;
+  final String completedFragmentSequenceId;
+  final int totalFragmentsCompleted;
+  
+  const MessageFragmentCompleted({
+    required this.messages,
+    required this.completedFragmentSequenceId,
+    required this.totalFragmentsCompleted,
+  });
+  
+  @override
+  List<Object> get props => [messages, completedFragmentSequenceId, totalFragmentsCompleted];
+}

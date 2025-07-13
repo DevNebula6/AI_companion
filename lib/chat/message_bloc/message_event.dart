@@ -191,3 +191,36 @@ class MessageQueuedEvent extends MessageEvent {
   @override
   List<Object?> get props => [messages, queueLength];
 }
+
+// NEW: Fragment sequence completion events
+class ForceCompleteFragmentationEvent extends MessageEvent {
+  final String sequenceId;
+  final bool markAsRead;
+  
+  const ForceCompleteFragmentationEvent({
+    required this.sequenceId,
+    this.markAsRead = false,
+  });
+  
+  @override
+  List<Object> get props => [sequenceId, markAsRead];
+}
+
+class CheckFragmentCompletionStatusEvent extends MessageEvent {
+  final String conversationId;
+  
+  const CheckFragmentCompletionStatusEvent(this.conversationId);
+  
+  @override
+  List<Object> get props => [conversationId];
+}
+
+// NEW: Event to render fragments immediately without delays (for chat re-entry)
+class RenderFragmentsImmediatelyEvent extends MessageEvent {
+  final String conversationId;
+  
+  const RenderFragmentsImmediatelyEvent(this.conversationId);
+  
+  @override
+  List<Object> get props => [conversationId];
+}
