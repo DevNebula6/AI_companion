@@ -13,8 +13,9 @@ class MessageBubble extends StatefulWidget {
   final bool isLastFragment;
   final int? fragmentIndex;
   final int? totalFragments;
-  final bool isActiveFragment; // NEW: Track if this is the currently active fragment
-  
+  final bool isActiveFragment; // Track if this is the currently active fragment
+  final LinearGradient? gradient;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -28,7 +29,8 @@ class MessageBubble extends StatefulWidget {
     this.isLastFragment = false,
     this.fragmentIndex,
     this.totalFragments,
-    this.isActiveFragment = false, // NEW: Default to false
+    this.isActiveFragment = false, 
+    this.gradient,
   });
 
   @override
@@ -224,7 +226,6 @@ class _MessageBubbleState extends State<MessageBubble> with TickerProviderStateM
                         offset: const Offset(0, 2),
                       ),
                     ],
-                    // REMOVED: Active fragment border (too robotic)
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -235,7 +236,6 @@ class _MessageBubbleState extends State<MessageBubble> with TickerProviderStateM
                           color: _getTextColor(context),
                           fontSize: 16,
                           height: 1.4,
-                          // REMOVED: Active fragment font weight change
                         ),
                       ),
                       if (_shouldShowMetadata(isFragment))
