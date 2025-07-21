@@ -6,17 +6,60 @@ class CompanionColors {
   final Color primary;
   final Color secondary;
   final Color accent;
+  final Color gradient1;
+  final Color gradient2;
+  final Color gradient3;
   
   CompanionColors({
     required this.primary,
     required this.secondary,
     required this.accent,
+    required this.gradient1,
+    required this.gradient2,
+    required this.gradient3,
   });
+
+  /// Create a smooth gradient for chat backgrounds
+  LinearGradient getChatGradient() {
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        gradient1,
+        gradient2,
+        gradient3,
+      ],
+      stops: const [0.0, 0.5, 1.0],
+    );
+  }
+
+  /// Create a subtle tinted gradient for app bars
+  LinearGradient getAppBarGradient() {
+    return LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        primary,
+        Color.lerp(primary, secondary, 0.3)!,
+      ],
+    );
+  }
+
+  /// Create a lighter gradient for input fields
+  LinearGradient getInputFieldGradient() {
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        gradient3.withOpacity(0.7),
+        gradient3.withOpacity(0.9),
+      ],
+    );
+  }
 }
 /// Converts companion-specific colors to a complete Material ColorScheme
 ColorScheme getCompanionColorScheme(AICompanion companion) {
   final colors = getCompanionColors(companion);
-  final bool isDarkMode = false; // You could get this from system or preferences
   
   // Create harmonious color variants based on primary/secondary
   final Color primaryContainer = _lightenColor(colors.primary, 0.85);
@@ -25,16 +68,12 @@ ColorScheme getCompanionColorScheme(AICompanion companion) {
   final Color tertiaryContainer = _lightenColor(tertiary, 0.85);
   
   // Generate surface colors with subtle tinting
-  final Color surfaceColor = isDarkMode 
-      ? const Color(0xFF1A1A2E) // Deep blue-black for dark mode
-      : Colors.white;
+  final Color surfaceColor =  Colors.white;
   
-  final Color surfaceVariant = isDarkMode
-      ? const Color(0xFF16213E) // Slightly lighter dark blue
-      : const Color(0xFFF7F9FC); // Very light blue-gray
+  final Color surfaceVariant =  const Color(0xFFF7F9FC); // Very light blue-gray
   
   return ColorScheme(
-    brightness: isDarkMode ? Brightness.dark : Brightness.light,
+    brightness: Brightness.light,
     
     // Primary colors
     primary: colors.primary,
@@ -55,31 +94,25 @@ ColorScheme getCompanionColorScheme(AICompanion companion) {
     onTertiaryContainer: tertiary,
     
     // Background and surface colors
-    background: isDarkMode ? const Color(0xFF0A0A1A) : Colors.white,
-    onBackground: isDarkMode ? Colors.white : Colors.black87,
+    background: Colors.white,
+    onBackground: Colors.black87,
     surface: surfaceColor,
-    onSurface: isDarkMode ? Colors.white : Colors.black87,
+    onSurface: Colors.black87,
     
     // Variant surfaces for cards, dialogs, etc.
     surfaceVariant: surfaceVariant,
-    onSurfaceVariant: isDarkMode 
-        ? Colors.white.withOpacity(0.8) 
-        : Colors.black87.withOpacity(0.75),
+    onSurfaceVariant: Colors.black87.withOpacity(0.75),
     surfaceTint: colors.primary.withOpacity(0.05),
     
     // Error states
-    error: const Color(0xFFE53935), // Modern red that works in both light/dark
+    error: const Color(0xFFE53935),
     onError: Colors.white,
     errorContainer: const Color(0xFFFFDEDF),
     onErrorContainer: const Color(0xFFB3261E),
     
     // Outline colors
-    outline: isDarkMode
-        ? Colors.white.withOpacity(0.2)
-        : Colors.black.withOpacity(0.12),
-    outlineVariant: isDarkMode
-        ? Colors.white.withOpacity(0.1)
-        : Colors.black.withOpacity(0.06),
+    outline: Colors.black.withOpacity(0.12),
+    outlineVariant: Colors.black.withOpacity(0.06),
     
     // Shadow
     shadow: Colors.black,
@@ -88,39 +121,123 @@ ColorScheme getCompanionColorScheme(AICompanion companion) {
     scrim: Colors.black,
     
     // Inversions for popups, tooltips, etc.
-    inverseSurface: isDarkMode ? Colors.white : const Color(0xFF1A1A2E),
-    onInverseSurface: isDarkMode ? Colors.black : Colors.white,
+    inverseSurface: const Color(0xFF1A1A2E),
+    onInverseSurface: Colors.white,
     inversePrimary: _getInverseColor(colors.primary),
   );
 }
 
 /// Updates the companion color sets with more sophisticated modern palette
 CompanionColors getCompanionColors(AICompanion companion) {
-  // Enhanced modern color palette by personality type
-  final Map<String, List<List<Color>>> colorSets = {
+  // Enhanced modern color palette by personality type with gradient support
+  final Map<String, List<Map<String, Color>>> colorSets = {
     'Calm': [
-      // Female palette - Serene blues and teals
-      [const Color(0xFF3A8DB4), const Color(0xFF1F6E8C)], 
-      // Male palette - Deep blues with subtle violet
-      [const Color(0xFF4A6FA5), const Color(0xFF2B4162)],
+      // Female palette - Ocean blue flow (darker to lighter)
+      {
+        'primary': const Color(0xFF2E86C1),
+        'secondary': const Color(0xFF1B4F72),
+        'gradient1': const Color(0xFF1E3A8A), // Deep ocean blue (app bar - darkest)
+        'gradient2': const Color(0xFF3B82F6), // Bright blue (middle)
+        'gradient3': const Color(0xFF60A5FA), // Light blue (input area - lightest)
+      },
+      // Male palette - Forest to mint green flow
+      {
+        'primary': const Color(0xFF1B4F72),
+        'secondary': const Color(0xFF2E86C1),
+        'gradient1': const Color(0xFF064E3B), // Deep forest (app bar - darkest)
+        'gradient2': const Color(0xFF10B981), // Emerald green (middle)
+        'gradient3': const Color(0xFF6EE7B7), // Mint green (input area - lightest)
+      },
     ],
     'Creative': [
-      // Female palette - Vibrant purple to pink gradients
-      [const Color(0xFF9656A1), const Color(0xFFDB5A6B)],
-      // Male palette - Rich burgundy to deep orange  
-      [const Color(0xFF8E3B46), const Color(0xFFBD4F6C)],
+      // Female palette - Rich vibrant purple to pink (darker to lighter flow)
+      {
+        'primary': const Color(0xFF8E44AD),
+        'secondary': const Color(0xFFE91E63),
+        'gradient1': const Color(0xFF581C87), // Deep purple (app bar - darkest)
+        'gradient2': const Color(0xFF9333EA), // Vibrant purple (middle)
+        'gradient3': const Color(0xFFEC4899), // Bright pink (input area - lightest)
+      },
+      // Male palette - Electric blue to cyan flow
+      {
+        'primary': const Color(0xFF3498DB),
+        'secondary': const Color(0xFF8E44AD),
+        'gradient1': const Color(0xFF1E40AF), // Deep blue (app bar - darkest)
+        'gradient2': const Color(0xFF3B82F6), // Electric blue (middle)
+        'gradient3': const Color(0xFF06B6D4), // Bright cyan (input area - lightest)
+      },
     ],
     'Warm': [
-      // Female palette - Sunset orange to coral
-      [const Color(0xFFFA8F38), const Color(0xFFFF6E69)],
-      // Male palette - Amber to terracotta
-      [const Color(0xFFEF7A39), const Color(0xFFD45D1B)],
+      // Female palette - Rich vibrant sunset (darker to lighter flow)
+      {
+        'primary': const Color(0xFFE74C3C),
+        'secondary': const Color(0xFFF39C12),
+        'gradient1': const Color(0xFFB91C1C), // Deep red (app bar - darkest)
+        'gradient2': const Color(0xFFEA580C), // Vibrant orange (middle)
+        'gradient3': const Color(0xFFFBBF24), // Bright amber (input area - lightest)
+      },
+      // Male palette - Rich amber to golden flow
+      {
+        'primary': const Color(0xFFD68910),
+        'secondary': const Color(0xFFB7472A),
+        'gradient1': const Color(0xFF92400E), // Deep brown-orange (app bar - darkest)
+        'gradient2': const Color(0xFFD97706), // Rich orange (middle)
+        'gradient3': const Color(0xFFF59E0B), // Golden yellow (input area - lightest)
+      },
     ],
     'Thoughtful': [
-      // Female palette - Intellectual indigo to lavender
-      [const Color(0xFF5B5F97), const Color(0xFF7C90DB)],
-      // Male palette - Sophisticated forest to sage
-      [const Color(0xFF1D6C5C), const Color(0xFF2E8B57)],
+      // Female palette - Deep indigo to soft purple (darker to lighter flow)
+      {
+        'primary': const Color(0xFF5B2C87),
+        'secondary': const Color(0xFF7D3C98),
+        'gradient1': const Color(0xFF3730A3), // Deep indigo (app bar - darkest)
+        'gradient2': const Color(0xFF7C3AED), // Rich purple (middle)
+        'gradient3': const Color(0xFFC4B5FD), // Soft lavender (input area - lightest)
+      },
+      // Male palette - Forest to sage green flow (darker to lighter)
+      {
+        'primary': const Color(0xFF186A3B),
+        'secondary': const Color(0xFF52BE80),
+        'gradient1': const Color(0xFF14532D), // Deep forest (app bar - darkest)
+        'gradient2': const Color(0xFF16A34A), // Rich green (middle)
+        'gradient3': const Color(0xFF86EFAC), // Sage green (input area - lightest)
+      },
+    ],
+    'Energetic': [
+      // Female palette - Electric pink to bright yellow (darker to lighter flow)
+      {
+        'primary': const Color(0xFF1ABC9C),
+        'secondary': const Color(0xFF3498DB),
+        'gradient1': const Color(0xFFBE185D), // Deep pink (app bar - darkest)
+        'gradient2': const Color(0xFFEC4899), // Vibrant pink (middle)
+        'gradient3': const Color(0xFFFDE047), // Bright yellow (input area - lightest)
+      },
+      // Male palette - Electric orange to bright lime flow
+      {
+        'primary': const Color(0xFFFF6B35),
+        'secondary': const Color(0xFF3742FA),
+        'gradient1': const Color(0xFF9A3412), // Deep orange (app bar - darkest)
+        'gradient2': const Color(0xFFEA580C), // Electric orange (middle)
+        'gradient3': const Color(0xFF84CC16), // Bright lime (input area - lightest)
+      },
+    ],
+    'Mysterious': [
+      // Female palette - Deep purple to lavender (darker to lighter flow)
+      {
+        'primary': const Color(0xFF4A148C),
+        'secondary': const Color(0xFF1A237E),
+        'gradient1': const Color(0xFF4C1D95), // Deep violet (app bar - darkest)
+        'gradient2': const Color(0xFF7C3AED), // Rich purple (middle)
+        'gradient3': const Color(0xFFA78BFA), // Light lavender (input area - lightest)
+      },
+      // Male palette - Charcoal to steel blue flow
+      {
+        'primary': const Color(0xFF263238),
+        'secondary': const Color(0xFF37474F),
+        'gradient1': const Color(0xFF0F172A), // Deep charcoal (app bar - darkest)
+        'gradient2': const Color(0xFF334155), // Dark slate (middle)
+        'gradient3': const Color(0xFF64748B), // Steel blue (input area - lightest)
+      },
     ],
   };
   
@@ -128,24 +245,27 @@ CompanionColors getCompanionColors(AICompanion companion) {
   String personalityType = getPersonalityType(companion);
   
   // Get color set based on personality and gender
-  List<List<Color>> options = colorSets[personalityType] ?? colorSets['Thoughtful']!;
+  List<Map<String, Color>> options = colorSets[personalityType] ?? colorSets['Thoughtful']!;
   int index = companion.gender == CompanionGender.female ? 0 : 1;
-  List<Color> colors = options[index % options.length];
+  Map<String, Color> colorMap = options[index % options.length];
   
-  // Generate accent color more intelligently - complementary or analogous
+  // Generate accent color more intelligently
   Color accent;
-  if (personalityType == 'Creative' || personalityType == 'Warm') {
+  if (personalityType == 'Creative' || personalityType == 'Warm' || personalityType == 'Energetic') {
     // Use analogous color for more vibrant personalities
-    accent = _getAnalogousColor(colors[0]);
+    accent = _getAnalogousColor(colorMap['primary']!);
   } else {
     // Use gentle intermediate shade for calmer personalities
-    accent = Color.lerp(colors[0], colors[1], 0.3)!;
+    accent = Color.lerp(colorMap['primary']!, colorMap['secondary']!, 0.3)!;
   }
   
   return CompanionColors(
-    primary: colors[0],
-    secondary: colors[1],
+    primary: colorMap['primary']!,
+    secondary: colorMap['secondary']!,
     accent: accent,
+    gradient1: colorMap['gradient1']!,
+    gradient2: colorMap['gradient2']!,
+    gradient3: colorMap['gradient3']!,
   );
 }
 
@@ -187,6 +307,12 @@ Color _lightenColor(Color color, double factor) {
   return hsl.withLightness((hsl.lightness + (1 - hsl.lightness) * factor).clamp(0.0, 1.0)).toColor();
 }
 
+/// Darken a color to create shadow or disabled variants
+Color _darkenColor(Color color, double factor) {
+  HSLColor hsl = HSLColor.fromColor(color);
+  return hsl.withLightness((hsl.lightness * (1 - factor)).clamp(0.0, 1.0)).toColor();
+}
+
 /// Get inverse color for contrast situations
 Color _getInverseColor(Color color) {
   HSLColor hsl = HSLColor.fromColor(color);
@@ -201,12 +327,16 @@ Color _getInverseColor(Color color) {
 String getPersonalityType(AICompanion companion) {
   final traits = companion.personality.primaryTraits;
   
-  if (traits.any((t) => ['Calm', 'Peaceful', 'Serene', 'Composed'].contains(t))) {
+  if (traits.any((t) => ['Calm', 'Peaceful', 'Serene', 'Composed', 'Tranquil', 'Meditative'].contains(t))) {
     return 'Calm';
-  } else if (traits.any((t) => ['Creative', 'Artistic', 'Innovative', 'Imaginative'].contains(t))) {
+  } else if (traits.any((t) => ['Creative', 'Artistic', 'Innovative', 'Imaginative', 'Expressive', 'Visionary'].contains(t))) {
     return 'Creative';
-  } else if (traits.any((t) => ['Warm', 'Nurturing', 'Cheerful', 'Friendly', 'Optimistic'].contains(t))) {
+  } else if (traits.any((t) => ['Warm', 'Nurturing', 'Cheerful', 'Friendly', 'Optimistic', 'Caring', 'Affectionate'].contains(t))) {
     return 'Warm';
+  } else if (traits.any((t) => ['Energetic', 'Dynamic', 'Vibrant', 'Enthusiastic', 'Lively', 'Spirited', 'Active'].contains(t))) {
+    return 'Energetic';
+  } else if (traits.any((t) => ['Mysterious', 'Enigmatic', 'Secretive', 'Intriguing', 'Complex', 'Deep', 'Intense'].contains(t))) {
+    return 'Mysterious';
   } else {
     return 'Thoughtful';
   }
@@ -652,4 +782,95 @@ Color getTraitColor(String trait, BuildContext context) {
   
   // Default fallback - use primary color
   return colorScheme.primary;
+}
+
+/// Create a dynamic gradient with smooth color transitions (messenger-style)
+LinearGradient createDynamicGradient(AICompanion companion, {
+  GradientType type = GradientType.chat,
+  double opacity = 1.0,
+}) {
+  final colors = getCompanionColors(companion);
+  
+  switch (type) {
+    case GradientType.chat:
+      // Seamless messenger-style gradient from dark to complementary colors
+      return LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          colors.gradient1.withOpacity(opacity), // App bar color (darkest)
+          colors.gradient2.withOpacity(opacity), // Middle transition
+          colors.gradient3.withOpacity(opacity), // Input area (complementary)
+        ],
+        stops: const [0.0, 0.7, 1.0], // More gradual transition
+      );
+    case GradientType.appBar:
+      // Rich app bar gradient
+      return LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          colors.gradient1.withOpacity(opacity),
+          Color.lerp(colors.gradient1, colors.gradient2, 0.3)!.withOpacity(opacity),
+        ],
+      );
+    case GradientType.inputField:
+      // Subtle input field gradient that blends with background
+      return LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          colors.gradient3.withOpacity(opacity),
+          colors.gradient3.withOpacity(opacity),
+        ],
+      );
+    case GradientType.bubble:
+      // Enhanced bubble gradients
+      return LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          colors.gradient2.withOpacity(0.8 * opacity),
+          colors.gradient3.withOpacity(0.9 * opacity),
+        ],
+      );
+  }
+}
+
+/// Gradient types for different UI components
+enum GradientType {
+  chat,
+  appBar,
+  inputField,
+  bubble,
+}
+
+/// Create a subtle shadow color based on the companion's primary color
+Color getCompanionShadowColor(AICompanion companion) {
+  final colors = getCompanionColors(companion);
+  return _darkenColor(colors.primary, 0.3).withOpacity(0.2);
+}
+
+/// Get a tinted surface color that harmonizes with companion colors
+Color getCompanionSurfaceColor(AICompanion companion, {double tintStrength = 0.02}) {
+  final colors = getCompanionColors(companion);
+  return Color.lerp(Colors.white, colors.gradient2, tintStrength)!;
+}
+
+/// Create a radial gradient for special effects
+RadialGradient createRadialGradient(AICompanion companion, {
+  AlignmentGeometry center = Alignment.center,
+  double radius = 1.0,
+}) {
+  final colors = getCompanionColors(companion);
+  return RadialGradient(
+    center: center,
+    radius: radius,
+    colors: [
+      colors.gradient1.withOpacity(0.3),
+      colors.gradient2.withOpacity(0.1),
+      Colors.transparent,
+    ],
+    stops: const [0.0, 0.6, 1.0],
+  );
 }
