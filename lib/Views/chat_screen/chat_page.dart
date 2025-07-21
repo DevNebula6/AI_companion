@@ -1,6 +1,5 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
-import 'package:ai_companion/Views/chat_screen/chat_input_field.dart';
 import 'package:ai_companion/Views/chat_screen/message_bubble.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
@@ -67,6 +66,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
     
     _companionColors = getCompanionColorScheme(widget.companion);
+    
+    // Add listener for text changes to update send button
+    _messageController.addListener(() {
+      setState(() {
+        // This will rebuild the gradient send button with proper state
+      });
+    });
+    
     _loadChatAndInitializeCompanion();
     
     // FIXED: Properly listen to typing stream and update UI state
@@ -155,7 +162,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
   }
 
-  // SIMPLIFIED: Fragment-aware conversation sync
   void _syncConversationOnExit() {
     if (widget.conversationId.isEmpty) return;
     
@@ -170,7 +176,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           _conversationBloc.add(UpdateConversationMetadata(
             markAsRead: true,
             conversationId: widget.conversationId,
-            lastMessage: lastMessage.message, // Uses our messageFragments.join(' ')
+            lastMessage: lastMessage.message,
             lastUpdated: lastMessage.created_at,
             unreadCount: 0, // Mark as read when exiting
           ));
@@ -201,7 +207,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           companion: widget.companion,
           userId: user!.id,
           user: user,
-          shouldLoadMessages: true, // Signal to load messages immediately
+          shouldLoadMessages: true,
         ));
       }
     }
@@ -250,28 +256,37 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return FloatingConnectivityIndicator(
       child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.background,
+        extendBodyBehindAppBar: true,
         appBar: AppBar(
           centerTitle: true,
-          backgroundColor: _companionColors.primary,
-          foregroundColor: _companionColors.onPrimary,
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
           elevation: 0,
           title: Row(
             children: [
               Hero(
                 tag: 'avatar_${widget.companion.id}',
-                child: CircleAvatar(
-                  radius: 20,
-                  backgroundImage: NetworkImage(widget.companion.avatarUrl),
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.3),
+                      width: 2,
+                    ),
+                  ),
+                  child: CircleAvatar(
+                    radius: 20,
+                    backgroundImage: NetworkImage(widget.companion.avatarUrl),
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   widget.companion.name,
-                  style: TextStyle(
-                    color: _companionColors.onPrimary,
-                    fontSize: 16,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
                     fontWeight: FontWeight.w600,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -283,7 +298,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             IconButton(
               icon: Icon(
                 _showProfilePanel ? Icons.info : Icons.info_outline,
-                color: _companionColors.onPrimary,
+                color: Colors.white,
               ),
               onPressed: () {
                 setState(() {
@@ -298,9 +313,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             ),
             PopupMenuButton(
               color: Theme.of(context).colorScheme.surface,
-              icon: Icon(
+              icon: const Icon(
                 Icons.more_vert,
-                color: _companionColors.onPrimary,
+                color: Colors.white,
               ),
               itemBuilder: (context) => [
                 PopupMenuItem(
@@ -328,114 +343,120 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             ),
           ],
         ),
-        body: BlocConsumer<MessageBloc, MessageState>(
-          listener: (context, state) {
-            // Standard message handling with auto-scroll
-            if (state is MessageLoaded || state is MessageQueued) {
-              Future.delayed(const Duration(milliseconds: 50), () {
-                if (mounted) _scrollToBottom();
-              });
-            }
-            
-            // Typing indicator during AI response (simplified approach uses this)
-            if (state is MessageReceiving) {
-              Future.delayed(const Duration(milliseconds: 100), () {
-                if (mounted) _scrollToBottom();
-              });
-            }
-            
-            // Backward compatibility: Enhanced fragment handling (if old system is still used)
-            if (state is MessageFragmentInProgress) {
-              setState(() {
-                _activeFragmentIndex = null;
-                _isShowingTypingBetweenFragments = false;
-              });
-              Future.delayed(const Duration(milliseconds: 100), () {
-                if (mounted) _scrollToBottom();
-              });
-            }
-            
-            if (state is MessageFragmentTyping) {
-              setState(() {
-                _isShowingTypingBetweenFragments = true;
-              });
-              Future.delayed(const Duration(milliseconds: 100), () {
-                if (mounted) _scrollToBottom();
-              });
-            }
-            
-            if (state is MessageFragmentDisplayed) {
-              final fragmentIndex = state.fragment.metadata['fragment_index'] as int?;
-              setState(() {
-                _activeFragmentIndex = fragmentIndex;
-                _isShowingTypingBetweenFragments = false;
-              });
-              Future.delayed(const Duration(milliseconds: 200), () {
-                if (mounted) _scrollToBottom();
-              });
-            }
-            
-            if (state is MessageFragmentSequenceCompleted) {
-              setState(() {
-                _activeFragmentIndex = null;
-                _isShowingTypingBetweenFragments = false;
-              });
-              Future.delayed(const Duration(milliseconds: 200), () {
-                if (mounted) _scrollToBottom();
-              });
-            }
-            
-            // Error handling
-            if (state is MessageLoaded && !state.isFromCache && state.hasError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Failed to send message'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          },
-          builder: (context, state) {
-            List<Message> baseMessages = _getMessagesFromState(state);
-      
-            return Column(
-              children: [
-                if (_showProfilePanel) _buildProfilePanel(),
-                
-                Expanded(
-                  child: Stack(
-                    children: [
-                      // CRITICAL FIX: Mutually exclusive states to prevent overlapping widgets
-                      if (state is MessageLoading)
-                        _buildLoadingMessages()
-                      else if (state is MessageError)
-                        _buildErrorWidget(state)
-                      else if (baseMessages.isNotEmpty)
-                        _buildEnhancedMessageList(baseMessages, state)
-                      else
-                        _emptyMessageWidget(),
-                      
-                      // Queue status indicator (keep this as overlay)
-                      if (state is MessageQueued && state.queueLength > 1)
-                        Positioned(
-                          top: 8,
-                          right: 16,
-                          child: _buildQueueStatusIndicator(state.queueLength),
-                        ),
-                    ],
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: createDynamicGradient(
+              widget.companion,
+              type: GradientType.chat,
+            ),
+          ),
+          child: BlocConsumer<MessageBloc, MessageState>(
+            listener: (context, state) {
+              // Standard message handling with auto-scroll
+              if (state is MessageLoaded || state is MessageQueued) {
+                Future.delayed(const Duration(milliseconds: 50), () {
+                  if (mounted) _scrollToBottom();
+                });
+              }
+              
+              // Typing indicator during AI response (simplified approach uses this)
+              if (state is MessageReceiving) {
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  if (mounted) _scrollToBottom();
+                });
+              }
+              
+              if (state is MessageFragmentInProgress) {
+                setState(() {
+                  _activeFragmentIndex = null;
+                  _isShowingTypingBetweenFragments = false;
+                });
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  if (mounted) _scrollToBottom();
+                });
+              }
+              
+              if (state is MessageFragmentTyping) {
+                setState(() {
+                  _isShowingTypingBetweenFragments = true;
+                });
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  if (mounted) _scrollToBottom();
+                });
+              }
+              
+              if (state is MessageFragmentDisplayed) {
+                final fragmentIndex = state.fragment.metadata['fragment_index'] as int?;
+                setState(() {
+                  _activeFragmentIndex = fragmentIndex;
+                  _isShowingTypingBetweenFragments = false;
+                });
+                Future.delayed(const Duration(milliseconds: 200), () {
+                  if (mounted) _scrollToBottom();
+                });
+              }
+              
+              if (state is MessageFragmentSequenceCompleted) {
+                setState(() {
+                  _activeFragmentIndex = null;
+                  _isShowingTypingBetweenFragments = false;
+                });
+                Future.delayed(const Duration(milliseconds: 200), () {
+                  if (mounted) _scrollToBottom();
+                });
+              }
+              
+              // Error handling
+              if (state is MessageLoaded && !state.isFromCache && state.hasError) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to send message'),
+                    backgroundColor: Colors.red,
                   ),
-                ),
-                
-                ChatInputField(
-                  controller: _messageController,
-                  focusNode: _focusNode,
-                  onSend: _sendMessage,
-                  isTyping: _shouldShowTypingIndicator(state),
-                  isOnline: _isOnline,
-                ),
-              ],
-            );
-          },
+                );
+              }
+            },
+            builder: (context, state) {
+              List<Message> baseMessages = _getMessagesFromState(state);
+        
+              return Column(
+                children: [
+                  // Add some top padding to account for transparent app bar
+                  SizedBox(height: MediaQuery.of(context).padding.top),
+                  
+                  if (_showProfilePanel) _buildProfilePanel(),
+                  
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        // Main chat content with bottom padding for input field
+                        Positioned.fill(
+                          child: () {
+                            if (state is MessageLoading) {
+                              return _buildLoadingMessages();
+                            } else if (state is MessageError) {
+                              return _buildErrorWidget(state);
+                            } else if (baseMessages.isNotEmpty) {
+                              return _buildEnhancedMessageList(baseMessages, state);
+                            } else {
+                              return _emptyMessageWidget();
+                            }
+                          }(),
+                        ),
+                        // Chat input field at the bottom with overlay
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          child: _buildGradientInputField(state),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -496,78 +517,83 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     
     return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
       reverse: false,
-      itemCount: conversationMessages.length + (shouldShowTyping ? 1 : 0), // FIXED: Use filtered messages
+      itemCount: conversationMessages.length + (shouldShowTyping ? 1 : 0),
       itemBuilder: (context, index) {
-        // If this is the typing indicator position
-        if (shouldShowTyping && index == conversationMessages.length) {
-          return _buildIntegratedTypingIndicator();
+      // If this is the typing indicator position
+      if (shouldShowTyping && index == conversationMessages.length) {
+        return _buildIntegratedTypingIndicator();
+      }
+      
+      final message = conversationMessages[index];// Use filtered messages
+      final isUser = !message.isBot;
+      
+      // Calculate sender relationships
+      bool isPreviousSameSender = false;
+      bool isNextSameSender = false;
+      
+      if (index > 0) {
+        isPreviousSameSender = conversationMessages[index - 1].isBot == message.isBot; // Use filtered messages
+      }
+      if (index < conversationMessages.length - 1) {
+        isNextSameSender = conversationMessages[index + 1].isBot == message.isBot; // Use filtered messages
+      } else if (shouldShowTyping && !isUser) {
+        // If typing indicator follows this message and it's from bot, consider it same sender
+        isNextSameSender = true;
+      }
+      
+      // Fragment detection
+      final isFragment = message.metadata['is_fragment'] == true;
+      final fragmentIndex = message.metadata['fragment_index'] as int?;
+      final totalFragments = message.metadata['total_fragments'] as int?;
+      final isLastFragment = fragmentIndex != null && totalFragments != null && 
+                  fragmentIndex == totalFragments - 1;
+      
+      bool showAvatar = false;
+      if (!isUser) {
+        if (isFragment) {            
+        showAvatar = isLastFragment;
+        } else {
+        // Regular messages: show when previous sender is different
+        showAvatar = !isPreviousSameSender;
         }
-        
-        final message = conversationMessages[index]; // FIXED: Use filtered messages
-        final isUser = !message.isBot;
-        
-        // Calculate sender relationships
-        bool isPreviousSameSender = false;
-        bool isNextSameSender = false;
-        
-        if (index > 0) {
-          isPreviousSameSender = conversationMessages[index - 1].isBot == message.isBot; // FIXED: Use filtered messages
-        }
-        if (index < conversationMessages.length - 1) {
-          isNextSameSender = conversationMessages[index + 1].isBot == message.isBot; // FIXED: Use filtered messages
-        } else if (shouldShowTyping && !isUser) {
-          // If typing indicator follows this message and it's from bot, consider it same sender
-          isNextSameSender = true;
-        }
-        
-        // Fragment detection
-        final isFragment = message.metadata['is_fragment'] == true;
-        final fragmentIndex = message.metadata['fragment_index'] as int?;
-        final totalFragments = message.metadata['total_fragments'] as int?;
-        final isLastFragment = fragmentIndex != null && totalFragments != null && 
-                              fragmentIndex == totalFragments - 1;
-        
-        bool showAvatar = false;
-        if (!isUser) {
-          if (isFragment) {            
-            showAvatar = isLastFragment;
-          } else {
-            // Regular messages: show when previous sender is different
-            showAvatar = !isPreviousSameSender;
-          }
-        }
-        
-        final isPending = message.id != null && pendingMessageIds.contains(message.id);
-        
-        final messageWidget = MessageBubble(
-          key: ValueKey('${message.id}_${message.metadata['fragment_index'] ?? 'msg'}'),
-          message: message,
-          isUser: isUser,
-          companionAvatar: widget.companion.avatarUrl,
-          showAvatar: showAvatar,
-          isPreviousSameSender: isPreviousSameSender,
-          isNextSameSender: isNextSameSender,
-          isPending: isPending,
-          isFragment: isFragment,
-          isLastFragment: isLastFragment,
-          fragmentIndex: fragmentIndex,
-          totalFragments: totalFragments,
-          isActiveFragment: isFragment && fragmentIndex == _activeFragmentIndex,
+      }
+      
+      final isPending = message.id != null && pendingMessageIds.contains(message.id);
+      
+      final messageWidget = MessageBubble(
+        key: ValueKey('${message.id}_${message.metadata['fragment_index'] ?? 'msg'}'),
+        message: message,
+        isUser: isUser,
+        companionAvatar: widget.companion.avatarUrl,
+        showAvatar: showAvatar,
+        isPreviousSameSender: isPreviousSameSender,
+        isNextSameSender: isNextSameSender,
+        isPending: isPending,
+        isFragment: isFragment,
+        isLastFragment: isLastFragment,
+        fragmentIndex: fragmentIndex,
+        totalFragments: totalFragments,
+        isActiveFragment: isFragment && fragmentIndex == _activeFragmentIndex,
+        gradient: createDynamicGradient(
+          widget.companion,
+          type: GradientType.bubble,
+          opacity: isPending ? 0.5 : 1.0, // Dim pending messages
+        ),
+      );
+      
+      // Add date dividers for non-fragments
+      if (!isFragment && (index == 0 || !_isSameDay(conversationMessages[index - 1].created_at, message.created_at))) {
+        return Column(
+        children: [
+          _buildDateDivider(message.created_at),
+          messageWidget,
+        ],
         );
-        
-        // Add date dividers for non-fragments
-        if (!isFragment && (index == 0 || !_isSameDay(conversationMessages[index - 1].created_at, message.created_at))) {
-          return Column(
-            children: [
-              _buildDateDivider(message.created_at),
-              messageWidget,
-            ],
-          );
-        }
-        
-        return messageWidget;
+      }
+      
+      return messageWidget;
       },
     );
   }
@@ -633,7 +659,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     ).animate().fadeIn(duration: 300.ms);
   }
 
-  // Determine when to show typing indicator
+  /// Determine when to show typing indicator
   bool _shouldShowTypingIndicator(MessageState state) {
     // PRIMARY: Check typing stream from MessageBloc (most reliable)
     if (_isTypingFromStream) {
@@ -664,7 +690,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       print('Showing typing: _isShowingTypingBetweenFragments');
       return true;
     }
-    
+
     // Hide typing when fragments are being displayed
     if (state is MessageFragmentDisplayed) {
       print('Hiding typing: MessageFragmentDisplayed');
@@ -679,94 +705,154 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     return false;
   }
 
-  // Queue status indicator
-  Widget _buildQueueStatusIndicator(int queueLength) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withOpacity(0.8),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        '$queueLength messages queued',
-        style: TextStyle(
-          color: Theme.of(context).colorScheme.onPrimary,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    ).animate().fadeIn(duration: 300.ms);
-  }
-
-  Widget _buildErrorWidget(MessageError state) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.error_outline,
-            size: 48,
-            color: Theme.of(context).colorScheme.error,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Something went wrong',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.error,
-            ),
-          ),
-          const SizedBox(height: 8),
-          ElevatedButton(
-            onPressed: _loadChatAndInitializeCompanion,
-            child: const Text('Retry'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ...existing helper methods...
-  Widget _buildDot({required int delay}) {
-    return Container(
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(
-        color: _companionColors.primary,
-        shape: BoxShape.circle,
-      ),
-    ).animate(
-      onPlay: (controller) => controller.repeat(),
-    ).fadeIn(duration: 600.ms)
-    .animate(delay: Duration(milliseconds: delay))
-    .scaleXY(begin: 0.4, end: 1.0, duration: 600.ms)
-    .then()
-    .scaleXY(begin: 1.0, end: 0.4, duration: 600.ms);
-  }
-
+  /// Empty message widget with companion introduction
   Center _emptyMessageWidget() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircleAvatar(
-            radius: 40,
-            backgroundImage: NetworkImage(widget.companion.avatarUrl),
-          ).animate().scale(duration: 600.ms, curve: Curves.easeOutBack),
-          const SizedBox(height: 16),
-          Text(
-            'Start a conversation with ${widget.companion.name}',
-            style: TextStyle(
-              fontSize: 16,
-              color: Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
+          Hero(
+            tag: 'avatar_${widget.companion.id}_intro',
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _companionColors.primary.withOpacity(0.2),
+                    _companionColors.secondary.withOpacity(0.1),
+                  ],
+                ),
+                border: Border.all(
+                  color: _companionColors.primary.withOpacity(0.3),
+                  width: 3,
+                ),
+              ),
+              padding: const EdgeInsets.all(4),
+              child: CircleAvatar(
+                radius: 50,
+                backgroundImage: NetworkImage(widget.companion.avatarUrl),
+              ),
             ),
-            textAlign: TextAlign.center,
-          ).animate().fadeIn(duration: 600.ms, delay: 300.ms),
+          ).animate().scale(duration: 600.ms, curve: Curves.easeOutBack),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              children: [
+                Text(
+                  'Start a conversation with ${widget.companion.name}',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withOpacity(0.9),
+                  ),
+                  textAlign: TextAlign.center,
+                ).animate().fadeIn(duration: 600.ms, delay: 300.ms),
+                const SizedBox(height: 8),
+                Text(
+                  getPersonalityLabel(widget.companion),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.7),
+                  ),
+                  textAlign: TextAlign.center,
+                ).animate().fadeIn(duration: 600.ms, delay: 500.ms),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
+
+  /// Error widget with gradient styling
+  Widget _buildErrorWidget(MessageError state) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.red.withOpacity(0.3),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.error_outline,
+                size: 32,
+                color: Colors.red,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Something went wrong',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.red.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              state.error.toString(),
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    _companionColors.primary,
+                    _companionColors.secondary,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ElevatedButton(
+                onPressed: _loadChatAndInitializeCompanion,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Retry',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildDateDivider(DateTime date) {
     return Padding(
@@ -849,7 +935,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       },
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal:16 ,vertical: 2),
         decoration: BoxDecoration(
           color: _companionColors.primary.withOpacity(0.05),
           border: Border(
@@ -879,7 +965,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: _companionColors.primary,
+                          color: Colors.white,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -887,7 +973,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                         widget.companion.personality.primaryTraits.join(', '),
                         style: TextStyle(
                           fontSize: 14,
-                          color: Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
+                          color: Colors.white,
                         ),
                       ),
                     ],
@@ -916,14 +1002,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         interest,
         style: TextStyle(
           fontSize: 12,
-          color: _companionColors.onPrimary,
+          color: Colors.white,
         ),
       ),
-      backgroundColor: _companionColors.primary,
+      backgroundColor: _companionColors.primary.withOpacity(.9),
       avatar: Icon(
         getInterestIcon(interest),
         size: 14,
-        color: _companionColors.onPrimary,
+        color: Colors.white,
       ),
       padding: const EdgeInsets.all(4),
     );
@@ -960,37 +1046,211 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
 
+  /// Build seamless messenger-style input field that blends with gradient
+  Widget _buildGradientInputField(MessageState state) {
+    return Container(
+      decoration: BoxDecoration(
+        // Use a very subtle gradient overlay that matches the main gradient
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            Colors.black.withOpacity(0.05),
+          ],
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 8, 20),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: createDynamicGradient(
+                  widget.companion,
+                  type: GradientType.inputField,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.25),
+                  width: 1.5,
+                ),
+                // Enhanced glass effect
+              ),
+              child: TextField(
+                controller: _messageController,
+                focusNode: _focusNode,
+                maxLines: null,
+                textCapitalization: TextCapitalization.sentences,
+                enabled: _isOnline,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                ),
+                decoration: InputDecoration(
+                  hintText: _isOnline 
+                    ? 'Type a message...'
+                    : 'Connect to internet to send messages',
+                  hintStyle: TextStyle(
+                    color: Colors.white.withOpacity(0.6),
+                    fontSize: 16,
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  fillColor: Colors.transparent,
+                  filled: false,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          _messageController.text.trim().isEmpty
+            ? const SizedBox(width: 0) // Placeholder for send button
+            : _buildGradientSendButton(state),
+        ],
+      ),
+    );
+  }
+
+  /// Build enhanced messenger-style send button
+  Widget _buildGradientSendButton(MessageState state) {
+    final hasText = _messageController.text.trim().isNotEmpty;
+    final canSend = hasText && !_shouldShowTypingIndicator(state);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      child: GestureDetector(
+        onTap: (canSend && _isOnline) ? _sendMessage : null,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            gradient: (canSend && _isOnline)
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withOpacity(0.9),
+                      Colors.white.withOpacity(0.7),
+                    ],
+                  )
+                : null,
+            color: !(canSend && _isOnline)
+                ? Colors.white.withOpacity(0.2)
+                : null,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withOpacity(0.3),
+              width: 1.5,
+            ),
+            boxShadow: (canSend && _isOnline)
+                ? [
+                    BoxShadow(
+                      color: Colors.white.withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+          ),
+          child: Icon(
+            _shouldShowTypingIndicator(state)
+                ? Icons.more_horiz
+                : Icons.send_rounded,
+            color: (canSend && _isOnline)
+                ? _companionColors.primary
+                : Colors.white.withOpacity(0.5),
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Show confirmation dialog for clearing conversation
   Future<void> _showClearConfirmation(BuildContext context) async {
-    if (!mounted) return;
+    final companionColors = _companionColors;
     
-    final result = await showDialog<bool>(
+    return showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text("Clear Conversation"),
+          title: const Text('Clear Conversation'),
           content: const Text(
-            "Are you sure you want to clear this conversation? This action cannot be undone."
+            'Are you sure you want to clear this conversation? This action cannot be undone.',
           ),
-          actions: [
+          actions: <Widget>[
             TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text("Cancel"),
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
             ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text("Clear"),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [companionColors.primary, companionColors.secondary],
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: TextButton(
+                child: const Text(
+                  'Clear',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  if (!_messageBloc.isClosed) {
+                    _messageBloc.add(ClearConversation(
+                      userId: _currentUserId!,
+                      companionId: widget.companion.id,
+                    ));
+                  }
+                },
+              ),
             ),
           ],
         );
       },
     );
-    
-    if (result == true && _currentUserId != null && mounted && !_messageBloc.isClosed) {
-      _messageBloc.add(ClearConversation(
-        userId: _currentUserId!,
-        companionId: widget.companion.id,
-      ));
-      _syncConversationOnExit();
-    }
   }
+
+  Widget _buildDot({required int delay}) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: _companionColors.primary,
+        shape: BoxShape.circle,
+      ),
+    ).animate(
+      onPlay: (controller) => controller.repeat(),
+    ).fadeIn(duration: 600.ms)
+    .animate(delay: Duration(milliseconds: delay))
+    .scaleXY(begin: 0.4, end: 1.0, duration: 600.ms)
+    .then()
+    .scaleXY(begin: 1.0, end: 0.4, duration: 600.ms);
+  }
+
 }
