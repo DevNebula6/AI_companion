@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:lottie/lottie.dart';
 import 'dart:math';
 
@@ -269,7 +268,8 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
       children: [
         Text(
           "Welcome back",
-          style: GoogleFonts.poppins(
+            style: const TextStyle(
+            fontFamily: 'Poppins',
             fontSize: 32,
             fontWeight: FontWeight.bold,
             color: Colors.white,
@@ -279,7 +279,8 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
         const SizedBox(height: 8),
         Text(
           "Your AI companion awaits you",
-          style: GoogleFonts.inter(
+          style: TextStyle(
+            fontFamily: 'Poppins',
             fontSize: 16,
             color: Colors.white.withOpacity(0.8),
           ),
@@ -350,7 +351,8 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
                     flex: 2,
                     child: Text(
                       text,
-                      style: GoogleFonts.inter(
+                      style: TextStyle(
+                        fontFamily: 'Poppins',
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -371,7 +373,8 @@ class _SignInViewState extends State<SignInView> with TickerProviderStateMixin {
     return Text(
       'By continuing, you agree to our Terms & Privacy Policy',
       textAlign: TextAlign.center,
-      style: GoogleFonts.inter(
+      style: TextStyle(
+        fontFamily: 'Poppins',
         fontSize: 13,
         color: Colors.white.withOpacity(0.7),
       ),

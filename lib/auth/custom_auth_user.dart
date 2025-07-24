@@ -194,8 +194,6 @@ class CustomAuthUser {
   bool get hasCompletedProfile => 
       fullName != null && 
       fullName!.isNotEmpty &&
-      dob != null &&
-      gender != null &&
       interestsList.isNotEmpty &&
       personalityTraitsList.isNotEmpty;
 

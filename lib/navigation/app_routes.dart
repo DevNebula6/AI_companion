@@ -64,22 +64,7 @@ class AppRoutes {
           }
           return null;
         }
-        
-        // Handle user profile setup - MANDATORY profile completion
-        if (authState is AuthStateUserProfile) {
-          if (currentLocation != RoutesName.userProfile) {
-            print('GoRouter: Redirecting to user profile setup');
-            return RoutesName.userProfile;
-          }
-          return null;
-        }
-        
-        // Handle companion selection
-        if (authState is AuthStateSelectCompanion) {
-          print('GoRouter: Redirecting to companion selection from $currentLocation');
-          return RoutesName.companionSelection;
-        }
-        
+      
         // Handle logged in states - THE KEY FIX
         if (authState is AuthStateLoggedIn) {
           // Redirect from auth screens and splash to home
@@ -89,7 +74,15 @@ class AppRoutes {
             print('GoRouter: Redirecting authenticated user to home from $currentLocation');
             return RoutesName.home;
           }
-                  
+          
+          // If onboarding/profile/companion selection required, enforce redirect
+          if (authState.intendedView == LoggedInView.userProfile && currentLocation != RoutesName.userProfile) {
+            return RoutesName.userProfile;
+          }
+          // if (authState.intendedView == LoggedInView.companionSelection && currentLocation != RoutesName.companionSelection) {
+          //   return RoutesName.companionSelection;
+          // }
+          // Otherwise, allow free navigation (no redirect)
           return null;
         }
         

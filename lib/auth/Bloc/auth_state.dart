@@ -1,4 +1,3 @@
-import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:flutter/foundation.dart' show immutable;
 import 'package:equatable/equatable.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
@@ -7,6 +6,12 @@ enum AuthView {
   signIn,
   register,
   onboarding,
+}
+enum LoggedInView {
+  home,
+  userProfile,
+  companionSelection,
+  chat,
 }
 
 @immutable
@@ -24,67 +29,34 @@ class AuthStateUninitialized extends AuthState {
 }
 
 
-class AuthStateLoggedIn extends AuthState {
+class AuthStateLoggedIn extends AuthState with EquatableMixin {
   final CustomAuthUser user;
   final Exception? exception;
+  final LoggedInView intendedView; 
+
   const AuthStateLoggedIn({
     required this.user,
     required super.isLoading,
     this.exception,
+    this.intendedView = LoggedInView.home,
   });
-}
-class AuthStateUserProfile extends AuthState {
-  final CustomAuthUser user;
-  final Exception? exception;
-  const AuthStateUserProfile({
-    required this.user,
-    required super.isLoading,
-    this.exception,
-  });
-}
 
-class AuthStateChatPage extends AuthState {
-  final CustomAuthUser user;
-  final AICompanion companion;
-  final String conversationId;
-  final String? navigationSource; // Add this parameter
-  
-  const AuthStateChatPage({
-    required this.conversationId,
-    required this.user,
-    required this.companion, 
-    required super.isLoading,
-    this.navigationSource,
-  });
-  
-  
-  List<Object?> get props => [user, companion, isLoading, navigationSource];
-}
-
-class AuthStateSelectCompanion extends AuthState {
-  final CustomAuthUser user;
-  final Exception? exception;
-  const AuthStateSelectCompanion({
-    required this.user,
-    required super.isLoading,
-    this.exception,
-  });
+  @override
+  List<Object?> get props => [user, isLoading, exception, intendedView];
 }
 
 class AuthStateLoggedOut extends AuthState with EquatableMixin {
   final Exception? exception;
-  @override
-  final bool isLoading;
+  final AuthView intendedView; 
   @override
   final String? loadingText;
-  final AuthView intendedView; 
-  
+
   const AuthStateLoggedOut({
     required this.exception,
-    required this.isLoading,
+    required super.isLoading,
     this.loadingText ,
     this.intendedView = AuthView.signIn, // Default to sign in view
-  }) : super(isLoading: false);
+  });
 
   @override
   List<Object?> get props => [exception, isLoading, intendedView];

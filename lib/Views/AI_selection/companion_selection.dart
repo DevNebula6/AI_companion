@@ -4,7 +4,9 @@ import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/bloc/companion_state.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
 import 'package:ai_companion/Views/AI_selection/companion_details_sheet.dart';
+import 'package:ai_companion/Views/Home/fluid_background.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
+import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/Bloc/auth_state.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/navigation/routes_name.dart';
@@ -24,41 +26,46 @@ class CompanionSelectionPage extends StatefulWidget {
 }
 
 class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
-  late CustomAuthUser user;
+  late CustomAuthUser? user;
+  bool showCompanionDetails = false;
 
   @override
   void initState() {
     super.initState();
-    // Initialize user in initState
-      _initializeCompanionData();
+    _initializeCompanionData();
   }
 
   void _initializeCompanionData() {
     final authState = context.read<AuthBloc>().state;
-    if (authState is AuthStateLoggedIn) {
+    if (authState is AuthStateLoggedIn ) {
       setState(() {
         user = authState.user;
       });
       context.read<CompanionBloc>().add(LoadCompanions());
     }
+
   }
 
   @override
   Widget build(BuildContext context) {
+    if (user == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return FloatingConnectivityIndicator(
       child: Scaffold(
+        extendBodyBehindAppBar: true,
         appBar: AppBar(
-          backgroundColor:Color(0xFFE6F0F5),
+          backgroundColor:Colors.transparent,
           elevation: 0,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.black),
             onPressed: () {
+
               if (Navigator.canPop(context)) {
                 // If we can pop, go back
                 context.pop();
               } else {
-                // Otherwise, navigate to home
-                context.pushReplacementNamed(RoutesName.home,);
+                context.read<AuthBloc>().add(NavigateToHome(user: user!,));
               }
             },
           ),
@@ -70,68 +77,67 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
           ),
           centerTitle: true,
         ),
-        body: BlocConsumer<CompanionBloc, CompanionState>(
+        body: BlocListener<AuthBloc,AuthState>(
           listener: (context, state) {
-            if (state is CompanionError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Failed to load companions - ${state.message}')),
-              );
+            if (state is AuthStateLoggedIn) {
+              // If the user is logged in, we can proceed to companion selection
+              if (state.intendedView == LoggedInView.home) {
+                context.go(RoutesName.home);
+              }
             }
           },
-          builder: (BuildContext context, CompanionState state) {
-            if (state is CompanionLoading) {
-              return const Center(child: CircularProgressIndicator());
-            } 
-            if (state is CompanionError) {
-              return RetryActionButton();
-            }
-            if (state is CompanionLoaded) {
-              return Stack(
-                children: [
-                  _buildBackground(),
-                  SafeArea(
-                    child: Column(
-                      children: [
-                        // _buildHeader(),
-                        Expanded(
-                          child: 
-                            (state.companions.toList().isNotEmpty)?
-                              _buildSwiper(state.companions):
-                              const RetryActionButton(),
-                        ),
-                        const SizedBox(height: 4),
-                      ],
+          child: BlocConsumer<CompanionBloc, CompanionState>(
+            listener: (context, state) {
+              if (state is CompanionError) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to load companions - ${state.message}')),
+                );
+              }
+            },
+            builder: (BuildContext context, CompanionState state) {
+              if (state is CompanionLoading) {
+                return const Center(child: CircularProgressIndicator());
+              } 
+              if (state is CompanionError) {
+                return RetryActionButton();
+              }
+              if (state is CompanionLoaded) {
+                return Stack(
+                  children: [
+                    
+                    // Fluid background (bottom layer)
+                    if(!showCompanionDetails) 
+                    Positioned.fill(
+                      child: buildFluidBackground(context),
                     ),
-                  ),
-                ],
-              );
-            }
-             return const Center(
-            child: Text('No companions available'),
-             );
-          },
+          
+                    SafeArea(
+                      child: Column(
+                        children: [
+                          // _buildHeader(),
+                          Expanded(
+                            child: 
+                              (state.companions.toList().isNotEmpty)?
+                                _buildSwiper(state.companions):
+                                const RetryActionButton(),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+               return const Center(
+              child: Text('No companions available'),
+               );
+            },
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildBackground() {
-  return Container(
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          // Color(0xFFFFFAF5), // Very soft warm white
-          // Color(0xFFF8F0F0), // Subtle blush undertone
-         // Subtle bluish undertone
-          Color(0xFFE6F0F5),
-          Color(0xFFE6F0F6),
-        ],
-      ),
-    ),
-  );
-}
 
   
 
@@ -147,7 +153,7 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
 
   Widget _buildCard(AICompanion companion) {
     return GestureDetector(
-      onTap: () => _showCompanionDetails(companion,user),
+      onTap: () => _showCompanionDetails(companion,user!),
       child: Card(
         elevation: 8,
         shape: RoundedRectangleBorder(
@@ -382,17 +388,21 @@ class _CompanionSelectionPageState extends State<CompanionSelectionPage> {
     );
   }
   void _showCompanionDetails(AICompanion companion,CustomAuthUser user) {
+    setState(() {
+      showCompanionDetails = true;
+    });
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-
       backgroundColor: Colors.transparent,
       builder: (context) => CompanionDetailsSheet(
         companion: companion,
         user: user,
-
         ),
     );
+    setState(() {
+      showCompanionDetails = false;
+    });
   }
 }
 

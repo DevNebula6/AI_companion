@@ -640,28 +640,37 @@ class ConversationBloc extends Bloc<ConversationEvent, ConversationState> {
     Emitter<ConversationState> emit
   ) async {
     try {
-      if (_currentUserId != null) {
+      // Use provided userId or fall back to current userId
+      final userIdToClear = event.userId ?? _currentUserId;
+      
+      if (userIdToClear != null) {
+        print('Clearing all caches for user: $userIdToClear');
+        
         // Clear companion states from GeminiService
-        await GeminiService().clearAllUserStates(_currentUserId!);
+        await GeminiService().clearAllUserStates(userIdToClear);
         
         // Clear any chat repository caches
-        await _repository.clearAllUserCaches(_currentUserId!);
+        await _repository.clearAllUserCaches(userIdToClear);
       
-        // Reset current state
-        _currentUserId = null;
-        _lastLoadedUserId = null;
-        _hasLoadedConversations = false;
-        _isNetworkSyncInProgress = false;
-        _lastNetworkSync = null;
-        
-        // Cancel any pending timers
-        _networkSyncDebouncer?.cancel();
-        _metadataUpdateDebouncer?.cancel();
+        // Reset current state only if we're clearing the current user
+        if (userIdToClear == _currentUserId) {
+          _currentUserId = null;
+          _lastLoadedUserId = null;
+          _hasLoadedConversations = false;
+          _isNetworkSyncInProgress = false;
+          _lastNetworkSync = null;
+          
+          // Cancel any pending timers
+          _networkSyncDebouncer?.cancel();
+          _metadataUpdateDebouncer?.cancel();
+        }
         
         // Emit initial state
         emit(ConversationInitial());
         
-        print('Cleared all conversation caches for user logout');
+        print('✅ Successfully cleared all caches for user: $userIdToClear');
+      } else {
+        print('❌ Cannot clear caches: no userId provided and no current user');
       }
     } catch (e) {
       print('Error clearing all cache for user: $e');
