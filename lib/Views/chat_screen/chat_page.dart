@@ -1,6 +1,7 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
-import 'package:ai_companion/Views/chat_screen/message_bubble.dart';
+import 'package:ai_companion/Views/chat_screen/message_bubble/bubble_theme.dart';
+import 'package:ai_companion/Views/chat_screen/message_bubble/message_bubble.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
 import 'package:ai_companion/chat/conversation/conversation_event.dart';
@@ -8,9 +9,12 @@ import 'package:ai_companion/chat/message.dart';
 import 'package:ai_companion/chat/message_bloc/message_bloc.dart';
 import 'package:ai_companion/chat/message_bloc/message_event.dart';
 import 'package:ai_companion/chat/message_bloc/message_state.dart';
+import 'package:ai_companion/navigation/routes_name.dart';
+import 'package:floating_bubbles/floating_bubbles.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shimmer/shimmer.dart';
 import 'dart:async';
 import 'package:ai_companion/utilities/widgets/floating_connectivity_indicator.dart';
@@ -38,6 +42,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   String? _currentUserId;
   late ColorScheme _companionColors;
+  late MessageBubbleTheme _messageBubbleTheme;
   late AnimationController _profilePanelController;
   bool _showProfilePanel = false;
   StreamSubscription? _typingSubscription;
@@ -66,7 +71,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
     
     _companionColors = getCompanionColorScheme(widget.companion);
-    
+    _messageBubbleTheme = MessageBubbleTheme.fromCompanion(widget.companion);
+
     // Add listener for text changes to update send button
     _messageController.addListener(() {
       setState(() {
@@ -262,7 +268,18 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           backgroundColor: Colors.transparent,
           foregroundColor: Colors.white,
           elevation: 0,
-          title: Row(
+          scrolledUnderElevation: 0,
+          leading: BackButton(
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop(); // Close loading dialog
+              }
+              else {
+                context.go(RoutesName.home);
+              }
+            },
+          ),
+          title: (!_showProfilePanel)? Row(
             children: [
               Hero(
                 tag: 'avatar_${widget.companion.id}',
@@ -293,7 +310,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 ),
               ),
             ],
-          ),
+          ) : null,
           actions: [
             IconButton(
               icon: Icon(
@@ -343,120 +360,132 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             ),
           ],
         ),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: createDynamicGradient(
-              widget.companion,
-              type: GradientType.chat,
+        body: Stack(
+          children: [
+            // Background gradient (bottom layer)
+            Container(
+              decoration: BoxDecoration(
+                gradient: createDynamicGradient(
+                  widget.companion,
+                  type: GradientType.chat,
+                ),
+              ),
             ),
-          ),
-          child: BlocConsumer<MessageBloc, MessageState>(
-            listener: (context, state) {
-              // Standard message handling with auto-scroll
-              if (state is MessageLoaded || state is MessageQueued) {
-                Future.delayed(const Duration(milliseconds: 50), () {
-                  if (mounted) _scrollToBottom();
-                });
-              }
-              
-              // Typing indicator during AI response (simplified approach uses this)
-              if (state is MessageReceiving) {
-                Future.delayed(const Duration(milliseconds: 100), () {
-                  if (mounted) _scrollToBottom();
-                });
-              }
-              
-              if (state is MessageFragmentInProgress) {
-                setState(() {
-                  _activeFragmentIndex = null;
-                  _isShowingTypingBetweenFragments = false;
-                });
-                Future.delayed(const Duration(milliseconds: 100), () {
-                  if (mounted) _scrollToBottom();
-                });
-              }
-              
-              if (state is MessageFragmentTyping) {
-                setState(() {
-                  _isShowingTypingBetweenFragments = true;
-                });
-                Future.delayed(const Duration(milliseconds: 100), () {
-                  if (mounted) _scrollToBottom();
-                });
-              }
-              
-              if (state is MessageFragmentDisplayed) {
-                final fragmentIndex = state.fragment.metadata['fragment_index'] as int?;
-                setState(() {
-                  _activeFragmentIndex = fragmentIndex;
-                  _isShowingTypingBetweenFragments = false;
-                });
-                Future.delayed(const Duration(milliseconds: 200), () {
-                  if (mounted) _scrollToBottom();
-                });
-              }
-              
-              if (state is MessageFragmentSequenceCompleted) {
-                setState(() {
-                  _activeFragmentIndex = null;
-                  _isShowingTypingBetweenFragments = false;
-                });
-                Future.delayed(const Duration(milliseconds: 200), () {
-                  if (mounted) _scrollToBottom();
-                });
-              }
-              
-              // Error handling
-              if (state is MessageLoaded && !state.isFromCache && state.hasError) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Failed to send message'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            },
-            builder: (context, state) {
-              List<Message> baseMessages = _getMessagesFromState(state);
-        
-              return Column(
-                children: [
-                  // Add some top padding to account for transparent app bar
-                  SizedBox(height: MediaQuery.of(context).padding.top),
-                  
-                  if (_showProfilePanel) _buildProfilePanel(),
-                  
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        // Main chat content with bottom padding for input field
-                        Positioned.fill(
-                          child: () {
-                            if (state is MessageLoading) {
-                              return _buildLoadingMessages();
-                            } else if (state is MessageError) {
-                              return _buildErrorWidget(state);
-                            } else if (baseMessages.isNotEmpty) {
-                              return _buildEnhancedMessageList(baseMessages, state);
-                            } else {
-                              return _emptyMessageWidget();
-                            }
-                          }(),
-                        ),
-                        // Chat input field at the bottom with overlay
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          child: _buildGradientInputField(state),
-                        ),
-                      ],
+            
+            // Floating bubbles animation (middle layer)
+            Positioned.fill(
+              child: _buildFloatingBubbles(),
+            ),
+
+            // Chat content (top layer)
+            BlocConsumer<MessageBloc, MessageState>(
+              listener: (context, state) {
+                // Standard message handling with auto-scroll
+                if (state is MessageLoaded || state is MessageQueued) {
+                  Future.delayed(const Duration(milliseconds: 50), () {
+                    if (mounted) _scrollToBottom();
+                  });
+                }
+                
+                // Typing indicator during AI response (simplified approach uses this)
+                if (state is MessageReceiving) {
+                  Future.delayed(const Duration(milliseconds: 100), () {
+                    if (mounted) _scrollToBottom();
+                  });
+                }
+                
+                if (state is MessageFragmentInProgress) {
+                  setState(() {
+                    _activeFragmentIndex = null;
+                    _isShowingTypingBetweenFragments = false;
+                  });
+                  Future.delayed(const Duration(milliseconds: 100), () {
+                    if (mounted) _scrollToBottom();
+                  });
+                }
+                
+                if (state is MessageFragmentTyping) {
+                  setState(() {
+                    _isShowingTypingBetweenFragments = true;
+                  });
+                  Future.delayed(const Duration(milliseconds: 100), () {
+                    if (mounted) _scrollToBottom();
+                  });
+                }
+                
+                if (state is MessageFragmentDisplayed) {
+                  final fragmentIndex = state.fragment.metadata['fragment_index'] as int?;
+                  setState(() {
+                    _activeFragmentIndex = fragmentIndex;
+                    _isShowingTypingBetweenFragments = false;
+                  });
+                  Future.delayed(const Duration(milliseconds: 200), () {
+                    if (mounted) _scrollToBottom();
+                  });
+                }
+                
+                if (state is MessageFragmentSequenceCompleted) {
+                  setState(() {
+                    _activeFragmentIndex = null;
+                    _isShowingTypingBetweenFragments = false;
+                  });
+                  Future.delayed(const Duration(milliseconds: 200), () {
+                    if (mounted) _scrollToBottom();
+                  });
+                }
+                
+                // Error handling
+                if (state is MessageLoaded && !state.isFromCache && state.hasError) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to send message'),
+                      backgroundColor: Colors.red,
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
+                  );
+                }
+              },
+              builder: (context, state) {
+                List<Message> baseMessages = _getMessagesFromState(state);
+          
+                return Column(
+                  children: [
+                    // Add some top padding to account for transparent app bar
+                    SizedBox(height: MediaQuery.of(context).padding.top),
+                    
+                    if (_showProfilePanel) _buildProfilePanel(),
+                    
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          // Main chat content with bottom padding for input field
+                          Positioned.fill(
+                            child: () {
+                              if (state is MessageLoading) {
+                                return _buildLoadingMessages();
+                              } else if (state is MessageError) {
+                                return _buildErrorWidget(state);
+                              } else if (baseMessages.isNotEmpty) {
+                                return _buildEnhancedMessageList(baseMessages, state);
+                              } else {
+                                return _emptyMessageWidget();
+                              }
+                            }(),
+                          ),
+                          // Chat input field at the bottom with overlay
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: _buildGradientInputField(state),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -479,7 +508,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
   }
 
-  // FIXED: Enhanced message list with integrated typing indicator and debug logging
+  //message list with integrated typing indicator and debug logging
   Widget _buildEnhancedMessageList(List<Message> messages, MessageState state) {
     // This method should only be called when we know we want to display messages
     // Loading and error states are handled by the parent widget
@@ -566,6 +595,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         key: ValueKey('${message.id}_${message.metadata['fragment_index'] ?? 'msg'}'),
         message: message,
         isUser: isUser,
+        theme: _messageBubbleTheme,
         companionAvatar: widget.companion.avatarUrl,
         showAvatar: showAvatar,
         isPreviousSameSender: isPreviousSameSender,
@@ -576,11 +606,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         fragmentIndex: fragmentIndex,
         totalFragments: totalFragments,
         isActiveFragment: isFragment && fragmentIndex == _activeFragmentIndex,
-        gradient: createDynamicGradient(
-          widget.companion,
-          type: GradientType.bubble,
-          opacity: isPending ? 0.5 : 1.0, // Dim pending messages
-        ),
       );
       
       // Add date dividers for non-fragments
@@ -1252,5 +1277,172 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     .then()
     .scaleXY(begin: 1.0, end: 0.4, duration: 600.ms);
   }
+  
+  /// Build companion-specific floating bubbles animation
+  Widget _buildFloatingBubbles() {
+    final companionColors = getCompanionColors(widget.companion);
+    final personalityType = getPersonalityType(widget.companion);
+    
+    // Get personality-specific bubble configuration
+    final bubbleConfig = _getBubbleConfiguration(personalityType, companionColors);
+    
+    return FloatingBubbles.alwaysRepeating(
+      noOfBubbles: bubbleConfig.noOfBubbles,
+      colorsOfBubbles: bubbleConfig.colors,
+      sizeFactor: bubbleConfig.sizeFactor,
+      opacity: bubbleConfig.opacity,
+      paintingStyle: bubbleConfig.paintingStyle,
+      strokeWidth: bubbleConfig.strokeWidth,
+      shape: bubbleConfig.shape,
+      speed: bubbleConfig.speed,
+    );
+  }
 
+  /// Get bubble configuration based on companion personality
+  BubbleConfiguration _getBubbleConfiguration(String personalityType, CompanionColors colors) {
+    switch (personalityType.toLowerCase()) {
+      case 'warm':
+        return BubbleConfiguration(
+          noOfBubbles: 25,
+          colors: [
+            colors.gradient1.withOpacity(0.1),
+            colors.gradient2.withOpacity(0.08),
+            colors.gradient3.withOpacity(0.06),
+            Colors.white.withOpacity(0.04),
+          ],
+          sizeFactor: 0.13,
+          opacity: 30,
+          paintingStyle: PaintingStyle.fill,
+          strokeWidth: 0,
+          shape: BubbleShape.circle,
+          speed: BubbleSpeed.slow,
+        );
+        
+      case 'creative':
+        return BubbleConfiguration(
+          noOfBubbles: 25,
+          colors: [
+            colors.gradient1.withOpacity(0.12),
+            colors.gradient2.withOpacity(0.1),
+            colors.gradient3.withOpacity(0.08),
+            Colors.white.withOpacity(0.05),
+            Colors.pinkAccent.withOpacity(0.06),
+          ],
+          sizeFactor: 0.15,
+          opacity: 35,
+          paintingStyle: PaintingStyle.fill,
+          strokeWidth: 0,
+          shape: BubbleShape.circle,
+          speed: BubbleSpeed.normal,
+        );
+        
+      case 'calm':
+        return BubbleConfiguration(
+          noOfBubbles: 20,
+          colors: [
+            colors.gradient1.withOpacity(0.08),
+            colors.gradient2.withOpacity(0.06),
+            colors.gradient3.withOpacity(0.04),
+            Colors.white.withOpacity(0.03),
+          ],
+          sizeFactor: 0.1,
+          opacity: 25,
+          paintingStyle: PaintingStyle.fill,
+          strokeWidth: 0,
+          shape: BubbleShape.circle,
+          speed: BubbleSpeed.slow,
+        );
+        
+      case 'energetic':
+        return BubbleConfiguration(
+          noOfBubbles: 30,
+          colors: [
+            colors.gradient1.withOpacity(0.15),
+            colors.gradient2.withOpacity(0.12),
+            colors.gradient3.withOpacity(0.1),
+            Colors.white.withOpacity(0.06),
+            Colors.yellowAccent.withOpacity(0.08),
+          ],
+          sizeFactor: 0.18,
+          opacity: 40,
+          paintingStyle: PaintingStyle.fill,
+          strokeWidth: 0,
+          shape: BubbleShape.circle,
+          speed: BubbleSpeed.fast,
+        );
+        
+      case 'thoughtful':
+        return BubbleConfiguration(
+          noOfBubbles: 24,
+          colors: [
+            colors.gradient1.withOpacity(0.6),
+            colors.gradient2.withOpacity(0.05),
+            colors.gradient3.withOpacity(0.04),
+            Colors.white.withOpacity(0.1),
+          ],
+          sizeFactor: 0.14,
+          opacity: 30,
+          paintingStyle: PaintingStyle.fill,
+          strokeWidth: 1,
+          shape: BubbleShape.circle,
+          speed: BubbleSpeed.slow,
+        );
+        
+      case 'mysterious':
+        return BubbleConfiguration(
+          noOfBubbles: 22,
+          colors: [
+            colors.gradient1.withOpacity(0.1),
+            colors.gradient2.withOpacity(0.08),
+            colors.gradient3.withOpacity(0.06),
+            Colors.white.withOpacity(0.03),
+            Colors.deepPurple.withOpacity(0.05),
+          ],
+          sizeFactor: 0.18,
+          opacity: 28,
+          paintingStyle: PaintingStyle.fill,
+          strokeWidth: 0,
+          shape: BubbleShape.circle,
+          speed: BubbleSpeed.normal,
+        );
+        
+      default:
+        return BubbleConfiguration(
+          noOfBubbles: 25,
+          colors: [
+            colors.gradient1.withOpacity(0.1),
+            colors.gradient2.withOpacity(0.08),
+            colors.gradient3.withOpacity(0.06),
+            Colors.white.withOpacity(0.04),
+          ],
+          sizeFactor: 0.15,
+          opacity: 30,
+          paintingStyle: PaintingStyle.fill,
+          strokeWidth: 0,
+          shape: BubbleShape.circle,
+          speed: BubbleSpeed.normal,
+        );
+    }
+  }
+}
+class BubbleConfiguration {
+  final int noOfBubbles;
+  final List<Color> colors;
+  final double sizeFactor;
+  final int opacity;
+  final PaintingStyle paintingStyle;
+  final double strokeWidth;
+  final BubbleShape shape;
+  final BubbleSpeed speed;
+
+  BubbleConfiguration({
+    required this.noOfBubbles,
+    required this.colors,
+    required this.sizeFactor,
+    required this.opacity,
+    required this.paintingStyle,
+    required this.strokeWidth,
+    required this.shape,
+    required this.speed,
+  });
 }

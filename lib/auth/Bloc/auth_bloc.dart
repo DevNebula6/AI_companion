@@ -27,24 +27,6 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       ));
     }
   });
-  
-  //Companion selection screen
-  on<AuthEventSelectCompanion>((event, emit) async {
-    final currentUser = event.user;
-    try {
-      
-      emit(AuthStateSelectCompanion(
-      user: currentUser,
-      isLoading: false,
-    ));
-    } catch (e) {
-      emit(AuthStateSelectCompanion(
-        user: currentUser,
-        isLoading: false,
-        exception: e as Exception,
-      ));
-    }
-  });
 
   //user profile
   on<AuthEventUserProfile>((event, emit) async {
@@ -60,27 +42,39 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
       
       if (!hasConversations) {
       print('AuthBloc: No conversations, emitting AuthStateSelectCompanion');
-        emit(AuthStateSelectCompanion(
+        emit(AuthStateLoggedIn(
           user: currentUser,
           isLoading: false,
+          intendedView: LoggedInView.companionSelection
         ));
       } else {
       print('AuthBloc: Has conversations, emitting AuthStateLoggedIn');
         emit(AuthStateLoggedIn(
           user: currentUser,
           isLoading: false,
+          intendedView: LoggedInView.home, // Default to home view
         ));
       }
     }
     catch (e) {
     print('AuthBloc: Error updating profile: $e');
-      emit(AuthStateUserProfile(
+      emit(AuthStateLoggedIn(
         user: currentUser,
         isLoading: false,
         exception: e as Exception,
+        intendedView: LoggedInView.userProfile, // Default to user profile view
       ));
     }
       
+  });
+  
+  //Navigate to home from select companion
+  on<NavigateToHome>((event, emit) async {
+    emit(AuthStateLoggedIn(
+      user: event.user,
+      isLoading: false,
+      intendedView: LoggedInView.home,
+    ));
   });
   
   // initialize
@@ -104,9 +98,10 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
             isLoading: false,
           ));
         } else {
-          emit(AuthStateUserProfile(
+          emit(AuthStateLoggedIn(
             user: user,
             isLoading: false,
+            intendedView: LoggedInView.userProfile, // Default to user profile view
           ));
         }
       }
@@ -132,9 +127,10 @@ class AuthBloc extends Bloc<AuthEvents, AuthState> {
           return;
         }
         if (!user.hasCompletedProfile) {
-          emit( AuthStateUserProfile(
+          emit(AuthStateLoggedIn(
             user: user,
             isLoading: false,
+            intendedView: LoggedInView.userProfile,
           ));
         } else {
           emit(AuthStateLoggedIn(

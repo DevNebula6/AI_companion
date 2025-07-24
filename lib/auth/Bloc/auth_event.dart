@@ -22,16 +22,13 @@ class AuthEventUserProfile extends AuthEvents {
   });
 }
 
-class AuthEventSelectCompanion extends AuthEvents {
+class NavigateToHome extends AuthEvents {
   final CustomAuthUser user;
- const AuthEventSelectCompanion({
+ const NavigateToHome({
   required this.user,
   });
 }
 
-class AuthEventCompanionSelection extends AuthEvents {
-  const AuthEventCompanionSelection();
-}
 
 
 class AuthEventLogOut extends AuthEvents {

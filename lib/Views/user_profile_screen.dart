@@ -1,3 +1,4 @@
+import 'package:ai_companion/Views/Home/fluid_background.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/ErrorHandling/auth_exceptions.dart';
 import 'package:ai_companion/navigation/routes_name.dart';
@@ -141,7 +142,7 @@ bool _messageNotifications = true;
     
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state is AuthStateUserProfile) {
+        if (state is AuthStateLoggedIn) {
           if (state.exception != null) {
             showMessage(
               context: context,
@@ -149,54 +150,66 @@ bool _messageNotifications = true;
               backgroundColor: Colors.red,
             );
           }
-        }
-        else if (state is AuthStateLoggedIn) {
-          print('UserProfile: Profile saved, navigating to home');
-          if (mounted) {
-            context.go(RoutesName.home);
-          }
-        }
-        else if (state is AuthStateSelectCompanion) {
-          print('UserProfile: Profile saved, navigating to companion selection');
-          if (mounted) {
-            context.go(RoutesName.companionSelection);
+          if (state.intendedView == LoggedInView.companionSelection) {
+            context.pushReplacement(RoutesName.companionSelection);
+          } else if(state.intendedView == LoggedInView.home) {
+            context.pushReplacement(RoutesName.home);
           }
         }
       },
-      child:Scaffold(
+      child: Scaffold(
         backgroundColor: Colors.grey.shade50,
-        appBar: _buildAppBar(themeColors),
-        body: _buildBody(themeColors),
-      ),
-    );
-  }
+        extendBodyBehindAppBar: true,
+        body: Stack(
+          children: [
+            // Fluid background
+            Positioned.fill(child: buildFluidBackground(context)),
+            // Main content with collapsible app bar
+            CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  elevation: 0,
+                  pinned: false, // Not persistent
+                  floating: false,
+                  snap: false,
+                  expandedHeight: 30,
+                  backgroundColor: themeColors.primary.withOpacity(0),
+                  flexibleSpace: FlexibleSpaceBar(
+                    title: Text(
+                      'Your Profile',
+                      style: AppTextStyles.appBarTitle.copyWith(color: Colors.black),
+                    ),
+                    centerTitle: true,
+                  ),
+                  leading: BackButton(
+                    color: Colors.black,
+                    onPressed: () {
+                      if (Navigator.canPop(context)) {
+                        context.pop();
+                      } else {
+                        context.read<AuthBloc>().add(NavigateToHome(user: _currentUser!));
+                      }
+                    },
+                  ),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(bottom: Radius.circular(30)),
+                  ),
+                  systemOverlayStyle: SystemUiOverlayStyle.light,
+                ),
+                SliverToBoxAdapter(
+                  child: _buildBody(themeColors),
+                ),
+              ],
+            ),
 
-  PreferredSizeWidget _buildAppBar(ColorScheme colors) {
-    return AppBar(
-      elevation: 0,
-      leading:BackButton(
-          color: Colors.white,
-          onPressed: () {
-            if (Navigator.canPop(context)) {
-              // If we can pop, go back
-              context.pop();
-            } else {
-              // Otherwise, navigate to home
-              context.pushReplacementNamed(RoutesName.home,);
-            }
-          },
-        ),
-      backgroundColor: colors.primary,
-      foregroundColor: Colors.white,
-      title: Text(
-        'Your Profile',
-        style: AppTextStyles.appBarTitle.copyWith(color: Colors.white),
-      ),
-      systemOverlayStyle: SystemUiOverlayStyle.light,
-      centerTitle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          bottom: Radius.circular(24),
+            // Floating action button positioned at the bottom
+            Positioned(
+              bottom: 24,
+              left: 20,
+              right: 20,
+              child: _buildSaveButton(themeColors),
+            ),
+          ],
         ),
       ),
     );
@@ -205,81 +218,46 @@ bool _messageNotifications = true;
   Widget _buildBody(ColorScheme colors) {
     return Form(
       key: _formKey,
-      child: Stack(
-        children: [
-          // Background design elements
-          ..._buildBackgroundElements(colors),
+      child: Container(
+        padding: const EdgeInsets.only(
+          top: 20, // Space for app bar
+          bottom: 30, // Extra space for button
+          left: 20,
+          right: 20,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           
-          // Scrollable content
-          ListView(
-            padding: const EdgeInsets.only(
-              top: 24,
-              bottom: 30, // Extra space for button
-              left: 20,
-              right: 20,
-            ),
-            addRepaintBoundaries: true,
-            addAutomaticKeepAlives: false,
-            physics: const RangeMaintainingScrollPhysics(),
-            children: [
-              _buildProfileHeader(colors),
-              const SizedBox(height: 32),
-              
-              // Basic Info
-               _buildInfoCard(colors),
-              
-              const SizedBox(height: 20),
-              
-              // Traits
-               _buildTraitsCard(colors),
-              
-              const SizedBox(height: 20),
-              
-              // Interests
-               _buildInterestsCard(colors),
-              
-              const SizedBox(height: 20),
-              
-              // Preferences
-               _buildPreferencesCard(colors),
-              
-              // Space for floating button
-              const SizedBox(height: 80),
-            ],
-          ),
-          
-          // Floating action button positioned at the bottom
-          Positioned(
-            bottom: 24,
-            left: 20,
-            right: 20,
-            child: _buildSaveButton(colors),
-            ),
-        ],
+          children: [
+            _buildProfileHeader(colors),
+            const SizedBox(height: 32),
+            
+            // Basic Info
+            _buildInfoCard(colors),
+            
+            const SizedBox(height: 20),
+            
+            // Traits
+             _buildTraitsCard(colors),
+            
+            const SizedBox(height: 20),
+            
+            // Interests
+             _buildInterestsCard(colors),
+            
+            const SizedBox(height: 20),
+            
+            // Preferences
+             _buildPreferencesCard(colors),
+            
+            // Space for floating button
+            const SizedBox(height: 80),
+          ],
+        ),
       ),
     );
   }
   
-  List<Widget> _buildBackgroundElements(ColorScheme colors) {
-    return [
-      // Subtle pattern overlay
-      Positioned.fill(
-        child: RepaintBoundary(
-          child: Opacity(
-            opacity: 0.25,
-            child: Container(
-              decoration: const BoxDecoration(
-                image: DecorationImage(
-                  image: AssetImage('assets/backgrounds/pt4.png'),
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ];
-  }
 
   Widget _buildProfileHeader(ColorScheme colors) {
     return Center(
@@ -344,9 +322,9 @@ bool _messageNotifications = true;
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: Colors.grey.shade200),
+          side: BorderSide(color: colors.primary),
         ),
-        color: Colors.white,
+        color: Colors.white.withOpacity(.3),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -445,7 +423,7 @@ bool _messageNotifications = true;
           size: 20,
         ),
         filled: true,
-        fillColor: Colors.grey.shade50,
+        fillColor: Colors.grey.shade50.withOpacity(.3),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
@@ -470,7 +448,7 @@ bool _messageNotifications = true;
   Widget _buildGenderDropdown(ColorScheme colors) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: Colors.grey.shade50.withOpacity(.3),
         borderRadius: BorderRadius.circular(12),
       ),
       child: DropdownButtonFormField<String>(
@@ -485,7 +463,7 @@ bool _messageNotifications = true;
             size: 20,
           ),
           filled: true,
-          fillColor: Colors.grey.shade50,
+          fillColor: Colors.transparent,
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(
@@ -527,12 +505,12 @@ bool _messageNotifications = true;
 Widget _buildTraitsCard(ColorScheme colors) {
   return RepaintBoundary(
     child: Card(
-      elevation: 2,
+      elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: BorderSide(color: colors.primary),
       ),
-      color: Colors.white,
+      color: Colors.grey.shade50.withOpacity(.5),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -710,12 +688,12 @@ Widget _buildAnimatedChip({
           decoration: BoxDecoration(
             color: isSelected 
                 ? selectedColor 
-                : Colors.grey.shade50,
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
               color: isSelected 
                   ? Colors.transparent 
-                  : Colors.grey.shade300,
+                  : Colors.grey.shade500,
               width: 1,
             ),
             boxShadow: isSelected 
@@ -786,12 +764,12 @@ Widget _buildAnimatedChip({
   Widget _buildInterestsCard(ColorScheme colors) {
   return RepaintBoundary(
     child: Card(
-      elevation: 2,
+      elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: BorderSide(color: colors.secondary),
       ),
-      color: Colors.white,
+      color: Colors.grey.shade50.withOpacity(.3),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -1066,7 +1044,7 @@ Widget _buildAnimatedChip({
                           Container(
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              color: Colors.grey.shade200,
+                              color: Colors.grey.shade200.withOpacity(.5),
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
@@ -1125,9 +1103,9 @@ Widget _buildAnimatedChip({
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: Colors.grey.shade200),
+          side: BorderSide(color: colors.tertiary),
         ),
-        color: Colors.white,
+        color: Colors.grey.shade50.withOpacity(.3),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -1221,7 +1199,7 @@ Widget _buildAnimatedChip({
     return RepaintBoundary(
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.grey.shade50,
+          color: Colors.grey.shade50.withOpacity(.3),
           borderRadius: BorderRadius.circular(12),
         ),
         child: DropdownButtonFormField<String>(
@@ -1239,7 +1217,7 @@ Widget _buildAnimatedChip({
               horizontal: 12,
               vertical: 10,
             ),
-            fillColor: Colors.grey.shade100,
+            fillColor: Colors.transparent,
             filled: true,
           ),
           style: AppTextStyles.bodyMedium,
@@ -1274,7 +1252,7 @@ Widget _buildAnimatedChip({
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: Colors.grey.shade50.withOpacity(.3),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: value ? colors.tertiary.withOpacity(0.3) : Colors.grey.shade200,

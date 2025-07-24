@@ -172,9 +172,9 @@ CompanionColors getCompanionColors(AICompanion companion) {
       {
         'primary': const Color(0xFFE74C3C),
         'secondary': const Color(0xFFF39C12),
-        'gradient1': const Color(0xFFB91C1C), // Deep red (app bar - darkest)
-        'gradient2': const Color(0xFFEA580C), // Vibrant orange (middle)
-        'gradient3': const Color(0xFFFBBF24), // Bright amber (input area - lightest)
+        'gradient1': const Color(0xFFD97706), // Deep orange (app bar - darkest)
+        'gradient2': const Color(0xFFF39C12), // Rich orange-amber (middle)
+        'gradient3': const Color(0xFFFBBF24), // Golden amber (input area - lightest)
       },
       // Male palette - Rich amber to golden flow
       {
@@ -825,14 +825,28 @@ LinearGradient createDynamicGradient(AICompanion companion, {
         ],
       );
     case GradientType.bubble:
-      // Enhanced bubble gradients
+      // Frosted glass bubble gradients with subtle transparency
       return LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          colors.gradient2.withOpacity(0.8 * opacity),
-          colors.gradient3.withOpacity(0.9 * opacity),
+          colors.gradient2.withOpacity(0.15 * opacity), // Very subtle top color
+          colors.gradient3.withOpacity(0.25 * opacity), // Slightly more visible bottom
+          colors.gradient2.withOpacity(0.12 * opacity), // Even more subtle at bottom
         ],
+        stops: const [0.0, 0.5, 1.0],
+      );
+    case GradientType.userBubble:
+      // User message bubbles with slightly different frosted effect
+      return LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          colors.gradient1.withOpacity(0.20 * opacity), // Slightly more visible for user messages
+          colors.gradient2.withOpacity(0.30 * opacity),
+          colors.gradient1.withOpacity(0.15 * opacity),
+        ],
+        stops: const [0.0, 0.5, 1.0],
       );
   }
 }
@@ -843,6 +857,7 @@ enum GradientType {
   appBar,
   inputField,
   bubble,
+  userBubble,
 }
 
 /// Create a subtle shadow color based on the companion's primary color

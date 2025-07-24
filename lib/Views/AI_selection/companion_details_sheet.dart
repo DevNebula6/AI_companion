@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
+import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
+import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
 import 'package:ai_companion/chat/conversation/conversation_event.dart';
@@ -1124,6 +1126,7 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                     ),
                   );
 
+
                   // Show loading indicator
                   showDialog(
                     context: context,
@@ -1135,10 +1138,15 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                   final conversationBloc = context.read<ConversationBloc>();
                   late final StreamSubscription subscription;
 
+                  // Start listening BEFORE sending the event
                   subscription = conversationBloc.stream.listen((state) {
                     if (state is ConversationCreated) {
                       subscription.cancel();
 
+                      Navigator.of(context).pop(); // closes loading dialog
+                      Navigator.of(context).pop(); // closes details sheet
+                      
+                      // context.read<AuthBloc>().add(NavigateToHome(user: widget.user));
                       // Now we have the conversation ID
                       context.pushReplacement(RoutesName.chat, extra: {
                         'companion': widget.companion,
@@ -1146,27 +1154,23 @@ class _CompanionDetailsSheetState extends State<CompanionDetailsSheet> with Sing
                         'navigationSource': 'companionDetails',
                       });
 
-                      // Close the loading dialog
-                      Navigator.of(context).pop();
-
-                      // Close the details sheet
-                      Navigator.of(context).pop();
                     } else if (state is ConversationError) {
                       subscription.cancel();
-
                       // Show error message
-                      Navigator.of(context).pop(); // Close loading dialog
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop(); // Close loading dialog
+                      }
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Error: ${state.message}'),
                           backgroundColor: Colors.red,
                         ),
                       );
-                    }
+                    }  
                   });
-
-                  // Send the event to create the conversation
+                  // Send the event to create the conversation (after listener is set)
                   conversationBloc.add(CreateConversation(widget.companion.id));
+                  print('Creating conversation for companion: ${widget.companion.name}');
                 },
                 splashColor: Colors.white.withOpacity(0.1),
                 highlightColor: Colors.transparent,

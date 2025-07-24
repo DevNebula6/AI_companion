@@ -1,5 +1,6 @@
 import 'package:ai_companion/Companion/ai_model.dart';
 import 'package:ai_companion/Views/AI_selection/companion_color.dart';
+import 'package:ai_companion/Views/Home/fluid_background.dart';
 import 'package:ai_companion/auth/Bloc/auth_bloc.dart';
 import 'package:ai_companion/auth/Bloc/auth_event.dart';
 import 'package:ai_companion/auth/custom_auth_user.dart';
@@ -146,6 +147,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         backgroundColor: colorScheme.background,
         body: Stack(
           children: [
+            // Fluid background (bottom layer)
+            Positioned.fill(
+              child: buildFluidBackground(context),
+            ),
+
             // Main content
             _buildMainContent(colorScheme),
 
@@ -170,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
   }
-
+  
   Widget _buildMainContent(ColorScheme colorScheme) {
     return SafeArea(
       child: Column(
@@ -626,7 +632,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       try {
         // Clear all user cache before logout
         if (_user != null) {
-          context.read<ConversationBloc>().add(ClearAllCacheForUser());
+          context.read<ConversationBloc>().add(ClearAllCacheForUser(userId: _user!.id));
           
           // Give a moment for cache clearing to complete
           await Future.delayed(const Duration(milliseconds: 500));
@@ -962,6 +968,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Card(
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             elevation: 0,
+            color: Colors.transparent,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
               side: BorderSide(
@@ -1238,7 +1245,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -1248,7 +1255,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             width: 56,
             height: 56,
             decoration: const BoxDecoration(
-              color: Colors.white,
+              color: Colors.transparent,
               shape: BoxShape.circle,
             ),
           ),
@@ -1261,7 +1268,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   width: 140,
                   height: 14,
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Colors.transparent,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -1270,7 +1277,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   width: double.infinity,
                   height: 12,
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Colors.transparent,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -1279,7 +1286,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   width: 80,
                   height: 10,
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Colors.transparent,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),

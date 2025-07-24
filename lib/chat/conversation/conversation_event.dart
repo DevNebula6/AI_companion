@@ -103,11 +103,12 @@ class UpdateConversationMetadata extends ConversationEvent {
 }
 
 class ClearAllCacheForUser extends ConversationEvent {
+  final String? userId;
   
-  const ClearAllCacheForUser();
+  const ClearAllCacheForUser({this.userId});
 
   @override
-  List<Object?> get props => [];
+  List<Object?> get props => [userId];
 }
 
 class ConnectivityChangedEvent extends ConversationEvent {

@@ -1,9 +1,11 @@
+import 'package:ai_companion/Views/chat_screen/message_bubble/bubble_theme.dart';
 import 'package:ai_companion/chat/message.dart';
 import 'package:flutter/material.dart';
 
 class MessageBubble extends StatefulWidget {
   final Message message;
   final bool isUser;
+  final MessageBubbleTheme theme;
   final String? companionAvatar;
   final bool showAvatar;
   final bool isPreviousSameSender;
@@ -14,12 +16,12 @@ class MessageBubble extends StatefulWidget {
   final int? fragmentIndex;
   final int? totalFragments;
   final bool isActiveFragment; // Track if this is the currently active fragment
-  final LinearGradient? gradient;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.isUser,
+    required this.theme,
     this.companionAvatar,
     this.showAvatar = true,
     this.isPreviousSameSender = false,
@@ -30,7 +32,6 @@ class MessageBubble extends StatefulWidget {
     this.fragmentIndex,
     this.totalFragments,
     this.isActiveFragment = false, 
-    this.gradient,
   });
 
   @override
@@ -217,15 +218,9 @@ class _MessageBubbleState extends State<MessageBubble> with TickerProviderStateM
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: _getBubbleColor(context),
+                    color: _getBubbleColor(),
                     borderRadius: _getBorderRadius(isFragment),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    boxShadow: [widget.theme.bubbleShadow],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -233,15 +228,15 @@ class _MessageBubbleState extends State<MessageBubble> with TickerProviderStateM
                       Text(
                         widget.message.message,
                         style: TextStyle(
-                          color: _getTextColor(context),
-                          fontSize: 16,
+                          color: _getTextColor(),
+                          fontSize: 15,
                           height: 1.4,
                         ),
                       ),
                       if (_shouldShowMetadata(isFragment))
                         const SizedBox(height: 6),
                       if (_shouldShowMetadata(isFragment))
-                        _buildMessageMetadata(context),
+                        _buildMessageMetadata(),
                     ],
                   ),
                 ),
@@ -263,15 +258,15 @@ class _MessageBubbleState extends State<MessageBubble> with TickerProviderStateM
             scale: _avatarScaleAnimation,
             child: CircleAvatar(
               radius: 18,
-              backgroundImage: widget.companionAvatar != null
-                  ? NetworkImage(widget.companionAvatar!)
+              backgroundImage: widget.theme.avatarUrl != null
+                  ? NetworkImage(widget.theme.avatarUrl!)
                   : null,
-              backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              child: widget.companionAvatar == null
+              backgroundColor: widget.theme.avatarBackgroundColor,
+              child: widget.theme.avatarUrl == null
                   ? Icon(
                       Icons.person, 
                       size: 18,
-                      color: Theme.of(context).colorScheme.primary,
+                      color: widget.theme.avatarBorderColor,
                     )
                   : null,
             ),
@@ -279,26 +274,22 @@ class _MessageBubbleState extends State<MessageBubble> with TickerProviderStateM
         ),
       );
     } else {
-      return const SizedBox(width: 44); // 36 (avatar diameter) + 8 (margin)
+      return const SizedBox(width: 44);
     }
   }
 
-  Widget _buildMessageMetadata(BuildContext context) {
+  Widget _buildMessageMetadata() {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // REMOVED: Fragment count indicator (too robotic)
-        
-        // Timestamp
         Text(
           widget.message.messageTime,
           style: TextStyle(
-            color: _getTextColor(context).withOpacity(0.6),
+            color: !widget.isUser ? widget.theme.timestampColor : widget.theme.userTextColor.withOpacity(0.6) ,
             fontSize: 12,
           ),
         ),
         
-        // Pending indicator
         if (widget.isPending) ...[
           const SizedBox(width: 6),
           SizedBox(
@@ -307,13 +298,26 @@ class _MessageBubbleState extends State<MessageBubble> with TickerProviderStateM
             child: CircularProgressIndicator(
               strokeWidth: 1.5,
               valueColor: AlwaysStoppedAnimation<Color>(
-                _getTextColor(context).withOpacity(0.6),
+                widget.theme.pendingIndicatorColor,
               ),
             ),
           ),
         ],
       ],
     );
+  }
+
+  /// Get appropriate gradient for message bubbles
+  Color _getBubbleColor() {
+    return widget.isUser 
+        ? widget.theme.userBubbleColor
+        : widget.theme.botBubbleColor;
+  }
+
+  Color _getTextColor() {
+    return widget.isUser 
+        ? widget.theme.userTextColor 
+        : widget.theme.botTextColor;
   }
 
   bool _shouldShowMetadata(bool isFragment) {
@@ -384,23 +388,6 @@ class _MessageBubbleState extends State<MessageBubble> with TickerProviderStateM
         bottomLeft: widget.isNextSameSender ? smallRadius : radius,
         bottomRight: radius,
       );
-    }
-  }
-
-  Color _getBubbleColor(BuildContext context) {
-    if (widget.isUser) {
-      return Theme.of(context).colorScheme.primary;
-    } else {
-      // REMOVED: Active fragment highlighting (too robotic)
-      return Theme.of(context).colorScheme.surfaceVariant;
-    }
-  }
-
-  Color _getTextColor(BuildContext context) {
-    if (widget.isUser) {
-      return Theme.of(context).colorScheme.onPrimary;
-    } else {
-      return Theme.of(context).colorScheme.onSurfaceVariant;
     }
   }
 }

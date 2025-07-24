@@ -117,7 +117,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   
   /// SIMPLIFIED: Force complete method (not needed with simplified approach)
   void forceCompleteAllActiveFragments() {
-    print('Force completing all active fragments - simplified approach');
+    print('Force completing all active fragments - simplified approach -message bloc(forceCompleteAllActiveFragments)');
     
     // With simplified approach, just ensure typing indicators are cleared
     _typingSubject.add(false);
@@ -126,7 +126,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     _fragmentSequences.clear();
     _currentActiveSequenceId = null;
     
-    print('Fragment force completion done - simplified');
+    print('Fragment force completion done - simplified -message bloc(forceCompleteAllActiveFragments)');
   }
   
   
@@ -145,7 +145,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       if (!_conversationBloc.isClosed) {
         for (final update in updates.values) {
           _conversationBloc.add(update);
-          print('Debounced conversation update: ${update.conversationId} (unread: ${update.unreadCount})');
+          print('Debounced conversation update: ${update.conversationId} (unread: ${update.unreadCount} -message bloc(_debouncedConversationUpdate)');
         }
       }
     });
@@ -202,7 +202,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   // Enhanced queue message handler
   Future<void> _onEnqueueMessage(EnqueueMessageEvent event, Emitter<MessageState> emit) async {
     try {
-      print('Enqueuing message: "${event.message.messageFragments.join(' ')}" with ID: ${event.message.id}');
+      print('Enqueuing message: "${event.message.messageFragments.join(' ')}" with ID: ${event.message.id}  -message bloc(_onEnqueueMessage)');
       
       // Add message to queue
       _messageQueue.enqueueUserMessage(event.message);
@@ -210,9 +210,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       // FIXED: Better duplicate checking using helper method
       if (!_isDuplicateMessage(event.message, _currentMessages)) {
         _currentMessages.add(event.message);
-        print('Added message to _currentMessages (optimistic update). Total messages: ${_currentMessages.length}');
+        print('Added message to _currentMessages (optimistic update). Total messages: ${_currentMessages.length} -message bloc(_onEnqueueMessage)');
       } else {
-        print('Prevented duplicate message in queue: "${event.message.messageFragments.join(' ')}"');
+        print('Prevented duplicate message in queue: "${event.message.messageFragments.join(' ')}" -message bloc(_onEnqueueMessage)');
       }
       
       // Provide immediate feedback
@@ -230,7 +230,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         );
       }
     } catch (e) {
-      emit(MessageError(error: Exception('Failed to enqueue message: $e')));
+      emit(MessageError(error: Exception('Failed to enqueue message: $e -message bloc(_onEnqueueMessage)')));
     }
   }
 
@@ -254,7 +254,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           break;
       }
     } catch (e) {
-      emit(MessageError(error: Exception('Failed to process queued message: $e')));
+      emit(MessageError(error: Exception('Failed to process queued message: $e -message bloc(_onProcessQueuedMessage)')));
     }
   }
 
@@ -271,9 +271,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       // Use better duplicate detection method
       if (!_isDuplicateMessage(message, _currentMessages)) {
         _currentMessages.add(message);
-        print('Added user message to current messages: "${message.messageFragments.join(' ')}"');
+        print('Added user message to current messages: "${message.messageFragments.join(' ')}" -message bloc(_processUserMessage)');
       } else {
-        print('Prevented duplicate user message in processing: "${message.messageFragments.join(' ')}"');
+        print('Prevented duplicate user message in processing: "${message.messageFragments.join(' ')}" -message bloc(_processUserMessage)');
       }
       
       // OPTIMIZATION: Update all cache levels for user messages
@@ -299,7 +299,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     } catch (e) {
       // Remove message from current messages if saving failed
       _currentMessages.removeWhere((m) => m.id == message.id);
-      emit(MessageError(error: Exception('Failed to process user message: $e')));
+      emit(MessageError(error: Exception('Failed to process user message: $e -message bloc(_processUserMessage)')));
     }
   }
 
@@ -308,11 +308,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     try {
       // CRITICAL: Verify this is still the active companion before processing
       if (_currentCompanionId != userMessage.companionId) {
-        print('⚠️ Ignoring AI response for ${userMessage.companionId} - current companion is $_currentCompanionId');
+        print('⚠️ Ignoring AI response for ${userMessage.companionId} - current companion is $_currentCompanionId -message bloc(_processAIResponse)');
         return;
       }
       
-      print('🤖 Processing AI response for companion: ${userMessage.companionId}');
+      print('🤖 Processing AI response for companion: ${userMessage.companionId}-message bloc(_processAIResponse)');
       
       // Show typing indicator for current companion only
       _typingSubject.add(true);
@@ -328,7 +328,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
       // CRITICAL: Double-check companion hasn't changed during AI processing
       if (_currentCompanionId != userMessage.companionId) {
-        print('⚠️ Companion changed during AI processing - discarding response');
+        print('⚠️ Companion changed during AI processing - discarding response -message bloc(_processAIResponse)');
         _typingSubject.add(false);
         return;
       }
@@ -393,7 +393,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       }
 
     } catch (e) {
-      print('Error generating AI response: $e');
+      print('Error generating AI response: $e -message bloc(_processAIResponse)');
       _typingSubject.add(false);
       await _handleAIResponseError(userMessage, e, emit);
     }
@@ -431,7 +431,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     
     try {
       if (fragmentEvent is FragmentSequenceStarted) {
-        print('Fragment sequence started: ${fragmentEvent.sequence.id}');
+        print('Fragment sequence started: ${fragmentEvent.sequence.id} -message bloc(_onHandleFragment)');
 
         // Show initial typing indicator
         _typingSubject.add(true);
@@ -451,7 +451,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         ));
         
       } else if (fragmentEvent is FragmentTypingStarted) {
-        print('Fragment typing started for fragment: ${fragmentEvent.sequence.currentIndex + 1}');
+        print('Fragment typing started for fragment: ${fragmentEvent.sequence.currentIndex + 1} -message bloc(_onHandleFragment)');
         
         // Show typing indicator for next fragment
         _typingSubject.add(true);
@@ -462,7 +462,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         ));
         
       } else if (fragmentEvent is FragmentDisplayed) {
-        print('Fragment displayed: ${fragmentEvent.fragment.metadata['fragment_index']}');
+        print('Fragment displayed: ${fragmentEvent.fragment.metadata['fragment_index']} -message bloc(_onHandleFragment)');
         
         // Hide typing indicator when fragment is displayed
         _typingSubject.add(false);
@@ -486,7 +486,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           );
         }
       } else if (fragmentEvent is FragmentSequenceCompleted) {
-        print('Fragment sequence completed: ${fragmentEvent.sequence.id}');
+        print('Fragment sequence completed: ${fragmentEvent.sequence.id} -message bloc(_onHandleFragment)');
         
         // Hide typing indicator
         _typingSubject.add(false);
@@ -514,7 +514,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         emit(MessageLoaded(messages: List.from(_currentMessages)));
       }
     } catch (e) {
-      print('Error handling fragment event: $e');
+      print('Error handling fragment event: $e -message bloc');
       _typingSubject.add(false);
       emit(MessageError(error: Exception('Failed to handle fragment event: $e')));
     }
@@ -591,7 +591,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         
         await _repository.markConversationAsRead(event.conversationId);
       } catch (e) {
-        print('Error updating conversation after fragmentation: $e');
+        print('Error updating conversation after fragmentation: $e -message bloc');
       }
     }
 
@@ -624,29 +624,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     final userMessage = event.userMessage;
     
-    /// ai response is saved in the database in _processAIResponse method so no need to save it again here
-    // // Save complete message to database for search/backup purposes
-    // if (_connectivityService.isOnline) {
-    //   try {
-    //     final completeMessage = originalMessage.copyWith(
-    //       id: 'complete_${DateTime.now().millisecondsSinceEpoch}',
-    //       metadata: {
-    //         ...originalMessage.metadata, 
-    //         'is_complete_version': true,
-    //         'fragment_count': originalMessage.metadata['total_fragments'] ?? 1,
-    //       }
-    //     );
-    //     await _repository.sendMessage(completeMessage);
-    //     await _repository.updateConversation(
-    //       userMessage.conversationId,
-    //       lastMessage: originalMessage.message,
-    //       incrementUnread: 1,
-    //     );
-    //   } catch (e) {
-    //     print('Error saving complete message: $e');
-    //   }
-    // }
-
     await _repository.markConversationAsRead(userMessage.conversationId);
   }
 
@@ -665,11 +642,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           }
         }
       }, onError: (e) {
-        print('Connectivity stream error in MessageBloc: $e');
+        print('Connectivity stream error in MessageBloc: $e -message bloc');
       });
       
     } catch (e) {
-      print('Failed to setup connectivity listener in MessageBloc: $e');
+      print('Failed to setup connectivity listener in MessageBloc: $e -message bloc');
       _isOnline = true;
     }
   }
@@ -679,7 +656,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
     Emitter<MessageState> emit,
   ) async {
     _isOnline = event.isOnline;
-    print('MessageBloc connectivity changed, online: $_isOnline');
+    print('MessageBloc connectivity changed, online: $_isOnline -message bloc');
     
     if (_isOnline && _pendingMessages.isNotEmpty) {
       add(ProcessPendingMessagesEvent());
@@ -693,7 +670,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     if (_pendingMessages.isEmpty || !_isOnline) return;
     
-    print('Processing ${_pendingMessages.length} pending messages');
+    print('Processing ${_pendingMessages.length} pending messages -message bloc');
     
     for (int i = 0; i < _pendingMessages.length; i++) {
       try {
@@ -722,7 +699,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         );
         
       } catch (e) {
-        print('Error processing pending message: $e');
+        print('Error processing pending message: $e -message bloc');
       }
     }
     
@@ -753,9 +730,9 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         }
       }
       
-      print('Loaded ${_pendingMessages.length} pending messages');
+      print('Loaded ${_pendingMessages.length} pending messages -message bloc');
     } catch (e) {
-      print('Error loading pending messages: $e');
+      print('Error loading pending messages: $e -message bloc');
     }
   }
 
@@ -769,7 +746,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       
       await prefs.setStringList(_pendingMessagesKey, pendingMessagesJson);
     } catch (e) {
-      print('Error saving pending messages: $e');
+      print('Error saving pending messages: $e -message bloc');
     }
   }
 
@@ -799,7 +776,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
 
         _triggerConversationRefresh();
       } catch (e) {
-        print('Background sync error: $e');
+        print('Background sync error: $e -message bloc');
       }
     }
   }
@@ -838,12 +815,12 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
   ) async {
     // Check if bloc is still active
     if (isClosed) {
-      print('MessageBloc is closed, cannot initialize companion');
+      print('MessageBloc is closed, cannot initialize companion -message bloc');
       return;
     }
     
     try {
-      print('🔄 Initializing companion: ${event.companion.name} (ID: ${event.companion.id})');
+      print('🔄 Initializing companion: ${event.companion.name} (ID: ${event.companion.id} -message bloc)');
       
       // CRITICAL: Reset all state when switching companions to prevent mixing
       final previousCompanionId = _currentCompanionId;
@@ -882,7 +859,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           userProfile: event.user?.toAIFormat(),
         );
 
-        print('✅ Companion ${event.companion.name} initialized successfully');
+        print('✅ Companion ${event.companion.name} initialized successfully -message bloc');
 
         if (!isClosed) {
           emit(CompanionInitialized(event.companion));
@@ -897,7 +874,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
           }
         }
       } catch (e) {
-        print('❌ Error in GeminiService.initializeCompanion: $e');
+        print('❌ Error in GeminiService.initializeCompanion: $e -message bloc');
         // Even if Gemini initialization fails, we can still show the UI
         if (!isClosed) {
           emit(CompanionInitialized(event.companion));
@@ -912,27 +889,27 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         }
       }
     } catch (e) {
-      print('❌ Error initializing companion: $e');
+      print('❌ Error initializing companion: $e -message bloc');
       if (!isClosed) {
         emit(MessageError(error: e is Exception ? e : Exception(e.toString())));
       }
     }
   }
 
-  // OPTIMIZED: Load messages with comprehensive cache hierarchy and companion isolation
+  // Load messages with comprehensive cache hierarchy and companion isolation
   Future<void> _onLoadMessages(LoadMessagesEvent event, Emitter<MessageState> emit) async {
     // Check if bloc is still active
     if (isClosed) {
-      print('MessageBloc is closed, cannot load messages');
+      print('MessageBloc is closed, cannot load messages -message bloc');
       return;
     }
     
     try {
-      print('📨 Loading messages for companion: ${event.companionId}');
+      print('📨 Loading messages for companion: ${event.companionId} -message bloc');
       
       // CRITICAL: Verify this request is for the current companion to prevent mixing
       if (_currentCompanionId != null && _currentCompanionId != event.companionId) {
-        print('⚠️ Ignoring load request for ${event.companionId} - current companion is $_currentCompanionId');
+        print('⚠️ Ignoring load request for ${event.companionId} - current companion is $_currentCompanionId -message bloc');
         return;
       }
       
@@ -971,8 +948,6 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         print('✅ Filtered messages for companion: ${loadedMessages.length} messages');
       }
 
-      // STEP 2: Remove persistent storage (Hive) as requested - memory cache and DB only
-      
       // STEP 3: Process pending messages for this specific companion
       final pendingMessageIds = _pendingMessages
           .where((m) => m.companionId == event.companionId && m.userId == event.userId)

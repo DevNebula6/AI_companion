@@ -457,6 +457,9 @@ class ChatCacheService {
         await _prefs.remove(key);
       }
 
+      // 4. CRITICAL FIX: Clean session metadata to remove user's sessions
+      await _cleanSessionMetadataForUser(userId);
+
       // 5. Reset general cache flags
       await _prefs.remove('hasCache');
 
@@ -583,6 +586,30 @@ class ChatCacheService {
       print('============================');
     } catch (e) {
       print('❌ CACHE LIFECYCLE TEST ERROR: $e');
+    }
+  }
+
+  /// **NEW: Clean session metadata for a specific user**
+  Future<void> _cleanSessionMetadataForUser(String userId) async {
+    try {
+      final sessionDataString = _prefs.getString('session_metadata');
+      if (sessionDataString != null) {
+        final sessionData = jsonDecode(sessionDataString) as Map<String, dynamic>;
+        final updatedSessionData = <String, dynamic>{};
+        
+        // Keep only sessions that don't belong to the cleared user
+        sessionData.forEach((key, data) {
+          if (!key.startsWith('${userId}_')) {
+            updatedSessionData[key] = data;
+          }
+        });
+        
+        // Save the filtered metadata
+        await _prefs.setString('session_metadata', jsonEncode(updatedSessionData));
+        print('🧹 Cleaned session metadata for user $userId');
+      }
+    } catch (e) {
+      print('❌ Failed to clean session metadata for user $userId: $e');
     }
   }
 }
