@@ -338,7 +338,7 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
       // Build context sessions with SMART CONTEXT STRATEGY (summary preferred, fragments fallback)
       final contexts = recentVoiceMessages.map((msg) {
         final summary = msg.metadata['conversation_summary']?.toString();
-        final fragments = msg.voiceData?['conversationFragments'] as List<String>?;
+        final fragments = msg.messageFragments; // Use existing messageFragments field
         final statsData = msg.metadata['session_stats'] as Map<String, dynamic>?;
         final stats = statsData != null 
             ? SessionStats.fromJson(statsData) 

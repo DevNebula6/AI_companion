@@ -116,7 +116,6 @@ class EnhancedVoiceChatIntegration {
           'total_exchanges': _liveConversationFragments.length,
           'user_fragments': _countUserFragments(_liveConversationFragments),
           'ai_fragments': _countAIFragments(_liveConversationFragments),
-          'session_type': 'voice_conversation',
         },
       };
 
@@ -173,8 +172,8 @@ class EnhancedVoiceChatIntegration {
           efficientContextCount++;
         } else {
           // Fallback to conversation fragments (limited for token efficiency)
-          final fragments = message.voiceData?['conversationFragments'] as List<String>?;
-          if (fragments != null && fragments.isNotEmpty) {
+          final fragments = message.messageFragments; // Use existing messageFragments field
+          if (fragments.isNotEmpty) {
             final limitedFragments = fragments.take(6).join('\n'); // Limit for tokens
             contextParts.add('Previous conversation: $limitedFragments');
           }
@@ -293,7 +292,7 @@ Context Summary:''';
   /// Check if a message is a voice session message
   static bool isVoiceSessionMessage(Message message) {
     return message.isVoiceMessage && 
-           message.voiceData?['voice_session'] == true;
+           message.metadata['voice_session'] == true;
   }
 
   /// Extract conversation summary from voice message (for context)
@@ -305,7 +304,7 @@ Context Summary:''';
   /// Get conversation fragments from voice message (fallback for context)
   static List<String>? getConversationFragments(Message voiceMessage) {
     if (!isVoiceSessionMessage(voiceMessage)) return null;
-    return voiceMessage.voiceData?['conversationFragments'] as List<String>?;
+    return voiceMessage.messageFragments; // Use existing messageFragments field
   }
 
   /// Build efficient context from voice message (smart strategy)
@@ -316,9 +315,9 @@ Context Summary:''';
       // Preferred: Use efficient summary
       return 'Previous conversation summary: $summary';
     } else {
-      // Fallback: Use fragments (limited for token efficiency)
-      final fragments = getConversationFragments(voiceMessage);
-      if (fragments != null && fragments.isNotEmpty) {
+      // Fallback: Use fragments from messageFragments (limited for token efficiency)
+      final fragments = voiceMessage.voiceConversationFragments;
+      if (fragments.isNotEmpty) {
         final limitedFragments = fragments.take(5).join('\n');
         return 'Previous conversation: $limitedFragments';
       }
