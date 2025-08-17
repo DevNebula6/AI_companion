@@ -42,6 +42,11 @@ dependencies:
   go_router: ^16.0.0
   floating_bubbles: ^2.6.2
   fluid_background: ^1.0.5
+  record: ^6.0.0
+  audioplayers: ^6.5.0
+  speech_to_text: ^7.3.0
+  flutter_tts: ^4.2.3
+  http: ^1.1.0
   
 dev_dependencies:
   flutter_test:

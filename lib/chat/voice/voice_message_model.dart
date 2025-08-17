@@ -188,13 +188,13 @@ class VoiceSession {
   Map<String, dynamic> toMessageJson() {
     return {
       'id': id,
-      'message': conversationFragments, // Store as JSONB array
+      'message': conversationFragments, // Store as JSONB array in messageFragments
       'user_id': userId,
       'companion_id': companionId,
       'conversation_id': '${userId}_$companionId',
       'is_bot': false, // Voice sessions are collaborative
       'created_at': startTime.toIso8601String(),
-      'type': 'voice_session',
+      'type': 'voice', // Use MessageType.voice
       'metadata': {
         'voice_session': true,
         'session_duration': endTime?.difference(startTime).inSeconds ?? 0,

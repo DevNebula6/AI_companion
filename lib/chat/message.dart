@@ -43,9 +43,6 @@ class Message {
   final MediaType? mediaType;
   final Map<String, dynamic>? mediaMetadata;
 
-  // Voice session data (encapsulated in single field for clean database)
-  final Map<String, dynamic>? voiceData; // Contains VoiceMessage or VoiceSession data
-
   const Message({
     this.id,
     required this.messageFragments,
@@ -63,8 +60,6 @@ class Message {
     this.mediaUrl,
     this.mediaType,
     this.mediaMetadata,
-    // Voice session data
-    this.voiceData,
   });
 
   // Create from database record (expects JSONB array format for message field)
@@ -103,8 +98,6 @@ class Message {
       mediaMetadata: json['media_metadata'] != null 
           ? Map<String, dynamic>.from(json['media_metadata'] as Map)
           : null,
-      // Voice session data (encapsulated)
-      voiceData: json['voice_data'] as Map<String, dynamic>?,
     );
   } catch (e) {
     print('Error parsing message JSON: $e');
@@ -166,8 +159,6 @@ class Message {
       'media_url': mediaUrl,
       'media_type': mediaType?.toString(),
       'media_metadata': mediaMetadata,
-      // Voice session data (encapsulated)
-      'voice_data': voiceData,
     };
   }
 
@@ -223,12 +214,17 @@ class Message {
   // Helper method to check if message has multiple fragments
   bool get hasFragments => messageFragments.length > 1;
 
-  // Voice helper methods
-  bool get isVoiceMessage => type == MessageType.voice || voiceData != null;
-  bool get hasVoiceSession => voiceData?['voice_session'] == true;
-  String? get voiceTranscription => voiceData?['transcription']?.toString();
-  String? get voiceResponse => voiceData?['ai_response']?.toString();
-  double? get voiceDuration => voiceData?['duration']?.toDouble();
+  // Voice helper methods (voice data stored in metadata)
+  bool get isVoiceMessage => type == MessageType.voice || metadata['voice_session'] == true;
+  String? get voiceTranscription => metadata['transcription']?.toString();
+  String? get voiceResponse => metadata['ai_response']?.toString();
+  double? get voiceDuration => metadata['duration']?.toDouble();
+  int? get voiceFragmentsCount => metadata['fragments_count']?.toInt();
+  String? get voiceSessionStatus => metadata['status']?.toString();
+  
+  // Voice conversation fragments (uses existing messageFragments field)
+  List<String> get voiceConversationFragments => isVoiceMessage ? messageFragments : [];
+  String get voiceConversationText => voiceConversationFragments.join('\n');
 
   @override
   bool operator ==(Object other) =>

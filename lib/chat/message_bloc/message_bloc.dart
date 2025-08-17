@@ -294,8 +294,11 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
         isFromCache: false, // Fresh user input
       ));
       
-      // Generate AI response
-      await _processAIResponse(message, emit);
+      // Generate AI response but only if messsage is not a voice message
+      // This prevents unnecessary AI processing for voice messages
+      if (!message.isVoiceMessage){
+        await _processAIResponse(message, emit);
+      }
     } catch (e) {
       // Remove message from current messages if saving failed
       _currentMessages.removeWhere((m) => m.id == message.id);

@@ -263,7 +263,7 @@ class SupabaseVoiceChatIntegration extends ChangeNotifier {
         isBot: false,
         created_at: DateTime.now(),
         type: MessageType.voice,
-        voiceData: {
+        metadata: {
           'source': 'user_speech',
           'transcription_confidence': 0.9,
         },
@@ -295,7 +295,7 @@ class SupabaseVoiceChatIntegration extends ChangeNotifier {
         isBot: true,
         created_at: DateTime.now(),
         type: MessageType.voice,
-        voiceData: {
+        metadata: {
           'source': 'ai_response',
           'emotional_context': emotionalContext?.primaryEmotion.toString(),
           'intensity': emotionalContext?.intensity,
