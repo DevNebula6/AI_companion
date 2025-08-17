@@ -5,6 +5,7 @@ enum MessageType {
   text,
   image,
   audio,
+  voice,
   emoji,
   typing,
   systemMessage,
@@ -42,6 +43,9 @@ class Message {
   final MediaType? mediaType;
   final Map<String, dynamic>? mediaMetadata;
 
+  // Voice session data (encapsulated in single field for clean database)
+  final Map<String, dynamic>? voiceData; // Contains VoiceMessage or VoiceSession data
+
   const Message({
     this.id,
     required this.messageFragments,
@@ -59,6 +63,8 @@ class Message {
     this.mediaUrl,
     this.mediaType,
     this.mediaMetadata,
+    // Voice session data
+    this.voiceData,
   });
 
   // Create from database record (expects JSONB array format for message field)
@@ -80,7 +86,7 @@ class Message {
       created_at: json['created_at'] != null 
           ? DateTime.parse(json['created_at']) 
           : DateTime.now(),
-      type: MessageType.text,
+      type: _parseMessageType(json['type']),
       metadata: json['metadata'] != null 
           ? Map<String, dynamic>.from(json['metadata'] as Map)
           : <String, dynamic>{},
@@ -93,15 +99,12 @@ class Message {
           ? Map<String, dynamic>.from(json['entities'] as Map)
           : null,
       mediaUrl: json['media_url']?.toString(),
-      mediaType: json['media_type'] != null 
-          ? MediaType.values.firstWhere(
-              (e) => e.toString() == json['media_type'],
-              orElse: () => MediaType.image,
-            )
-          : null,
+      mediaType: _parseMediaType(json['media_type']),
       mediaMetadata: json['media_metadata'] != null 
           ? Map<String, dynamic>.from(json['media_metadata'] as Map)
           : null,
+      // Voice session data (encapsulated)
+      voiceData: json['voice_data'] as Map<String, dynamic>?,
     );
   } catch (e) {
     print('Error parsing message JSON: $e');
@@ -118,6 +121,32 @@ class Message {
   }
 }
 
+  /// Parse message type from string
+  static MessageType _parseMessageType(dynamic typeValue) {
+    if (typeValue == null) return MessageType.text;
+    
+    final typeStr = typeValue.toString();
+    for (final type in MessageType.values) {
+      if (type.toString().split('.').last == typeStr) {
+        return type;
+      }
+    }
+    return MessageType.text;
+  }
+
+  /// Parse media type from string
+  static MediaType? _parseMediaType(dynamic typeValue) {
+    if (typeValue == null) return null;
+    
+    final typeStr = typeValue.toString();
+    for (final type in MediaType.values) {
+      if (type.toString().split('.').last == typeStr) {
+        return type;
+      }
+    }
+    return null;
+  }
+
   // Convert to JSON for database
   Map<String, dynamic> toJson() {
     return {
@@ -128,7 +157,7 @@ class Message {
       'conversation_id': conversationId,
       'is_bot': isBot,
       'created_at': created_at.toIso8601String(),
-      'type': type.toString(),
+      'type': type.toString().split('.').last,
       'metadata': metadata,
       'confidence': confidence,
       'ai_context': aiContext,
@@ -137,6 +166,8 @@ class Message {
       'media_url': mediaUrl,
       'media_type': mediaType?.toString(),
       'media_metadata': mediaMetadata,
+      // Voice session data (encapsulated)
+      'voice_data': voiceData,
     };
   }
 
@@ -191,6 +222,13 @@ class Message {
   
   // Helper method to check if message has multiple fragments
   bool get hasFragments => messageFragments.length > 1;
+
+  // Voice helper methods
+  bool get isVoiceMessage => type == MessageType.voice || voiceData != null;
+  bool get hasVoiceSession => voiceData?['voice_session'] == true;
+  String? get voiceTranscription => voiceData?['transcription']?.toString();
+  String? get voiceResponse => voiceData?['ai_response']?.toString();
+  double? get voiceDuration => voiceData?['duration']?.toDouble();
 
   @override
   bool operator ==(Object other) =>
