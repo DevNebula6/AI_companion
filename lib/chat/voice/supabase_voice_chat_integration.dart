@@ -272,14 +272,11 @@ class SupabaseVoiceChatIntegration extends ChangeNotifier {
       // Send user message to bloc
       _messageBloc!.add(SendMessageEvent(message: userMessage));
       
-      // Get conversation history
-      final conversationHistory = await _getConversationHistory();
-      
       // Generate AI response with voice context
       final aiResponse = await _geminiService.generateVoiceResponse(
+        companion: _currentCompanion!,
         companionId: _currentCompanion!.id,
         userMessage: transcription,
-        conversationHistory: conversationHistory,
         currentEmotion: null, // Could be enhanced with emotion detection
       );
       

@@ -1,6 +1,5 @@
 import 'dart:async';
 import '../gemini/gemini_service.dart';
-import '../message.dart';
 import '../../Companion/ai_model.dart';
 import 'supabase_tts_service.dart';
 
@@ -17,19 +16,19 @@ class VoiceEnhancedGeminiService {
   Future<String> generateVoiceResponse({
     required String companionId,
     required String userMessage,
-    required List<Message> conversationHistory,
+    required AICompanion companion,
     EmotionalContext? currentEmotion,
   }) async {
     try {
-      // Set up companion state using existing GeminiService methods
-      // Note: GeminiService handles companion initialization internally
-      // We just need to ensure the response generation includes voice context
+      // CORRECTED: Since we're using the existing chat session, the full conversation
+      // context (text + voice) is ALREADY available in the session.
+      // No need to send additional context - this would be redundant and wasteful!
       
-      // Enhance user message with voice context
-      final enhancedUserMessage = _enhanceMessageForVoice(userMessage, currentEmotion);
+      // Only enhance the user message with emotional context if present
+      final enhancedUserMessage = _enhanceUserMessageOnly(userMessage, currentEmotion);
       
       // Use existing GeminiService generateResponse method
-      // The voice instructions should be integrated into the system prompt
+      // The session already contains full conversation history and voice instructions
       final response = await _geminiService.generateResponse(enhancedUserMessage);
       
       return response;
@@ -39,17 +38,15 @@ class VoiceEnhancedGeminiService {
     }
   }
 
-  /// Enhance user message with voice context
-  String _enhanceMessageForVoice(String userMessage, EmotionalContext? emotion) {
-    var enhancedMessage = userMessage;
-    
+  /// Enhance ONLY the user message with emotional context (no redundant history)
+  String _enhanceUserMessageOnly(String userMessage, EmotionalContext? emotion) {
     // Add emotional context if available
     if (emotion != null) {
       final emotionDesc = _getEmotionDescription(emotion);
-      enhancedMessage = '[User speaking with $emotionDesc] $userMessage';
+      return '[User speaking with $emotionDesc] $userMessage';
     }
     
-    return enhancedMessage;
+    return userMessage;
   }
 
   /// Get voice-specific system instructions for companions
