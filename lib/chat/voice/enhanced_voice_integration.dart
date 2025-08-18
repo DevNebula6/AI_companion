@@ -22,7 +22,7 @@ class EnhancedVoiceChatIntegration {
   // Real-time session tracking (no DB storage during conversation)
   String? _activeSessionId;
   VoiceSession? _activeSession;
-  List<String> _liveConversationFragments = [];
+  final List<String> _liveConversationFragments = [];
   DateTime? _sessionStartTime;
 
   /// Start voice session (real-time only, no database storage yet)
@@ -41,7 +41,7 @@ class EnhancedVoiceChatIntegration {
       _liveConversationFragments.clear();
       _sessionStartTime = DateTime.now();
 
-      debugPrint('🎤 Voice session started: ${_activeSessionId} (real-time only)');
+      debugPrint('🎤 Voice session started: $_activeSessionId (real-time only)');
       return _activeSessionId!;
     } catch (e) {
       debugPrint('❌ Failed to start voice session: $e');
@@ -246,7 +246,7 @@ Context Summary:''';
     if (fragmentsLength == 0) return 1.0;
     
     final efficiency = summaryLength / fragmentsLength;
-    debugPrint('📈 Token efficiency: ${(efficiency * 100).toStringAsFixed(1)}% (${summaryLength}/${fragmentsLength} chars)');
+    debugPrint('📈 Token efficiency: ${(efficiency * 100).toStringAsFixed(1)}% ($summaryLength/$fragmentsLength chars)');
     
     return efficiency;
   }

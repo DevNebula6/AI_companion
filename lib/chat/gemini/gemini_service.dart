@@ -660,7 +660,7 @@ class GeminiService {
         state.updateMetadata('user_messages', userMessages);
         state.updateMetadata('last_context_sync', DateTime.now().toIso8601String());
         
-        _log.info('✅ Initialized state with ${sortedMessages.length} processed messages (${userMessages} user, ${botMessages} bot)');
+        _log.info('✅ Initialized state with ${sortedMessages.length} processed messages ($userMessages user, $botMessages bot)');
       } else {
         _log.info('ℹ️ No existing messages found - conversation will start fresh');
       }
@@ -860,7 +860,7 @@ class GeminiService {
         // Take only the most recent exchanges
         final recentHistory = actualHistory.skip(actualHistory.length - maxContextMessages).toList();
         history.addAll(recentHistory);
-        _log.info('📝 Built minimal session history: ${history.length} messages (from ${state.history.length} total) - Using last ${maxContextMessages} messages for optimal token efficiency');
+        _log.info('📝 Built minimal session history: ${history.length} messages (from ${state.history.length} total) - Using last $maxContextMessages messages for optimal token efficiency');
       } else {
         // Use all available history
         history.addAll(actualHistory);
@@ -952,7 +952,7 @@ class GeminiService {
         unawaited(_saveSessionMetadata());
       }
 
-      _log.info('🎯 Response generated successfully: "${aiText.length > 50 ? aiText.substring(0, 50) + "..." : aiText}"');
+      _log.info('🎯 Response generated successfully: "${aiText.length > 50 ? "${aiText.substring(0, 50)}..." : aiText}"');
       return aiText;
     } catch (e, stackTrace) {
       _log.severe('❌ Response generation failed: $e', e, stackTrace);
@@ -1514,7 +1514,7 @@ class GeminiService {
     final contextMetrics = <String, dynamic>{
       'average_context_size': _calculateAverageContextSize(),
       'cached_system_prompts': _cachedSystemPrompts.length,
-      'memory_cache_efficiency': _companionStates.length > 0 ? (_stateAccessTimes.length / _companionStates.length) : 0,
+      'memory_cache_efficiency': _companionStates.isNotEmpty ? (_stateAccessTimes.length / _companionStates.length) : 0,
     };
     
     // Performance metrics

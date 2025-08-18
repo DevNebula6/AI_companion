@@ -426,7 +426,7 @@ String getPersonalityType(AICompanion companion) {
       return "Compare preferences and tasting experiences";
     }
     
-    return "Have a meaningful conversation about ${topic}";
+    return "Have a meaningful conversation about $topic";
   }
 IconData getPersonalityIcon(AICompanion companion) {
   String type = getPersonalityType(companion);

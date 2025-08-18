@@ -229,7 +229,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
     
     final userMessage = Message(
-      id: 'user_${DateTime.now().millisecondsSinceEpoch}_${_currentUserId}', // Provide unique ID
+      id: 'user_${DateTime.now().millisecondsSinceEpoch}_$_currentUserId', // Provide unique ID
       messageFragments: [_messageController.text.trim()],
       userId: _currentUserId!,
       companionId: widget.companion.id,
