@@ -328,15 +328,27 @@ class GeminiService {
   }
 
   /// **OPTIMIZED: Cache system prompts to avoid regeneration**
-  String _getOrCacheSystemPrompt(AICompanion companion) {
-    if (_cachedSystemPrompts.containsKey(companion.id)) {
-      return _cachedSystemPrompts[companion.id]!;
+  String _getOrCacheSystemPrompt(AICompanion companion, {bool isVoiceMode = false}) {
+    // Use different cache keys for voice vs text mode
+    final cacheKey = isVoiceMode ? '${companion.id}_voice' : companion.id;
+    
+    if (_cachedSystemPrompts.containsKey(cacheKey)) {
+      return _cachedSystemPrompts[cacheKey]!;
     }
     
-    final prompt = buildCompanionIntroduction(companion);
-    _cachedSystemPrompts[companion.id] = prompt;
+    String prompt = buildCompanionIntroduction(companion);
+    
+    // Add voice-specific instructions for voice mode
+    if (isVoiceMode) {
+      // Import voice instructions from VoiceEnhancedGeminiService
+      final voiceInstructions = getVoiceSystemInstructions(companion);
+      prompt += '\n\n$voiceInstructions';
+    }
+    
+    _cachedSystemPrompts[cacheKey] = prompt;
     return prompt;
   }
+
 
 
   List<Content> _buildOptimizedSessionHistory(CompanionState state) {
@@ -353,7 +365,9 @@ class GeminiService {
       content.parts.any((part) => 
         part is TextPart && 
         (part.text.contains('CHARACTER ASSIGNMENT') || 
-         part.text.contains('EMBODIMENT INSTRUCTIONS'))
+         part.text.contains('EMBODIMENT INSTRUCTIONS') ||
+         part.text.contains('VOICE CONVERSATION GUIDELINES') ||
+         part.text.contains('VOICE DELIVERY INSTRUCTIONS'))
       )
     );
     
@@ -747,7 +761,7 @@ class GeminiService {
   }
 
   /// **ENHANCED: Robust persistent session management with intelligent reuse**
-  Future<ChatSession> _getOrCreatePersistentSession(CompanionState state) async {
+  Future<ChatSession> _getOrCreatePersistentSession(CompanionState state, {bool isVoiceMode = false}) async {
     await _getOptimizedModel();
     
     final sessionKey = '${state.userId}_${state.companionId}';
@@ -814,7 +828,7 @@ class GeminiService {
     // **CRITICAL: Validate history before creating session**
     if (sessionHistory.isEmpty) {
       _log.warning('⚠️ Empty session history - adding companion introduction');
-      final intro = _getOrCacheSystemPrompt(state.companion);
+      final intro = _getOrCacheSystemPrompt(state.companion, isVoiceMode: isVoiceMode);
       sessionHistory.add(Content.text(intro));
       // Also add to state so it persists
       if (state.history.isEmpty || !state.history.any((c) => 
@@ -873,7 +887,7 @@ class GeminiService {
 
 
   /// **ENHANCED: Response generation with comprehensive session validation and context preservation**
-  Future<String> generateResponse(String userMessage) async {
+  Future<String> generateResponse(String userMessage, {bool isVoiceMode = false}) async {
     final stopwatch = Stopwatch()..start();
     
     if (_activeCompanionKey == null) {
@@ -896,7 +910,7 @@ class GeminiService {
       }
       
       // **ENHANCED: Get or create session with robust validation**
-      final chatSession = await _getOrCreatePersistentSession(state);
+      final chatSession = await _getOrCreatePersistentSession(state, isVoiceMode: isVoiceMode);
       
       // **CRITICAL: Validate session before use**
       final sessionKey = '${state.userId}_${state.companionId}';

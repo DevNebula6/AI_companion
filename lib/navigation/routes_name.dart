@@ -6,4 +6,5 @@ class RoutesName {
   static const userProfile = '/user-profile';
   static const companionSelection = '/companion-selection';
   static const chat = '/chat';
+  static const voiceCall = '/voice-call';
 }

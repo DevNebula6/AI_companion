@@ -133,7 +133,7 @@ class VoiceSessionCompleted extends VoiceState {
   final AICompanion companion;
   final VoiceSession completedSession;
   final String? conversationSummary;
-  final String messageId; // ID of the message created in database
+  final String? messageId; // ID of the message created in database (null if session was discarded)
   final SessionStats stats;
 
   const VoiceSessionCompleted({
@@ -141,7 +141,7 @@ class VoiceSessionCompleted extends VoiceState {
     required this.companion,
     required this.completedSession,
     this.conversationSummary,
-    required this.messageId,
+    this.messageId,
     required this.stats,
   });
 
@@ -198,18 +198,16 @@ class VoiceContextLoaded extends VoiceState {
 class VoiceSessionSummaryGenerated extends VoiceState {
   final String sessionId;
   final String summary;
-  final List<String> keyTopics;
   final Map<String, dynamic> summaryMetadata;
 
   const VoiceSessionSummaryGenerated({
     required this.sessionId,
     required this.summary,
-    required this.keyTopics,
     required this.summaryMetadata,
   });
 
   @override
-  List<Object?> get props => [sessionId, summary, keyTopics, summaryMetadata];
+  List<Object?> get props => [sessionId, summary, summaryMetadata];
 }
 
 /// Voice error types from events

@@ -136,6 +136,7 @@ class VoiceSession {
   final String id;
   final String userId;
   final String companionId;
+  final String conversationId; // Store the proper conversation ID from the chat
   final List<String> conversationFragments; // User + AI responses in order
   final DateTime startTime;
   final DateTime? endTime;
@@ -146,6 +147,7 @@ class VoiceSession {
     required this.id,
     required this.userId,
     required this.companionId,
+    required this.conversationId,
     required this.conversationFragments,
     required this.startTime,
     this.endTime,
@@ -157,11 +159,13 @@ class VoiceSession {
   factory VoiceSession.create({
     required String userId,
     required String companionId,
+    required String conversationId,
   }) {
     return VoiceSession(
       id: 'voice_session_${DateTime.now().millisecondsSinceEpoch}',
       userId: userId,
       companionId: companionId,
+      conversationId: conversationId,
       conversationFragments: [],
       startTime: DateTime.now(),
       status: VoiceSessionStatus.active,
@@ -191,7 +195,7 @@ class VoiceSession {
       'message': conversationFragments, // Store as JSONB array in messageFragments
       'user_id': userId,
       'companion_id': companionId,
-      'conversation_id': '${userId}_$companionId',
+      'conversation_id': conversationId, // Use the proper conversation ID
       'is_bot': false, // Voice sessions are collaborative
       'created_at': startTime.toIso8601String(),
       'type': 'voice', // Use MessageType.voice
@@ -211,6 +215,7 @@ class VoiceSession {
       id: json['id']?.toString() ?? '',
       userId: json['user_id']?.toString() ?? '',
       companionId: json['companion_id']?.toString() ?? '',
+      conversationId: json['conversation_id']?.toString() ?? '',
       conversationFragments: List<String>.from(json['message'] ?? []),
       startTime: DateTime.parse(json['created_at']),
       endTime: json['end_time'] != null ? DateTime.parse(json['end_time']) : null,
@@ -235,6 +240,7 @@ class VoiceSession {
     String? id,
     String? userId,
     String? companionId,
+    String? conversationId,
     List<String>? conversationFragments,
     DateTime? startTime,
     DateTime? endTime,
@@ -245,6 +251,7 @@ class VoiceSession {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       companionId: companionId ?? this.companionId,
+      conversationId: conversationId ?? this.conversationId,
       conversationFragments: conversationFragments ?? this.conversationFragments,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,

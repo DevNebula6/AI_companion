@@ -312,6 +312,26 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             ],
           ) : null,
           actions: [
+            // Voice call button
+            IconButton(
+              icon: const Icon(
+                Icons.call,
+                color: Colors.white,
+              ),
+              onPressed: () {
+                if (_currentUserId != null) {
+                  // Navigate to voice call screen
+                  context.push(
+                    RoutesName.voiceCall,
+                    extra: {
+                      'companion': widget.companion,
+                      'conversationId': widget.conversationId,
+                      'userId': _currentUserId,
+                    },
+                  );
+                }
+              },
+            ),
             IconButton(
               icon: Icon(
                 _showProfilePanel ? Icons.info : Icons.info_outline,
