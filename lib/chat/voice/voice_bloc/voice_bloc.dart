@@ -3,11 +3,13 @@ import 'package:ai_companion/chat/voice/voice_bloc/voice_event.dart';
 import 'package:ai_companion/chat/voice/voice_bloc/voice_state.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import '../voice_message_model.dart';
+import '../supabase_tts_service.dart';
+import '../voice_enhanced_gemini_service.dart';
 import '../../message_bloc/message_bloc.dart';
 import '../../message_bloc/message_event.dart';
 import '../../message.dart';
-import '../../gemini/gemini_service.dart';
 import '../../../Companion/ai_model.dart';
 
 /// Voice BLoC for managing real-time voice chat functionality
@@ -15,12 +17,15 @@ import '../../../Companion/ai_model.dart';
 /// single-session storage with AI-generated summaries
 class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
   final MessageBloc _messageBloc;
-  final GeminiService _geminiService;
+  final VoiceEnhancedGeminiService _voiceGeminiService;
+  final SupabaseTTSService _ttsService;
+  final SpeechToText _speechToText;
 
   // Active session management
   String? _activeSessionId;
   VoiceSession? _activeSession;
-  List<String> _realtimeFragments = [];
+  AICompanion? _currentCompanion; // Cache companion directly
+  final List<String> _realtimeFragments = [];
   
   // Session analytics
   final Map<String, DateTime> _fragmentTimestamps = {};
@@ -28,9 +33,13 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
 
   VoiceBloc({
     required MessageBloc messageBloc,
-    required GeminiService geminiService,
+    required VoiceEnhancedGeminiService voiceGeminiService,
+    required SupabaseTTSService ttsService,
+    required SpeechToText speechToText,
   })  : _messageBloc = messageBloc,
-        _geminiService = geminiService,
+        _voiceGeminiService = voiceGeminiService,
+        _ttsService = ttsService,
+        _speechToText = speechToText,
         super(VoiceInitial()) {
     
     on<InitializeVoiceSystemEvent>(_onInitializeVoiceSystem);
@@ -56,6 +65,9 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
     ));
 
     try {
+      // OPTIMIZED: Cache companion directly from event
+      _currentCompanion = event.companion;
+
       // Check permissions and capabilities
       final hasMicPermission = await _checkMicrophonePermission();
       final hasTTS = await _checkTTSAvailability();
@@ -88,6 +100,7 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
       _activeSession = VoiceSession.create(
         userId: event.userId,
         companionId: event.companion.id,
+        conversationId: event.conversationId,
       );
       _activeSessionId = _activeSession!.id;
       _realtimeFragments.clear();
@@ -102,7 +115,7 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
         realtimeFragments: [],
       ));
 
-      debugPrint('🎤 Voice session started: ${_activeSessionId}');
+      debugPrint('🎤 Voice session started: $_activeSessionId');
     } catch (e) {
       emit(VoiceSessionError(
         sessionId: 'session_start_error',
@@ -140,13 +153,18 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
         }
       }
 
+      // ENHANCED: Process voice message if this is a user fragment
+      if (event.isUserFragment) {
+        await _processVoiceMessage(event.fragment, emit);
+      }
+
       // Emit updated state
       if (state is VoiceSessionActive) {
         final currentState = state as VoiceSessionActive;
         emit(currentState.copyWith(
           session: _activeSession,
           realtimeFragments: List.from(_realtimeFragments),
-          isProcessing: false, // Done processing this fragment
+          isProcessing: event.isUserFragment, // Show processing for user messages
         ));
       }
 
@@ -155,6 +173,52 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
       add(VoiceErrorEvent(
         sessionId: event.sessionId,
         error: 'Failed to add voice fragment: $e',
+        errorType: VoiceErrorType.aiResponseFailed,
+      ));
+    }
+  }
+
+  /// Process voice message using VoiceEnhancedGeminiService
+  Future<void> _processVoiceMessage(String userMessage, Emitter<VoiceState> emit) async {
+    if (_activeSession == null) return;
+
+    try {
+      // OPTIMIZED: Get companion directly from cache - no async needed!
+      final companion = _getCompanionFromSession(_activeSession!);
+      
+      // Generate AI response using voice-enhanced service
+      final aiResponse = await _voiceGeminiService.generateVoiceResponse(
+        userMessage: userMessage,
+        companion: companion,
+        companionId: companion.id,
+      );
+
+      // Add AI response as a new fragment
+      add(AddVoiceFragmentEvent(
+        sessionId: _activeSession!.id,
+        fragment: aiResponse,
+        isUserFragment: false,
+      ));
+
+      // ENHANCED: Generate TTS audio if available
+      if (_ttsService.isAvailable && companion.azureVoiceConfig != null) {
+        try {
+          await _ttsService.synthesizeSpeech(
+            text: aiResponse,
+            companion: companion,
+          );
+          debugPrint('🔊 TTS audio generated for response');
+        } catch (ttsError) {
+          debugPrint('⚠️ TTS generation failed: $ttsError');
+          // Continue without TTS - don't fail the whole process
+        }
+      }
+
+    } catch (e) {
+      debugPrint('❌ Voice message processing failed: $e');
+      add(VoiceErrorEvent(
+        sessionId: _activeSession!.id,
+        error: 'Failed to process voice message: $e',
         errorType: VoiceErrorType.aiResponseFailed,
       ));
     }
@@ -183,14 +247,46 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
     Emitter<VoiceState> emit,
   ) async {
     try {
+      // VALIDATION: Check if session has meaningful content
+      if (event.voiceSession.conversationFragments.isEmpty) {
+        debugPrint('⚠️ Voice session ended with no conversation fragments - discarding session');
+        _cleanup();
+        emit(VoiceSessionCompleted(
+          sessionId: event.sessionId,
+          companion: _getCompanionFromSession(event.voiceSession),
+          completedSession: event.voiceSession.endSession(),
+          conversationSummary: null,
+          messageId: null, // No message created for empty sessions
+          stats: _calculateSessionStats(event.voiceSession),
+        ));
+        return;
+      }
+
+      // VALIDATION: Check minimum fragment count (at least one meaningful exchange)
+      final meaningfulFragments = event.voiceSession.conversationFragments
+          .where((fragment) => fragment.trim().isNotEmpty && fragment.length > 3)
+          .toList();
+      
+      if (meaningfulFragments.length < 2) { // Need at least user + AI response
+        debugPrint('⚠️ Voice session ended with insufficient meaningful content (${meaningfulFragments.length} fragments) - discarding session');
+        _cleanup();
+        emit(VoiceSessionCompleted(
+          sessionId: event.sessionId,
+          companion: _getCompanionFromSession(event.voiceSession),
+          completedSession: event.voiceSession.endSession(),
+          conversationSummary: null,
+          messageId: null, // No message created for insufficient content
+          stats: _calculateSessionStats(event.voiceSession),
+        ));
+        return;
+      }
+
+      // OPTIMIZED: Get companion directly from cache - no async needed!
+      final companion = _getCompanionFromSession(event.voiceSession);
+      
       emit(VoiceSessionEnding(
         sessionId: event.sessionId,
-        companion: event.voiceSession.companionId == _activeSession?.companionId 
-            ? _getCompanionFromSession(event.voiceSession) 
-            : AICompanion(id: event.voiceSession.companionId, name: 'Unknown', 
-                gender: CompanionGender.other, artStyle: CompanionArtStyle.realistic,
-                avatarUrl: '', description: '', physical: PhysicalAttributes.fromJson({}),
-                personality: PersonalityTraits.fromJson({}), background: [], skills: [], voice: []),
+        companion: companion,
         session: event.voiceSession,
         isGeneratingSummary: event.shouldGenerateSummary,
       ));
@@ -201,7 +297,7 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
       if (event.shouldGenerateSummary && event.voiceSession.conversationFragments.isNotEmpty) {
         emit(VoiceSessionEnding(
           sessionId: event.sessionId,
-          companion: _getCompanionFromSession(event.voiceSession),
+          companion: companion,
           session: event.voiceSession,
           isGeneratingSummary: true,
           summaryProgress: 'Analyzing conversation...',
@@ -209,11 +305,11 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
 
         conversationSummary = await _generateSessionSummary(
           event.voiceSession.conversationFragments,
-          _getCompanionFromSession(event.voiceSession),
+          companion,
         );
       }
 
-      // Create message for database storage
+      // Create message for database storage - MessageBloc will handle proper conversation ID
       final messageData = event.voiceSession.endSession().toMessageJson();
       
       // ENHANCED: Add comprehensive session metadata with token efficiency tracking
@@ -253,7 +349,7 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
 
       emit(VoiceSessionCompleted(
         sessionId: event.sessionId,
-        companion: _getCompanionFromSession(event.voiceSession),
+        companion: companion,
         completedSession: event.voiceSession.endSession(),
         conversationSummary: conversationSummary,
         messageId: message.id ?? 'unknown',
@@ -283,12 +379,10 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
         event.companion,
       );
 
-      final keyTopics = _extractKeyTopics(event.conversationFragments);
 
       emit(VoiceSessionSummaryGenerated(
         sessionId: event.sessionId,
         summary: summary,
-        keyTopics: keyTopics,
         summaryMetadata: {
           'original_fragments': event.conversationFragments.length,
           'summary_length': summary.length,
@@ -338,7 +432,7 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
       // Build context sessions with SMART CONTEXT STRATEGY (summary preferred, fragments fallback)
       final contexts = recentVoiceMessages.map((msg) {
         final summary = msg.metadata['conversation_summary']?.toString();
-        final fragments = msg.messageFragments; // Use existing messageFragments field
+        final fragments = msg.messageFragments;
         final statsData = msg.metadata['session_stats'] as Map<String, dynamic>?;
         final stats = statsData != null 
             ? SessionStats.fromJson(statsData) 
@@ -434,69 +528,26 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
     }
   }
 
-  /// Generate AI summary for conversation fragments
+  /// Generate AI summary for conversation fragments using voice-enhanced service
   Future<String> _generateSessionSummary(
     List<String> fragments,
     AICompanion companion,
   ) async {
     if (fragments.isEmpty) return 'Empty conversation';
 
-    final conversationText = fragments.join('\n');
-    
-    final summaryPrompt = '''
-Summarize this voice conversation between a user and ${companion.name} concisely for future context. 
-Focus on:
-- Key topics discussed
-- Important user preferences or information shared
-- ${companion.name}'s personality traits that emerged
-- Any decisions or plans made
-- Emotional tone of the conversation
-
-Keep the summary under 150 words but include all important context for future conversations.
-
-Conversation:
-$conversationText
-
-Summary:''';
-
     try {
-      return await _geminiService.generateResponse(summaryPrompt);
+      // Use voice-enhanced service for better summarization with companion context
+      return await _voiceGeminiService.generateVoiceConversationSummary(
+        conversationFragments: fragments,
+        companion: companion,
+      );
     } catch (e) {
-      debugPrint('Failed to generate AI summary: $e');
-      // Fallback to simple summary
-      return _generateFallbackSummary(fragments, companion);
+      debugPrint('Voice-enhanced summary failed, falling back to basic: $e');
+      throw Exception('Summary generation failed: $e');
     }
   }
 
-  /// Generate fallback summary if AI generation fails
-  String _generateFallbackSummary(List<String> fragments, AICompanion companion) {
-    final userFragments = fragments.where((f) => f.startsWith('User:')).length;
-    final aiFragments = fragments.where((f) => f.startsWith('${companion.name}:')).length;
-    final topics = _extractKeyTopics(fragments);
-    
-    return 'Voice conversation with ${companion.name}: $userFragments user messages, $aiFragments AI responses. Topics: ${topics.take(3).join(', ')}.';
-  }
 
-  /// Extract key topics from conversation fragments
-  List<String> _extractKeyTopics(List<String> fragments) {
-    // Simple keyword extraction - could be enhanced with NLP
-    final keywords = <String>[];
-    final conversationText = fragments.join(' ').toLowerCase();
-    
-    // Common topic keywords
-    final topicPatterns = [
-      'work', 'family', 'music', 'movies', 'travel', 'food', 'health',
-      'hobbies', 'sports', 'books', 'technology', 'feelings', 'plans'
-    ];
-    
-    for (final pattern in topicPatterns) {
-      if (conversationText.contains(pattern)) {
-        keywords.add(pattern);
-      }
-    }
-    
-    return keywords.take(5).toList();
-  }
 
   /// Calculate session statistics
   SessionStats _calculateSessionStats(VoiceSession session) {
@@ -562,35 +613,58 @@ Summary:''';
     return combinedContext;
   }
 
-  /// Get companion from session
+  /// Get companion from session - OPTIMIZED: Use cached companion
   AICompanion _getCompanionFromSession(VoiceSession session) {
-    // This would typically fetch from a companion service
-    // For now, return a basic companion
-    return AICompanion(
-      id: session.companionId,
-      name: session.companionId,
-      gender: CompanionGender.other,
-      artStyle: CompanionArtStyle.realistic,
-      avatarUrl: '',
-      description: '',
-      physical: PhysicalAttributes.fromJson({}),
-      personality: PersonalityTraits.fromJson({}),
-      background: [],
-      skills: [],
-      voice: [],
-    );
+    if (_currentCompanion == null) {
+      throw StateError('No companion cached. Initialize voice system first with InitializeVoiceSystemEvent.');
+    }
+    
+    if (_currentCompanion!.id != session.companionId) {
+      throw ArgumentError('Companion ID mismatch: expected ${session.companionId}, got ${_currentCompanion!.id}');
+    }
+    
+    return _currentCompanion!;
   }
 
   /// Check microphone permission
   Future<bool> _checkMicrophonePermission() async {
-    // Implementation would check actual permissions
-    return true; // Placeholder
+    try {
+      // Use the instance field for speech_to_text
+      final available = await _speechToText.initialize(
+        onError: (error) => debugPrint('Speech recognition error: ${error.errorMsg}'),
+        onStatus: (status) => debugPrint('Speech recognition status: $status'),
+      );
+      
+      if (!available) {
+        debugPrint('❌ Speech recognition not available');
+        return false;
+      }
+      
+      debugPrint('✅ Microphone permission granted');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error checking microphone permission: $e');
+      return false;
+    }
   }
 
   /// Check TTS availability
   Future<bool> _checkTTSAvailability() async {
-    // Implementation would check TTS engine availability
-    return true; // Placeholder
+    try {
+      // Use the instance field for TTS service
+      final isAvailable = _ttsService.isAvailable;
+      
+      if (!isAvailable) {
+        debugPrint('❌ TTS service not available');
+        return false;
+      }
+      
+      debugPrint('✅ TTS service available');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error checking TTS availability: $e');
+      return false;
+    }
   }
 
   /// Check if error type can be retried
@@ -616,7 +690,14 @@ Summary:''';
     _realtimeFragments.clear();
     _fragmentTimestamps.clear();
     _responseTimings.clear();
+    // Keep _currentCompanion cached for efficiency - only clear on explicit companion change
     debugPrint('🧹 Voice session cleaned up');
+  }
+
+  /// Clear companion cache (call when switching companions)
+  void clearCompanionCache() {
+    _currentCompanion = null;
+    debugPrint('🗑️ Voice companion cache cleared');
   }
 
   /// Get current active session ID

@@ -3,6 +3,9 @@ import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/companion_repository.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
+import 'package:ai_companion/chat/voice/voice_bloc/voice_bloc.dart';
+import 'package:ai_companion/chat/voice/voice_enhanced_gemini_service.dart';
+import 'package:ai_companion/chat/voice/supabase_tts_service.dart';
 import 'package:ai_companion/services/hive_service.dart';
 import 'package:ai_companion/splash_screen.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +23,7 @@ import 'package:ai_companion/themes/theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_companion/services/connectivity_service.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import 'navigation/app_routes.dart';
 
@@ -58,7 +62,7 @@ Future<void> _initializeCoreServices() async {
 
     // Create ChatCacheService instance
     final chatCacheService = ChatCacheService(prefs);
-
+    
     runApp(
       MultiProvider(
         providers: [
@@ -110,6 +114,31 @@ Future<void> _initializeCoreServices() async {
               return messageBloc;
             },
             lazy: false,
+          ),
+          BlocProvider<VoiceBloc>(
+            create: (context) {
+              final messageBloc = context.read<MessageBloc>();
+              
+              // Initialize TTS service with Azure credentials
+              final ttsService = SupabaseTTSService();
+              
+              // Initialize TTS service asynchronously (fire and forget)
+              ttsService.initialize(
+                azureApiKey: dotenv.env['AZURE_TTS_API_KEY'],
+                azureRegion: dotenv.env['AZURE_TTS_REGION'] ?? 'eastus',
+              ).then((_) {
+                print('✅ TTS service initialized successfully');
+              }).catchError((e) {
+                print('❌ TTS service initialization failed: $e');
+              });
+              
+              return VoiceBloc(
+                messageBloc: messageBloc,
+                voiceGeminiService: VoiceEnhancedGeminiService(),
+                ttsService: ttsService,
+                speechToText: SpeechToText(),
+              );
+            },
           ),
         ],
         child: const MainApp(),

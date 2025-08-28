@@ -1,4 +1,6 @@
 
+import '../chat/voice/azure_voice_characteristics.dart';
+
 class AICompanion {
   final String id;
   final String name;
@@ -12,6 +14,9 @@ class AICompanion {
   final List<String> skills;
   final List<String> voice;
   final Map<String, dynamic>? metadata;
+  /// Azure-specific voice characteristics for TTS generation
+  /// This field contains detailed Azure voice parameters and is not shown to users
+  final AzureVoiceCharacteristics? azureVoiceConfig;
 
   AICompanion({
     required this.id,
@@ -26,6 +31,7 @@ class AICompanion {
     required this.skills,
     required this.voice,
     this.metadata,
+    this.azureVoiceConfig,
   });
 
   factory AICompanion.fromJson(Map<String, dynamic> json) => AICompanion(
@@ -47,6 +53,9 @@ class AICompanion {
     skills: List<String>.from(json['skills']),
     voice: List<String>.from(json['voice']),
     metadata: json['metadata'] as Map<String, dynamic>? ?? {},
+    azureVoiceConfig: json['azureVoiceConfig'] != null 
+        ? AzureVoiceCharacteristics.fromJson(json['azureVoiceConfig'])
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -62,6 +71,7 @@ class AICompanion {
     'skills': skills,
     'voice': voice,
     'metadata': metadata ?? {},
+    'azureVoiceConfig': azureVoiceConfig?.toJson(),
   };
 }
 

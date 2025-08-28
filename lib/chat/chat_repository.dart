@@ -104,7 +104,7 @@ class ChatRepository implements IChatRepository {
   final Map<String, DateTime> _cacheAccessTimes = {};
   final LinkedHashMap<String, AICompanion> _memoryCache = LinkedHashMap();
   
-  // OPTIMIZATION: Conversation ID cache to avoid repeated database lookups
+  // OPTIMIZATION:  cache to avoid repeated database lookups
   final Map<String, String> _conversationIdCache = {}; // key: "userId_companionId", value: conversationId
 
   // Private constructor - use factory methods instead

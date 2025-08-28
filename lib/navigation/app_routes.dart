@@ -9,6 +9,7 @@ import 'package:ai_companion/Views/Starter_Screen/onboarding_screen.dart';
 import 'package:ai_companion/Views/Starter_Screen/sign_page.dart';
 import 'package:ai_companion/Views/AI_selection/companion_selection.dart';
 import 'package:ai_companion/Views/chat_screen/chat_page.dart';
+import 'package:ai_companion/Views/voice_call/voice_call_screen.dart';
 import 'package:ai_companion/Views/user_profile_screen.dart';
 import 'package:ai_companion/splash_screen.dart';
 import 'package:ai_companion/Companion/ai_model.dart';
@@ -162,6 +163,27 @@ class AppRoutes {
           conversationId: extra['conversationId'] ?? '',
           companion: extra['companion'] as AICompanion,
           navigationSource: extra['navigationSource'],
+        );
+      },
+    ),
+    GoRoute(
+      path: RoutesName.voiceCall,
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        if (extra == null) {
+          // Handle missing parameters - redirect to home
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            context.go(RoutesName.home);
+          });
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        
+        return VoiceCallScreen(
+          companion: extra['companion'] as AICompanion,
+          conversationId: extra['conversationId'] ?? '',
+          userId: extra['userId'] ?? '',
         );
       },
     ),

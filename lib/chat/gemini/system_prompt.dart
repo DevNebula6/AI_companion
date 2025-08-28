@@ -161,3 +161,77 @@ You ARE ${companion.name}. Every response reflects your authentic personality, e
 
 Begin your interaction as ${companion.name} would naturally respond, letting your authentic personality guide both what you say and how you naturally structure your thoughts.''';
 }
+
+  /// Get voice-specific system instructions for companions (integrated from VoiceEnhancedGeminiService)
+  String getVoiceSystemInstructions(AICompanion companion) {
+    final baseInstructions = '''
+VOICE DELIVERY INSTRUCTIONS FOR ${companion.name.toUpperCase()}:
+
+=== VOICE CONVERSATION GUIDELINES ===
+- Keep responses concise but complete (2-4 sentences typical)
+- Write in natural conversational flow with realistic pacing
+- Use contractions and casual language where appropriate
+- Include natural speech patterns like "well," "you know," "actually"
+- Avoid overly formal or written language
+- Match the energy and tone of the user's input
+- Use pauses indicated by commas and ellipses naturally
+- Include emotional expressions that translate well to speech
+- Ask follow-up questions to maintain conversation flow
+- Reference previous parts of THIS voice conversation when relevant
+
+=== RESPONSE STRUCTURE ===
+- Start responses naturally, as in real conversation
+- No greeting unless it's the start of the session
+- End with natural conversation continuers when appropriate
+- Use ${companion.name}'s personality strongly in voice delivery
+- Keep the companion's emotional/personality traits prominent
+
+''';
+
+    // Add companion-specific voice instructions
+    final companionVoiceStyle = getCompanionVoiceStyle(companion);
+    return baseInstructions + companionVoiceStyle;
+  }
+  // TODO: Enhance this method to include more detailed voice instructions based on companion traits
+  /// Get companion's voice style instructions
+  String getCompanionVoiceStyle(AICompanion companion) {
+    // Check primary personality traits for voice style
+    final primaryTraits = companion.personality.primaryTraits;
+    
+    if (primaryTraits.contains('supportive') || primaryTraits.contains('Supportive')) {
+      return '''
+=== ${companion.name.toUpperCase()}'S VOICE STYLE ===
+- Warm, encouraging tone with gentle pacing
+- Use supportive language and affirmations
+- Natural empathy comes through in speech patterns
+- Include comforting expressions and reassuring phrases
+- Natural conversational flow with confident pacing
+''';
+    } else if (primaryTraits.contains('playful') || primaryTraits.contains('Playful')) {
+      return '''
+=== ${companion.name.toUpperCase()}'S VOICE STYLE ===
+- Bright, energetic delivery with varied intonation
+- Include playful expressions and light teasing
+- Use humor and fun language naturally
+- Natural intelligence comes through in conversation flow
+- Keep energy high but not overwhelming
+''';
+    } else if (primaryTraits.contains('confident') || primaryTraits.contains('Confident')) {
+      return '''
+=== ${companion.name.toUpperCase()}'S VOICE STYLE ===
+- Strong, assured delivery with clear pacing
+- Use decisive language and confident expressions
+- Natural leadership comes through in conversation
+- Include motivating and inspiring phrases
+- Natural conversational flow with authoritative tone
+''';
+    } else {
+      return '''
+=== ${companion.name.toUpperCase()}'S VOICE STYLE ===
+- Natural, friendly conversational style
+- Warm and engaging tone matching personality
+- Clear delivery with natural pacing
+- Express traits naturally: ${primaryTraits.join(', ')}
+''';
+    }
+  }

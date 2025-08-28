@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../Companion/ai_model.dart';
+import 'azure_voice_characteristics.dart';
 
 /// Supabase-native TTS service using Azure Cognitive Services
 /// Optimized for your existing tech stack and database structure
@@ -11,9 +11,7 @@ class SupabaseTTSService {
   factory SupabaseTTSService() => _instance;
   SupabaseTTSService._internal();
 
-  final SupabaseClient _supabase = Supabase.instance.client;
-  
-  // Azure TTS Configuration (best value for your use case)
+  // Azure TTS Configuration
   String? _azureApiKey;
   String? _azureRegion;
   bool _isInitialized = false;
@@ -54,7 +52,7 @@ class SupabaseTTSService {
     }
   }
 
-  /// Synthesize speech with companion-specific voice profile
+  /// Synthesize speech for direct playback (no storage)
   Future<VoiceSynthesisResult> synthesizeSpeech({
     required String text,
     required AICompanion companion,
@@ -65,34 +63,44 @@ class SupabaseTTSService {
     }
 
     try {
-      // Get companion-specific voice profile
-      final voiceProfile = _getCompanionVoiceProfile(companion);
+      // Get Azure voice characteristics from companion
+      final azureVoiceConfig = companion.azureVoiceConfig;
       
-      // Generate SSML with emotional context
-      final ssml = _generateSSML(text, voiceProfile, emotion);
-      
-      // Synthesize with Azure TTS
-      final audioData = await _synthesizeWithAzure(ssml, voiceProfile);
-      
-      // Upload to Supabase Storage
-      final audioUrl = await _uploadAudioToSupabase(audioData, companion.id);
-      
-      return VoiceSynthesisResult(
-        audioData: audioData,
-        audioUrl: audioUrl,
-        duration: _estimateAudioDuration(text, voiceProfile.speechRate),
-        voiceProfile: voiceProfile,
-        emotion: emotion,
-        success: true,
-      );
+      if (azureVoiceConfig != null) {
+        // Use companion's specific Azure voice configuration
+        final ssml = azureVoiceConfig.generateSSML(text, 
+          contextualEmotion: _mapEmotionToContext(emotion));
+        final audioData = await _synthesizeWithAzureSSML(ssml);
+        
+        return VoiceSynthesisResult(
+          audioData: audioData,
+          duration: _estimateAudioDuration(text, azureVoiceConfig.baseSpeechRate / 100.0),
+          azureVoiceConfig: azureVoiceConfig,
+          emotion: emotion,
+          success: true,
+        );
+      } else {
+        // Fallback to default Azure config based on companion gender
+        final defaultConfig = _getDefaultAzureConfigByGender(companion.gender);
+        final ssml = defaultConfig.generateSSML(text, 
+          contextualEmotion: _mapEmotionToContext(emotion));
+        final audioData = await _synthesizeWithAzureSSML(ssml);
+        
+        return VoiceSynthesisResult(
+          audioData: audioData,
+          duration: _estimateAudioDuration(text, defaultConfig.baseSpeechRate / 100.0),
+          azureVoiceConfig: defaultConfig,
+          emotion: emotion,
+          success: true,
+        );
+      }
       
     } catch (e) {
       debugPrint('❌ TTS synthesis failed: $e');
       return VoiceSynthesisResult(
         audioData: Uint8List(0),
-        audioUrl: null,
         duration: 0,
-        voiceProfile: _getDefaultVoiceProfile(),
+        azureVoiceConfig: null,
         emotion: emotion,
         success: false,
         error: e.toString(),
@@ -100,8 +108,8 @@ class SupabaseTTSService {
     }
   }
 
-  /// Synthesize with Azure Cognitive Services TTS
-  Future<Uint8List> _synthesizeWithAzure(String ssml, CompanionVoiceProfile profile) async {
+  /// Synthesize with Azure TTS using pre-generated SSML
+  Future<Uint8List> _synthesizeWithAzureSSML(String ssml) async {
     final url = 'https://$_azureRegion.tts.speech.microsoft.com/cognitiveservices/v1';
     
     final response = await http.post(
@@ -122,165 +130,64 @@ class SupabaseTTSService {
     }
   }
 
-  /// Upload synthesized audio to Supabase Storage
-  Future<String?> _uploadAudioToSupabase(Uint8List audioData, String companionId) async {
-    try {
-      final fileName = 'voice_${companionId}_${DateTime.now().millisecondsSinceEpoch}.mp3';
-      final path = 'voice-messages/$fileName';
-      
-      await _supabase.storage
-          .from('chat-audio')
-          .uploadBinary(path, audioData);
-      
-      final publicUrl = _supabase.storage
-          .from('chat-audio')
-          .getPublicUrl(path);
-      
-      return publicUrl;
-      
-    } catch (e) {
-      debugPrint('❌ Audio upload failed: $e');
-      return null;
-    }
-  }
-
-  /// Generate SSML for Azure TTS with companion personality
-  String _generateSSML(String text, CompanionVoiceProfile profile, EmotionalContext? emotion) {
-    // Escape XML special characters
-    final escapedText = text
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&apos;');
-
-    // Apply emotional modulation
-    var pitch = profile.pitch;
-    var rate = profile.speechRate;
-    var volume = profile.volume;
-
-    if (emotion != null) {
-      switch (emotion.primaryEmotion) {
-        case VoiceEmotion.happiness:
-          pitch += 0.1 * emotion.intensity;
-          rate += 0.1 * emotion.intensity;
-          break;
-        case VoiceEmotion.sadness:
-          pitch -= 0.2 * emotion.intensity;
-          rate -= 0.15 * emotion.intensity;
-          break;
-        case VoiceEmotion.excitement:
-          pitch += 0.15 * emotion.intensity;
-          rate += 0.2 * emotion.intensity;
-          volume += 0.1 * emotion.intensity;
-          break;
-        case VoiceEmotion.empathy:
-          rate -= 0.1 * emotion.intensity;
-          volume -= 0.05 * emotion.intensity;
-          break;
-        case VoiceEmotion.curiosity:
-          pitch += 0.05 * emotion.intensity;
-          break;
-        default:
-          break;
-      }
-    }
-
-    // Clamp values to valid ranges
-    pitch = pitch.clamp(0.5, 2.0);
-    rate = rate.clamp(0.5, 2.0);
-    volume = volume.clamp(0.1, 1.0);
-
-    return '''
-<speak version="1.0" xml:lang="${profile.language}">
-  <voice name="${profile.voiceName}">
-    <prosody 
-      pitch="${_formatProsodyValue(pitch)}" 
-      rate="${_formatProsodyValue(rate)}" 
-      volume="${_formatVolumeValue(volume)}">
-      $escapedText
-    </prosody>
-  </voice>
-</speak>
-    '''.trim();
-  }
-
-  /// Format prosody values for SSML
-  String _formatProsodyValue(double value) {
-    if (value == 1.0) return 'default';
-    if (value > 1.0) return '+${((value - 1.0) * 100).round()}%';
-    return '-${((1.0 - value) * 100).round()}%';
-  }
-
-  /// Format volume values for SSML
-  String _formatVolumeValue(double value) {
-    if (value == 1.0) return 'default';
-    return '${(value * 100).round()}%';
-  }
-
-  /// Get companion-specific voice profile
-  CompanionVoiceProfile _getCompanionVoiceProfile(AICompanion companion) {
-    // Use companion's voice characteristics or defaults
-    final voiceData = companion.voice.isNotEmpty ? companion.voice.first : '';
+  /// Map emotion context to string for Azure voice characteristics
+  String? _mapEmotionToContext(EmotionalContext? emotion) {
+    if (emotion == null) return null;
     
-    switch (companion.id.toLowerCase()) {
-      case 'emma':
-        return CompanionVoiceProfile(
-          companionId: companion.id,
-          name: companion.name,
-          voiceName: 'en-US-AriaNeural',
-          language: 'en-US',
-          pitch: 1.1,
-          speechRate: 0.95,
-          volume: 1.0,
-          style: 'friendly',
-          characteristics: voiceData,
-        );
-      
-      case 'alex':
-        return CompanionVoiceProfile(
-          companionId: companion.id,
-          name: companion.name,
-          voiceName: 'en-US-GuyNeural',
-          language: 'en-US',
-          pitch: 0.9,
-          speechRate: 1.05,
-          volume: 1.0,
-          style: 'casual',
-          characteristics: voiceData,
-        );
-      
-      case 'sophia':
-        return CompanionVoiceProfile(
-          companionId: companion.id,
-          name: companion.name,
-          voiceName: 'en-GB-LibbyNeural',
-          language: 'en-GB',
-          pitch: 1.05,
-          speechRate: 0.9,
-          volume: 0.95,
-          style: 'conversational',
-          characteristics: voiceData,
-        );
-      
+    switch (emotion.primaryEmotion) {
+      case VoiceEmotion.happiness:
+        return 'happiness';
+      case VoiceEmotion.sadness:
+        return 'sadness';
+      case VoiceEmotion.excitement:
+        return 'excitement';
+      case VoiceEmotion.empathy:
+        return 'empathy';
+      case VoiceEmotion.curiosity:
+        return 'curiosity';
+      case VoiceEmotion.surprise:
+        return 'surprise';
+      case VoiceEmotion.concern:
+        return 'concern';
       default:
-        return _getDefaultVoiceProfile();
+        return null;
     }
   }
 
-  /// Get default voice profile
-  CompanionVoiceProfile _getDefaultVoiceProfile() {
-    return CompanionVoiceProfile(
-      companionId: 'default',
-      name: 'Default',
-      voiceName: 'en-US-JennyNeural',
-      language: 'en-US',
-      pitch: 1.0,
-      speechRate: 1.0,
-      volume: 1.0,
-      style: 'default',
-      characteristics: '',
-    );
+  /// Get default Azure voice configuration based on companion gender
+  AzureVoiceCharacteristics _getDefaultAzureConfigByGender(CompanionGender gender) {
+    switch (gender) {
+      case CompanionGender.female:
+        return AzureVoiceCharacteristics(
+          azureVoiceName: 'en-US-AriaNeural',
+          languageCode: 'en-US',
+          basePitch: 5.0,
+          baseSpeechRate: 0.0,
+          baseVolume: 95.0,
+          voiceStyle: 'friendly',
+          styleDegree: 1.1,
+        );
+      case CompanionGender.male:
+        return AzureVoiceCharacteristics(
+          azureVoiceName: 'en-US-GuyNeural',
+          languageCode: 'en-US',
+          basePitch: -5.0,
+          baseSpeechRate: 0.0,
+          baseVolume: 100.0,
+          voiceStyle: 'conversational',
+          styleDegree: 1.0,
+        );
+      case CompanionGender.other:
+        return AzureVoiceCharacteristics(
+          azureVoiceName: 'en-US-JennyNeural',
+          languageCode: 'en-US',
+          basePitch: 0.0,
+          baseSpeechRate: 0.0,
+          baseVolume: 95.0,
+          voiceStyle: 'conversational',
+          styleDegree: 1.0,
+        );
+    }
   }
 
   /// Estimate audio duration based on text length and speech rate
@@ -296,38 +203,21 @@ class SupabaseTTSService {
 
   /// Check if service is available
   bool get isAvailable => _isInitialized;
-  
-  /// Get supported voice list for a companion
-  Future<List<String>> getSupportedVoices(String companionId) async {
-    // Return companion-specific voice options
-    switch (companionId.toLowerCase()) {
-      case 'emma':
-        return ['en-US-AriaNeural', 'en-US-JennyNeural', 'en-US-NancyNeural'];
-      case 'alex':
-        return ['en-US-GuyNeural', 'en-US-DavisNeural', 'en-US-JasonNeural'];
-      case 'sophia':
-        return ['en-GB-LibbyNeural', 'en-GB-MaisieNeural', 'en-GB-SoniaNeural'];
-      default:
-        return ['en-US-JennyNeural'];
-    }
-  }
 }
 
-/// Voice synthesis result
+/// Voice synthesis result (updated for direct playback)
 class VoiceSynthesisResult {
   final Uint8List audioData;
-  final String? audioUrl; // Supabase Storage URL
   final double duration; // Duration in seconds
-  final CompanionVoiceProfile voiceProfile;
+  final AzureVoiceCharacteristics? azureVoiceConfig;
   final EmotionalContext? emotion;
   final bool success;
   final String? error;
 
   const VoiceSynthesisResult({
     required this.audioData,
-    required this.audioUrl,
     required this.duration,
-    required this.voiceProfile,
+    required this.azureVoiceConfig,
     required this.emotion,
     required this.success,
     this.error,

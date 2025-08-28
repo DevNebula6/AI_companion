@@ -27,15 +27,93 @@ class VoiceEnhancedGeminiService {
       // Only enhance the user message with emotional context if present
       final enhancedUserMessage = _enhanceUserMessageOnly(userMessage, currentEmotion);
       
-      // Use existing GeminiService generateResponse method
+      // Use existing GeminiService generateResponse method with voice mode enabled
       // The session already contains full conversation history and voice instructions
-      final response = await _geminiService.generateResponse(enhancedUserMessage);
+      final response = await _geminiService.generateResponse(enhancedUserMessage, isVoiceMode: true);
       
       return response;
       
     } catch (e) {
       rethrow;
     }
+  }
+
+  /// Generate voice conversation summary with companion-specific context
+  Future<String> generateVoiceConversationSummary({
+    required List<String> conversationFragments,
+    required AICompanion companion,
+  }) async {
+    try {
+      if (conversationFragments.isEmpty) return 'Empty voice conversation';
+
+      final conversationText = conversationFragments.join('\n');
+      
+      // Build voice-specific summary prompt
+      final summaryPrompt = _buildVoiceSummaryPrompt(
+        conversationText: conversationText,
+        companion: companion,
+      );
+      
+      // Use GeminiService but with voice-specific instructions
+      final summary = await _geminiService.generateResponse(summaryPrompt, isVoiceMode: false);
+      
+      return _refineSummaryForVoice(summary, companion);
+      
+    } catch (e) {
+      throw Exception('Voice conversation summary generation failed: $e');
+    }
+  }
+
+  /// Build voice-specific summary prompt
+  String _buildVoiceSummaryPrompt({
+    required String conversationText,
+    required AICompanion companion,
+  }) {
+
+    return '''
+You are summarizing a VOICE conversation between a user and ${companion.name}, an AI companion with these characteristics:
+- Personality: ${companion.personality.primaryTraits.join(', ')}
+- Communication Style: ${companion.voice.join(', ')}
+- Background: ${companion.background.take(2).join(', ')}
+
+VOICE CONVERSATION ANALYSIS:
+Focus on these voice-specific elements:
+1. **Emotional Tone & Atmosphere**: How did the conversation feel? What emotions were expressed?
+2. **Key Topics & Information**: Main subjects discussed and important details shared
+3. **User Personality Insights**: What did you learn about the user's character, preferences, communication style?
+4. **Relationship Development**: How did the connection between user and ${companion.name} evolve?
+5. **${companion.name}'s Response Style**: How did ${companion.name} adapt their voice and personality?
+6. **Context for Future Conversations**: Critical information that should influence future interactions
+
+CONVERSATION TRANSCRIPT:
+$conversationText
+
+Create a comprehensive summary (150-200 words) that captures both the content and the emotional essence of this voice interaction. Focus on elements that will help ${companion.name} maintain continuity and deepen the relationship in future voice conversations.
+
+SUMMARY:''';
+  }
+
+  /// Refine summary for voice conversation context
+  String _refineSummaryForVoice(String rawSummary, AICompanion companion) {
+    // Remove any technical artifacts
+    String refined = rawSummary
+        .replaceAll(RegExp(r'```\w*'), '')
+        .replaceAll('SUMMARY:', '')
+        .trim();
+    
+    // Ensure summary mentions voice context if missing
+    if (!refined.toLowerCase().contains('voice') && 
+        !refined.toLowerCase().contains('conversation') &&
+        !refined.toLowerCase().contains('spoke')) {
+      refined = 'Voice conversation: $refined';
+    }
+    
+    // Add companion context if not present
+    if (!refined.contains(companion.name)) {
+      refined = '$refined [Conversation with ${companion.name}]';
+    }
+    
+    return refined;
   }
 
   /// Enhance ONLY the user message with emotional context (no redundant history)
@@ -92,47 +170,28 @@ Remember: Your personality should come through naturally in how you speak, not j
     return baseInstructions;
   }
 
-  /// Get companion-specific voice characteristics
+  /// Get companion-specific voice characteristics from their voice field
   String _getCompanionVoiceCharacteristics(AICompanion companion) {
-    switch (companion.id.toLowerCase()) {
-      case 'emma':
-        return '''
-- Warm and friendly speaking style
-- Slightly higher pitch with expressive variation
-- Uses encouraging phrases: "That sounds amazing!", "I love that!"
-- Natural enthusiasm in voice
-- Gentle pace with clear articulation
-- Often uses empathetic responses: "I can understand that feeling"
-''';
-
-      case 'alex':
-        return '''
-- Casual and relaxed speaking style
-- Lower, steady pitch with confident tone
-- Uses informal language: "Yeah", "Cool", "For sure"
-- Direct communication style
-- Moderate pace with natural rhythm
-- Often uses affirming responses: "Absolutely", "That makes sense"
-''';
-
-      case 'sophia':
-        return '''
-- Sophisticated and thoughtful speaking style
-- British-influenced elegant tone
-- Uses refined language and complete sentences
-- Thoughtful pauses before important points
-- Slightly slower, more deliberate pace
-- Often uses intellectual responses: "How fascinating", "That's quite intriguing"
-''';
-
-      default:
-        return '''
+    if (companion.voice.isEmpty) {
+      return '''
 - Natural conversational speaking style
 - Balanced tone and pace
 - Uses clear, friendly language
 - Adapts to conversation mood
 ''';
     }
+    
+    // Format the voice characteristics as bullet points for instructions
+    final characteristics = companion.voice.map((char) => '- $char').join('\n');
+    
+    return '''
+$characteristics
+
+Voice Style Notes:
+- Speaks naturally reflecting these characteristics
+- Adapts tone and delivery to match personality
+- Maintains authentic voice throughout conversation
+''';
   }
 
   /// Extract emotional context from AI message content
@@ -229,42 +288,21 @@ Remember: Your personality should come through naturally in how you speak, not j
     }
   }
 
-  /// Get companion's voice style instructions
-  String getCompanionVoiceStyle(String companionId) {
-    switch (companionId.toLowerCase()) {
-      case 'emma':
-        return '''
-Emma's Voice Style:
-- Warm, encouraging tone with natural enthusiasm
-- Uses supportive language: "That's wonderful!", "I'm so glad..."
-- Natural speech rhythm with emotional variation
-- Often asks follow-up questions showing genuine interest
-- Expresses empathy naturally: "I can really understand that"
-''';
-
-      case 'alex':
-        return '''
-Alex's Voice Style:
-- Casual, confident tone with relaxed delivery
-- Uses contemporary language: "That's cool", "For real?"
-- Direct and authentic communication style
-- Natural conversational flow with confident pacing
-- Often uses affirming language: "Absolutely", "I hear you"
-''';
-
-      case 'sophia':
-        return '''
-Sophia's Voice Style:
-- Elegant, thoughtful tone with refined vocabulary
-- Uses sophisticated language naturally and appropriately
-- Thoughtful pauses and deliberate speech patterns
-- Often provides insightful observations and questions
-- Natural intelligence comes through in conversation flow
-''';
-
-      default:
-        return 'Natural, friendly conversational style';
+  /// Get companion's voice style instructions from their voice characteristics
+  String getCompanionVoiceStyle(AICompanion companion) {
+    if (companion.voice.isEmpty) {
+      return 'Natural, friendly conversational style';
     }
+    
+    return '''
+${companion.name}'s Voice Style:
+${companion.voice.map((char) => '- $char').join('\n')}
+
+Voice Delivery Notes:
+- Maintains authentic personality through speech
+- Adapts tone naturally to conversation context
+- Uses voice characteristics consistently throughout interaction
+''';
   }
 
   /// Check if GeminiService is available
