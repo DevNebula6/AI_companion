@@ -582,99 +582,26 @@ class GeminiService {
 
       List<Message> messages = [];
 
+      // **CRITICAL FIX: Don't initialize from MessageBloc during initial setup**
+      // The MessageBloc hasn't loaded messages yet during app restart
+      // Instead, we'll initialize later via the new method after messages are loaded
       final messageBlocState = messageBloc.state;
       if (messageBlocState is MessageLoaded) {
         messages = messageBlocState.messages;
+        _log.info('✅ Retrieved ${messages.length} messages from loaded MessageBloc state');
       } else {
-        messages = messageBloc.currentMessages;
+        // **FIX: During app restart, currentMessages will be empty**
+        // Don't try to initialize context yet - this will be handled later
+        _log.info('📋 MessageBloc not yet loaded, will initialize context after message loading');
+        return;
       }
 
       if (messages.isNotEmpty) {
-        // **CRITICAL FIX: Check if we already have an introduction in either state or messages**
-        final hasIntroInState = state.history.any((content) => 
-          content.parts.any((part) => 
-            part is TextPart && 
-            (part.text.contains('CHARACTER ASSIGNMENT') || 
-             part.text.contains('EMBODIMENT INSTRUCTIONS'))
-          )
-        );
+        _log.info('✅ Found ${messages.length} existing messages for context initialization');
         
-        final hasIntroInMessages = messages.any((msg) => 
-          msg.isBot && msg.message.contains("CHARACTER ASSIGNMENT: You are now embodying ${state.companion.name}"));
-        
-        if (!hasIntroInState && !hasIntroInMessages) {
-          // Add introduction only if not present anywhere
-          final intro = _getOrCacheSystemPrompt(state.companion);
-          state.addHistory(Content.text(intro));
-          _log.info('✅ Added companion introduction to state history');
-        }
-
-        // **ENHANCED: Process messages with fragmentation awareness**
-        final processedMessages = <String, Message>{};
-
-        // Group messages by base ID to handle fragments vs complete messages
-        for (final message in messages) {
-          // **FRAGMENTATION FIX: Use proper base message ID extraction**
-          final baseId = message.metadata['base_message_id']?.toString() ?? 
-                        message.id?.replaceAll(RegExp(r'_fragment_\d+'), '') ?? 
-                        message.id;
-          
-          if (baseId != null) {
-            // **CRITICAL: Prefer complete messages over fragments, but handle both**
-            final existing = processedMessages[baseId];
-            if (existing == null) {
-              processedMessages[baseId] = message;
-            } else {
-              // If we have a fragment and the new message is complete, prefer complete
-              if (existing.isFragment && !message.isFragment) {
-                processedMessages[baseId] = message;
-              }
-              // If both are fragments, prefer the one with more content
-              else if (existing.isFragment && message.isFragment) {
-                if (message.messageFragments.length > existing.messageFragments.length) {
-                  processedMessages[baseId] = message;
-                }
-              }
-            }
-          }
-        }
-        
-        // **ENHANCED: Sort by timestamp and convert to AI history**
-        final sortedMessages = processedMessages.values.toList()
-          ..sort((a, b) => a.created_at.compareTo(b.created_at));
-        
-        // **CRITICAL: Build conversation history with proper content handling**
-        for (final message in sortedMessages) {
-          // **FRAGMENTATION SUPPORT: Handle both fragmented and complete messages**
-          String messageText;
-          if (message.hasFragments && message.messageFragments.isNotEmpty) {
-            messageText = message.messageFragments.join(' ').trim();
-          } else if (message.messageFragments.isNotEmpty) {
-            messageText = message.messageFragments.first.trim();
-          } else {
-            messageText = message.message.trim();
-          }
-          
-          // Only add non-empty messages
-          if (messageText.isNotEmpty) {
-            if (message.isBot) {
-              state.addHistory(Content.model([TextPart(messageText)]));
-            } else {
-              state.addHistory(Content.text(messageText));
-            }
-          }
-        }
-        
-        // **ENHANCED: Update metadata with accurate counts**
-        final botMessages = sortedMessages.where((m) => m.isBot).length;
-        final userMessages = sortedMessages.where((m) => !m.isBot).length;
-        
-        state.updateMetadata('total_interactions', botMessages + userMessages);
-        state.updateMetadata('bot_messages', botMessages);
-        state.updateMetadata('user_messages', userMessages);
-        state.updateMetadata('last_context_sync', DateTime.now().toIso8601String());
-        
-        _log.info('✅ Initialized state with ${sortedMessages.length} processed messages ($userMessages user, $botMessages bot)');
+        // Process the messages using the same logic as the new method
+        // (This handles the case when MessageBloc is already loaded)
+        await _processMessagesForContext(state, messages);
       } else {
         _log.info('ℹ️ No existing messages found - conversation will start fresh');
       }
@@ -683,6 +610,142 @@ class GeminiService {
       _log.severe('❌ Error initializing state from MessageBloc: $e', e, stackTrace);
       // Don't rethrow - allow initialization to continue with empty history
     }
+  }
+
+  /// **NEW: Initialize or update context after messages are loaded from database**
+  /// This is called by MessageBloc after successfully loading messages
+  Future<void> initializeContextAfterMessagesLoaded({
+    required String userId,
+    required String companionId,
+    required List<Message> messages,
+    String? userName,
+    Map<String, dynamic>? userProfile,
+  }) async {
+    final key = _getCompanionStateKey(userId, companionId);
+    
+    if (!_companionStates.containsKey(key)) {
+      _log.warning('⚠️ Companion state not found for context initialization: $key');
+      return;
+    }
+    
+    final state = _companionStates[key]!;
+    
+    try {
+      _log.info('🔄 Post-load context initialization for ${state.companion.name} with ${messages.length} messages');
+
+      if (messages.isNotEmpty) {
+        // Process the messages using the shared method
+        await _processMessagesForContext(state, messages);
+        
+        _log.info('✅ Context initialized with ${messages.length} total messages');
+        
+        // **CRITICAL: Clear any existing session to force recreation with new context**
+        final sessionKey = '${userId}_$companionId';
+        if (_persistentSessions.containsKey(sessionKey)) {
+          _persistentSessions.remove(sessionKey);
+          _sessionLastUsed.remove(sessionKey);
+          _sessionMessageCount.remove(sessionKey);
+          _log.info('🔄 Cleared existing session to force recreation with updated context');
+        }
+        
+        // Save the updated state
+        _debouncedSave(state);
+      } else {
+        _log.info('ℹ️ No messages provided for context initialization - conversation will start fresh');
+      }
+      
+    } catch (e, stackTrace) {
+      _log.severe('❌ Error in post-load context initialization: $e', e, stackTrace);
+    }
+  }
+
+  /// **SHARED: Process messages for context initialization**
+  Future<void> _processMessagesForContext(CompanionState state, List<Message> messages) async {
+    // **CRITICAL FIX: Check if we already have an introduction in either state or messages**
+    final hasIntroInState = state.history.any((content) => 
+      content.parts.any((part) => 
+        part is TextPart && 
+        (part.text.contains('CHARACTER ASSIGNMENT') || 
+         part.text.contains('EMBODIMENT INSTRUCTIONS'))
+      )
+    );
+    
+    final hasIntroInMessages = messages.any((msg) => 
+      msg.isBot && msg.message.contains("CHARACTER ASSIGNMENT: You are now embodying ${state.companion.name}"));
+    
+    if (!hasIntroInState && !hasIntroInMessages) {
+      // Add introduction only if not present anywhere
+      final intro = _getOrCacheSystemPrompt(state.companion);
+      state.addHistory(Content.text(intro));
+      _log.info('✅ Added companion introduction to state history');
+    }
+
+    // **ENHANCED: Process messages with fragmentation awareness**
+    final processedMessages = <String, Message>{};
+
+    // Group messages by base ID to handle fragments vs complete messages
+    for (final message in messages) {
+      // **FRAGMENTATION FIX: Use proper base message ID extraction**
+      final baseId = message.metadata['base_message_id']?.toString() ?? 
+                    message.id?.replaceAll(RegExp(r'_fragment_\d+'), '') ?? 
+                    message.id;
+      
+      if (baseId != null) {
+        // **CRITICAL: Prefer complete messages over fragments, but handle both**
+        final existing = processedMessages[baseId];
+        if (existing == null) {
+          processedMessages[baseId] = message;
+        } else {
+          // If we have a fragment and the new message is complete, prefer complete
+          if (existing.isFragment && !message.isFragment) {
+            processedMessages[baseId] = message;
+          }
+          // If both are fragments, prefer the one with more content
+          else if (existing.isFragment && message.isFragment) {
+            if (message.messageFragments.length > existing.messageFragments.length) {
+              processedMessages[baseId] = message;
+            }
+          }
+        }
+      }
+    }
+    
+    // **ENHANCED: Sort by timestamp and convert to AI history**
+    final sortedMessages = processedMessages.values.toList()
+      ..sort((a, b) => a.created_at.compareTo(b.created_at));
+    
+    // **CRITICAL: Build conversation history with proper content handling**
+    for (final message in sortedMessages) {
+      // **FRAGMENTATION SUPPORT: Handle both fragmented and complete messages**
+      String messageText;
+      if (message.hasFragments && message.messageFragments.isNotEmpty) {
+        messageText = message.messageFragments.join(' ').trim();
+      } else if (message.messageFragments.isNotEmpty) {
+        messageText = message.messageFragments.first.trim();
+      } else {
+        messageText = message.message.trim();
+      }
+      
+      // Only add non-empty messages
+      if (messageText.isNotEmpty) {
+        if (message.isBot) {
+          state.addHistory(Content.model([TextPart(messageText)]));
+        } else {
+          state.addHistory(Content.text(messageText));
+        }
+      }
+    }
+    
+    // **ENHANCED: Update metadata with accurate counts**
+    final botMessages = sortedMessages.where((m) => m.isBot).length;
+    final userMessages = sortedMessages.where((m) => !m.isBot).length;
+    
+    state.updateMetadata('total_interactions', botMessages + userMessages);
+    state.updateMetadata('bot_messages', botMessages);
+    state.updateMetadata('user_messages', userMessages);
+    state.updateMetadata('last_context_sync', DateTime.now().toIso8601String());
+    
+    _log.info('✅ Processed ${sortedMessages.length} messages for context ($userMessages user, $botMessages bot)');
   }
 
   /// Checks cache size and evicts the least recently used state if necessary.
