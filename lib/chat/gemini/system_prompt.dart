@@ -179,19 +179,59 @@ VOICE DELIVERY INSTRUCTIONS FOR ${companion.name.toUpperCase()}:
 - Ask follow-up questions to maintain conversation flow
 - Reference previous parts of THIS voice conversation when relevant
 
+## Companion-Specific Voice Characteristics:
+${_getCompanionVoiceCharacteristics(companion)}
+
 === RESPONSE STRUCTURE ===
 - Start responses naturally, as in real conversation
 - No greeting unless it's the start of the session
 - End with natural conversation continuers when appropriate
 - Use ${companion.name}'s personality strongly in voice delivery
 - Keep the companion's emotional/personality traits prominent
+- Start responses naturally, as in real conversation
+- Use pauses with "..." for dramatic effect or thinking
+- Include conversational transitions: "So anyway...", "You know what..."
+- End with natural conversation continuers when appropriate
+- Keep responses conversational length (not essay-like)
 
+## Technical Voice Considerations
+- Use natural sentence structures that flow when spoken
+- Include verbal cues for emphasis: *excited*, *whispers*, *thoughtful*
+- Structure lists and information in easily spoken formats
+
+Remember: Your personality should come through naturally in how you speak, not just what you say. Every response should sound authentic when heard aloud, matching your unique voice characteristics and speaking style.
 ''';
+
 
     // Add companion-specific voice instructions
     final companionVoiceStyle = getCompanionVoiceStyle(companion);
     return baseInstructions + companionVoiceStyle;
   }
+
+  /// Get companion-specific voice characteristics from their voice field
+  String _getCompanionVoiceCharacteristics(AICompanion companion) {
+    if (companion.voice.isEmpty) {
+      return '''
+- Natural conversational speaking style
+- Balanced tone and pace
+- Uses clear, friendly language
+- Adapts to conversation mood
+        ''';
+            }
+            
+            // Format the voice characteristics as bullet points for instructions
+            final characteristics = companion.voice.map((char) => '- $char').join('\n');
+            
+            return '''
+$characteristics
+
+Voice Style Notes:
+- Speaks naturally reflecting these characteristics
+- Adapts tone and delivery to match personality
+- Maintains authentic voice throughout conversation
+        ''';
+          }
+
   // TODO: Enhance this method to include more detailed voice instructions based on companion traits
   /// Get companion's voice style instructions
   String getCompanionVoiceStyle(AICompanion companion) {

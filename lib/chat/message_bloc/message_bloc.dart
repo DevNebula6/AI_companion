@@ -257,7 +257,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       emit(MessageError(error: Exception('Failed to process queued message: $e -message bloc(_onProcessQueuedMessage)')));
     }
   }
-
+  //TODO : Handle internet connection error when processing user message correctly
   // OPTIMIZED: Enhanced user message processing with cache consistency
   Future<void> _processUserMessage(Message message, Emitter<MessageState> emit) async {
     try {
@@ -1049,6 +1049,22 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> {
       // STEP 6: Initialize AI companion if needed (only after messages are loaded)
       if (!isClosed) {
         await _initializeCompanionIfNeeded(event.userId, event.companionId);
+        
+        // **NEW: Initialize context in GeminiService after messages are loaded**
+        if (_currentMessages.isNotEmpty) {
+          try {
+            final geminiService = GeminiService();
+            await geminiService.initializeContextAfterMessagesLoaded(
+              userId: event.userId,
+              companionId: event.companionId,
+              messages: _currentMessages,
+            );
+            print('✅ GeminiService context initialized with ${_currentMessages.length} messages');
+          } catch (e) {
+            print('⚠️ Warning: Failed to initialize GeminiService context: $e');
+            // Don't fail the entire operation if this fails
+          }
+        }
       }
       
       // CRITICAL SAFETY CHECK: Ensure we always emit a final MessageLoaded state
