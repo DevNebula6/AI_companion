@@ -20,7 +20,6 @@ dependencies:
   shared_preferences: ^2.3.3
   animated_text_kit: ^4.2.2
   path_provider: ^2.0.5
-  lottie: ^3.2.0
   google_sign_in: ^6.2.2
   intl: ^0.20.1
   liquid_swipe: ^3.1.0
@@ -43,9 +42,11 @@ dependencies:
   fluid_background: ^1.0.5
   record: ^6.0.0
   audioplayers: ^6.5.0
-  speech_to_text: ^7.3.0
   flutter_tts: ^4.2.3
   http: ^1.1.0
+  azure_speech_recognition_flutter: ^1.0.2
+  permission_handler: ^11.3.1
+  lottie: ^3.3.2
   
 dev_dependencies:
   flutter_test:
