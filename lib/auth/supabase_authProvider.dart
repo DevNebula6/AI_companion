@@ -192,7 +192,7 @@ Future<CustomAuthUser> signInWithGoogle() async {
     }
     return CustomAuthUser.fromSupabase(user);
   } on AuthException catch (e) {
-    _log.warning('AuthException during facebook sign-in: ${e.message}');
+    _log.warning('AuthException during google sign-in: ${e.message}');
     if (e.message.toLowerCase().contains('popup_closed_by_user') ||
         e.message.toLowerCase().contains('canceled')) {
       throw CancelledByUserAuthException();
