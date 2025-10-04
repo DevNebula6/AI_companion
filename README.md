@@ -1,5 +1,9 @@
 # AI Companion Flutter App – Advanced AI Conversational Platform
 
+![AI Companion Logo](assets/images/logo4.png)
+
+*Connect, converse, and build relationships with AI companions that feel genuinely human.*
+
 ## 🚀 Download & Try the App
 
 **📱 Latest APK Download:**
@@ -203,82 +207,6 @@ AI Companion is a cutting-edge mobile application that provides users with perso
   - Modular structure for easy feature addition.
 
 ---
-
-## Summary
-
-The AI Companion app combines modern Flutter architecture, robust state management, and advanced AI integration to deliver a unique, emotionally intelligent conversational experience. Its modular, extensible design ensures maintainability and future growth.
-
----
-
-**See the lib directory and referenced files/classes for more details.**
-# AI Companion
-
-![AI Companion Logo](assets/images/logo4.png)
-
-*Connect, converse, and build relationships with AI companions that feel genuinely human.*
-
-## Overview
-
-AI Companion is a Flutter application that enables users to build meaningful relationships with AI-powered companions, each with their own distinct personalities, backgrounds, and communication styles. Whether you're seeking friendship, emotional connection, or simply a space to practice conversation skills, our AI companions provide authentic and engaging interactions.
-
-## Vision
-
-AI Companion offers a unique platform where users can:
-
-- **Build Meaningful Connections**: Develop companionship, friendship, or even emotional and intimate connections with companions that feel real.
-- **Practice Communication Skills**: Improve language fluency, build social confidence, and develop conversational abilities in a judgment-free environment.
-- **Explore Diverse Personalities**: Interact with companions representing different backgrounds, cultures, personalities, and communication styles.
-- **Experience Seamless Conversations**: Chat anytime, anywhere - with our robust synchronization system.
-- **Watch Relationships Evolve**: See how your relationship with companions changes over time based on your interactions.
-
-## 🌟 Revolutionary Features
-
-### 🎤 **Real-Time Voice Conversations (Experimental)**
-> **Note:** This feature is currently in active development and testing phase. While the core architecture is complete, we're continuously improving reliability and testing various TTS/STT implementations to deliver the best possible experience.
-
-- **Continuous Speech Recognition**: True real-time listening without interruptions or beeps
-- **Natural Voice Conversations**: Speak naturally with AI companions using advanced Azure Speech Services
-- **Voice Activity Detection**: Intelligent detection of speech patterns and natural conversation flow
-- **Custom Voice Characteristics**: Each companion has unique voice personality and speech patterns
-- **Interruption Handling**: Natural conversation flow with the ability to interrupt and respond
-- **Hot State Processing**: Quick AI responses during natural speech pauses
-- **Multi-Language Support**: Voice recognition in multiple languages and accents
-
-### 🧠 **Advanced AI Intelligence**
-- **Contextual Understanding**: Google Gemini AI with deep conversation context and memory
-- **Emotional Intelligence**: AI companions that understand and respond to emotional nuances
-- **Voice-Enhanced AI**: Specialized AI service optimized for voice interactions
-- **Conversation Summarization**: Efficient context management for longer conversations
-- **Personality Consistency**: Each companion maintains consistent personality across all interactions
-
-### 🎭 **Diverse AI Companions**
-- **Unique Personalities**: Each companion with distinct backstories, interests, and communication styles
-- **Cultural Diversity**: Companions representing different backgrounds, cultures, and perspectives
-- **Evolving Relationships**: Dynamic relationship development based on interaction history
-- **Azure Voice Profiles**: Professional voice synthesis with emotional adjustments
-- **Companion-Specific Voices**: Each companion has a unique voice with custom characteristics
-
-### 🎨 **Dynamic Visual Experience**
-- **Companion-Specific UI**: Each AI companion has unique visual characteristics that reflect their personality
-- **Fluid Background System**: Dynamic water bubble animations that change based on companion traits
-- **Personality-Based Colors**: Color schemes and gradients that adapt to each companion's characteristics
-- **Time-Based Themes**: UI that evolves throughout the day with morning, afternoon, evening, and night themes
-- **Interactive Animations**: Responsive visual elements that react to user interactions and conversation flow
-- **Voice Call Visualizations**: Real-time audio visualizers during voice conversations
-
-### 📱 **Seamless User Experience**
-- **Cross-Platform Compatibility**: Consistent experience across all Flutter-supported platforms
-- **Offline-First Architecture**: Continue conversations even without internet connection
-- **Real-Time Synchronization**: Seamless data sync across devices
-- **Intelligent Caching**: Multi-layer caching for optimal performance
-- **Modern UI/UX**: Material Design 3 with sophisticated fluid animations and responsive design
-
-### 🔒 **Privacy & Security**
-- **Local Data Storage**: Conversations cached locally with Hive database
-- **Secure Authentication**: Google OAuth with JWT token management
-- **Permission Management**: Granular control over microphone and audio permissions
-- **Data Encryption**: Secure storage of sensitive user information
-- **Privacy-First Design**: Your conversations remain private and secure
 
 ## Application Screenshots
 
