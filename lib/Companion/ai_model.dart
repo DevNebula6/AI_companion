@@ -1,4 +1,5 @@
 
+import 'dart:convert';
 import '../chat/voice/azure_voice_characteristics.dart';
 
 class AICompanion {
@@ -53,8 +54,15 @@ class AICompanion {
     skills: List<String>.from(json['skills']),
     voice: List<String>.from(json['voice']),
     metadata: json['metadata'] as Map<String, dynamic>? ?? {},
-    azureVoiceConfig: json['azureVoiceConfig'] != null 
-        ? AzureVoiceCharacteristics.fromJson(json['azureVoiceConfig'])
+    azureVoiceConfig: json['azure_voice_config'] != null 
+        ? AzureVoiceCharacteristics.fromJson(
+            json['azure_voice_config'] is String 
+              ? Map<String, dynamic>.from(
+                  // Parse JSON string from database
+                  jsonDecode(json['azure_voice_config'])
+                )
+              : Map<String, dynamic>.from(json['azure_voice_config'])
+          )
         : null,
   );
 
@@ -71,7 +79,7 @@ class AICompanion {
     'skills': skills,
     'voice': voice,
     'metadata': metadata ?? {},
-    'azureVoiceConfig': azureVoiceConfig?.toJson(),
+    'azure_voice_config': azureVoiceConfig?.toJson(),
   };
 }
 

@@ -183,3 +183,116 @@ enum VoiceLifecycleAction {
   sessionEnding,
   sessionCompleted,
 }
+
+/// Start Speech-to-Text listening
+class StartListeningEvent extends VoiceEvent {
+  final String sessionId;
+  final String locale;
+
+  const StartListeningEvent({
+    required this.sessionId,
+    this.locale = 'en-US',
+  });
+
+  @override
+  List<Object?> get props => [sessionId, locale];
+}
+
+/// Stop Speech-to-Text listening
+class StopListeningEvent extends VoiceEvent {
+  final String sessionId;
+
+  const StopListeningEvent({
+    required this.sessionId,
+  });
+
+  @override
+  List<Object?> get props => [sessionId];
+}
+
+/// Speech recognition result event
+class SpeechResultEvent extends VoiceEvent {
+  final String sessionId;
+  final String transcription;
+  final bool isFinal;
+  final double confidence;
+
+  const SpeechResultEvent({
+    required this.sessionId,
+    required this.transcription,
+    required this.isFinal,
+    required this.confidence,
+  });
+
+  @override
+  List<Object?> get props => [sessionId, transcription, isFinal, confidence];
+}
+
+/// Voice activity level change event
+class VoiceActivityEvent extends VoiceEvent {
+  final String sessionId;
+  final double soundLevel;
+
+  const VoiceActivityEvent({
+    required this.sessionId,
+    required this.soundLevel,
+  });
+
+  @override
+  List<Object?> get props => [sessionId, soundLevel];
+}
+
+/// Speech-to-Text error event
+class STTErrorEvent extends VoiceEvent {
+  final String sessionId;
+  final String error;
+  final bool isRecoverable;
+
+  const STTErrorEvent({
+    required this.sessionId,
+    required this.error,
+    this.isRecoverable = true,
+  });
+
+  @override
+  List<Object?> get props => [sessionId, error, isRecoverable];
+}
+
+/// Play TTS audio event
+class PlayTTSAudioEvent extends VoiceEvent {
+  final String sessionId;
+  final String text;
+  final String companionName;
+
+  const PlayTTSAudioEvent({
+    required this.sessionId,
+    required this.text,
+    required this.companionName,
+  });
+
+  @override
+  List<Object?> get props => [sessionId, text, companionName];
+}
+
+/// TTS playback status event
+class TTSPlaybackStatusEvent extends VoiceEvent {
+  final String sessionId;
+  final TTSPlaybackStatus status;
+  final String? error;
+
+  const TTSPlaybackStatusEvent({
+    required this.sessionId,
+    required this.status,
+    this.error,
+  });
+
+  @override
+  List<Object?> get props => [sessionId, status, error];
+}
+
+enum TTSPlaybackStatus {
+  starting,
+  playing,
+  completed,
+  error,
+}

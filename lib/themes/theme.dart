@@ -69,7 +69,7 @@ ThemeData createAppTheme(ColorScheme colorScheme) {
     ),
     
     // Card theme with subtle shadows and rounded corners
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
@@ -134,7 +134,7 @@ ThemeData createAppTheme(ColorScheme colorScheme) {
     ),
     
     // Dialogs with clean, modern appearance
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
       ),
@@ -167,7 +167,7 @@ ThemeData createAppTheme(ColorScheme colorScheme) {
     ),
     
     // Tabs with custom indicator
-    tabBarTheme: TabBarTheme(
+    tabBarTheme: TabBarThemeData(
       labelColor: colorScheme.primary,
       unselectedLabelColor: colorScheme.onSurfaceVariant,
       indicatorSize: TabBarIndicatorSize.label,

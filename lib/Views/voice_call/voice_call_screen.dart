@@ -77,7 +77,27 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     _pulseController.dispose();
     _waveController.dispose();
     _companionAvatarController.dispose();
+    
+    // Ensure voice session is properly ended
+    if (_isCallActive) {
+      _endVoiceCallImmediate();
+    }
+    
     super.dispose();
+  }
+  
+  void _endVoiceCallImmediate() {
+    // Immediate cleanup without navigation
+    final voiceState = context.read<VoiceBloc>().state;
+    if (voiceState is VoiceSessionActive) {
+      context.read<VoiceBloc>().add(
+        EndVoiceSessionEvent(
+          sessionId: voiceState.sessionId,
+          voiceSession: voiceState.session,
+          shouldGenerateSummary: true,
+        ),
+      );
+    }
   }
   
   void _initializeVoiceCall() {
@@ -188,8 +208,8 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
     if (state is VoiceSessionActive) {
       setState(() {
         _isCallActive = true;
-        _isUserSpeaking = state.isListening && !state.isProcessing;
-        _isCompanionSpeaking = state.isSpeaking;
+        _isUserSpeaking = state.isListening && !state.isProcessing && state.voiceActivityLevel > 0.3;
+        _isCompanionSpeaking = state.isSpeaking || state.isPlayingTTS;
         _currentTranscription = state.currentTranscription;
       });
       
@@ -203,6 +223,13 @@ class _VoiceCallScreenState extends State<VoiceCallScreen>
         _pulseController.repeat();
       } else if (!_isCompanionSpeaking && _pulseController.isAnimating) {
         _pulseController.stop();
+      }
+
+      // Control wave animation based on user speaking
+      if (_isUserSpeaking && !_waveController.isAnimating) {
+        _waveController.repeat();
+      } else if (!_isUserSpeaking && _waveController.isAnimating) {
+        _waveController.stop();
       }
     } else if (state is VoiceSessionCompleted) {
       // Call completed successfully
