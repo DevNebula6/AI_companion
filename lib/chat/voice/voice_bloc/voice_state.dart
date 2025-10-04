@@ -56,6 +56,9 @@ class VoiceSessionActive extends VoiceState {
   final bool isSpeaking;
   final bool isProcessing;
   final List<String> realtimeFragments; // Live conversation during session
+  final double voiceActivityLevel; // 0.0 to 1.0
+  final double transcriptionConfidence; // 0.0 to 1.0
+  final bool isPlayingTTS; // TTS audio playback status
 
   const VoiceSessionActive({
     required this.sessionId,
@@ -66,6 +69,9 @@ class VoiceSessionActive extends VoiceState {
     this.isSpeaking = false,
     this.isProcessing = false,
     this.realtimeFragments = const [],
+    this.voiceActivityLevel = 0.0,
+    this.transcriptionConfidence = 0.0,
+    this.isPlayingTTS = false,
   });
 
   @override
@@ -78,6 +84,9 @@ class VoiceSessionActive extends VoiceState {
     isSpeaking,
     isProcessing,
     realtimeFragments,
+    voiceActivityLevel,
+    transcriptionConfidence,
+    isPlayingTTS,
   ];
 
   /// Create updated state with new values
@@ -88,6 +97,9 @@ class VoiceSessionActive extends VoiceState {
     bool? isProcessing,
     List<String>? realtimeFragments,
     VoiceSession? session,
+    double? voiceActivityLevel,
+    double? transcriptionConfidence,
+    bool? isPlayingTTS,
   }) {
     return VoiceSessionActive(
       sessionId: sessionId,
@@ -98,6 +110,9 @@ class VoiceSessionActive extends VoiceState {
       isSpeaking: isSpeaking ?? this.isSpeaking,
       isProcessing: isProcessing ?? this.isProcessing,
       realtimeFragments: realtimeFragments ?? this.realtimeFragments,
+      voiceActivityLevel: voiceActivityLevel ?? this.voiceActivityLevel,
+      transcriptionConfidence: transcriptionConfidence ?? this.transcriptionConfidence,
+      isPlayingTTS: isPlayingTTS ?? this.isPlayingTTS,
     );
   }
 

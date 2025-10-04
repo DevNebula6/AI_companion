@@ -3,6 +3,7 @@ import 'package:ai_companion/Companion/bloc/companion_event.dart';
 import 'package:ai_companion/Companion/companion_repository.dart';
 import 'package:ai_companion/auth/supabase_client_singleton.dart';
 import 'package:ai_companion/chat/conversation/conversation_bloc.dart';
+import 'package:ai_companion/chat/voice/azure_test_helper.dart';
 import 'package:ai_companion/chat/voice/voice_bloc/voice_bloc.dart';
 import 'package:ai_companion/chat/voice/voice_enhanced_gemini_service.dart';
 import 'package:ai_companion/chat/voice/supabase_tts_service.dart';
@@ -23,13 +24,16 @@ import 'package:ai_companion/themes/theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_companion/services/connectivity_service.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 
 import 'navigation/app_routes.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
+  
+  final testResult = await AzureTestHelper.testAzureSTTConfiguration();
+  print('Azure Setup Status: $testResult');
+
   runApp(const AppLoadingScreen());
   await _initializeCoreServices();
 }
@@ -124,8 +128,8 @@ Future<void> _initializeCoreServices() async {
               
               // Initialize TTS service asynchronously (fire and forget)
               ttsService.initialize(
-                azureApiKey: dotenv.env['AZURE_TTS_API_KEY'],
-                azureRegion: dotenv.env['AZURE_TTS_REGION'] ?? 'eastus',
+                azureApiKey: dotenv.env['AZURE_SPEECH_KEY'],
+                azureRegion: dotenv.env['AZURE_SPEECH_REGION'] ?? 'centralindia',
               ).then((_) {
                 print('✅ TTS service initialized successfully');
               }).catchError((e) {
@@ -136,7 +140,6 @@ Future<void> _initializeCoreServices() async {
                 messageBloc: messageBloc,
                 voiceGeminiService: VoiceEnhancedGeminiService(),
                 ttsService: ttsService,
-                speechToText: SpeechToText(),
               );
             },
           ),

@@ -3,10 +3,13 @@ import 'package:ai_companion/chat/voice/voice_bloc/voice_event.dart';
 import 'package:ai_companion/chat/voice/voice_bloc/voice_state.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 import '../voice_message_model.dart';
 import '../supabase_tts_service.dart';
 import '../voice_enhanced_gemini_service.dart';
+import '../continuous_voice_chat_service_v2.dart';
+import '../azure_speech_config.dart';
+import '../audio_player_service.dart';
+import '../companion_voice_config_service.dart';
 import '../../message_bloc/message_bloc.dart';
 import '../../message_bloc/message_event.dart';
 import '../../message.dart';
@@ -19,7 +22,8 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
   final MessageBloc _messageBloc;
   final VoiceEnhancedGeminiService _voiceGeminiService;
   final SupabaseTTSService _ttsService;
-  final SpeechToText _speechToText;
+  final ContinuousVoiceChatServiceV2 _continuousVoiceService;
+  final AudioPlayerService _audioPlayerService;
 
   // Active session management
   String? _activeSessionId;
@@ -35,11 +39,11 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
     required MessageBloc messageBloc,
     required VoiceEnhancedGeminiService voiceGeminiService,
     required SupabaseTTSService ttsService,
-    required SpeechToText speechToText,
   })  : _messageBloc = messageBloc,
         _voiceGeminiService = voiceGeminiService,
         _ttsService = ttsService,
-        _speechToText = speechToText,
+        _continuousVoiceService = ContinuousVoiceChatServiceV2(),
+        _audioPlayerService = AudioPlayerService(),
         super(VoiceInitial()) {
     
     on<InitializeVoiceSystemEvent>(_onInitializeVoiceSystem);
@@ -52,6 +56,17 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
     on<RequestVoiceContextEvent>(_onRequestVoiceContext);
     on<UpdateVoiceSessionStatusEvent>(_onUpdateVoiceSessionStatus);
     on<VoiceSessionLifecycleEvent>(_onVoiceSessionLifecycle);
+    
+    // Add new STT event handlers
+    on<StartListeningEvent>(_onStartListening);
+    on<StopListeningEvent>(_onStopListening);
+    on<SpeechResultEvent>(_onSpeechResult);
+    on<VoiceActivityEvent>(_onVoiceActivity);
+    on<STTErrorEvent>(_onSTTError);
+    
+    // Add new TTS event handlers
+    on<PlayTTSAudioEvent>(_onPlayTTSAudio);
+    on<TTSPlaybackStatusEvent>(_onTTSPlaybackStatus);
   }
 
   /// Initialize voice system
@@ -65,8 +80,13 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
     ));
 
     try {
-      // OPTIMIZED: Cache companion directly from event
-      _currentCompanion = event.companion;
+      // ENHANCED: Refresh companion data with voice config from database
+      debugPrint('🔄 Refreshing companion data with voice config...');
+      final refreshedCompanion = await _refreshCompanionWithVoiceConfig(event.companion);
+      
+      // Cache the refreshed companion with voice config
+      _currentCompanion = refreshedCompanion;
+      debugPrint('📊 Companion cached with voice config: ${refreshedCompanion.azureVoiceConfig != null}');
 
       // Check permissions and capabilities
       final hasMicPermission = await _checkMicrophonePermission();
@@ -74,12 +94,12 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
 
       emit(VoiceReady(
         userId: event.userId,
-        companion: event.companion,
+        companion: refreshedCompanion, // Use refreshed companion
         hasMicrophonePermission: hasMicPermission,
         hasTTSAvailable: hasTTS,
       ));
 
-      debugPrint('✅ Voice system initialized for ${event.companion.name}');
+      debugPrint('✅ Voice system initialized for ${refreshedCompanion.name} with voice config: ${refreshedCompanion.azureVoiceConfig != null}');
     } catch (e) {
       emit(VoiceSessionError(
         sessionId: 'init_error',
@@ -111,9 +131,12 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
         sessionId: _activeSessionId!,
         companion: event.companion,
         session: _activeSession!,
-        isListening: true, // Start listening immediately
+        isListening: false, // Will be set to true when STT starts
         realtimeFragments: [],
       ));
+
+      // Automatically start STT listening
+      add(StartListeningEvent(sessionId: _activeSessionId!));
 
       debugPrint('🎤 Voice session started: $_activeSessionId');
     } catch (e) {
@@ -200,18 +223,32 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
         isUserFragment: false,
       ));
 
-      // ENHANCED: Generate TTS audio if available
+      // ENHANCED: Play TTS audio if available
+      debugPrint('🔊 Checking TTS availability...');
+      debugPrint('📊 TTS Service available: ${_ttsService.isAvailable}');
+      debugPrint('📊 Companion voice config: ${companion.azureVoiceConfig != null ? 'Available' : 'Missing'}');
+      
+      if (companion.azureVoiceConfig != null) {
+        debugPrint('🎤 Voice config details: ${companion.azureVoiceConfig.toString()}');
+      }
+      
       if (_ttsService.isAvailable && companion.azureVoiceConfig != null) {
-        try {
-          await _ttsService.synthesizeSpeech(
-            text: aiResponse,
-            companion: companion,
-          );
-          debugPrint('🔊 TTS audio generated for response');
-        } catch (ttsError) {
-          debugPrint('⚠️ TTS generation failed: $ttsError');
-          // Continue without TTS - don't fail the whole process
-        }
+        // Play TTS audio through AudioPlayerService
+        add(PlayTTSAudioEvent(
+          sessionId: _activeSession!.id,
+          text: aiResponse,
+          companionName: companion.name,
+        ));
+        debugPrint('🔊 TTS playback initiated for response');
+      } else {
+        debugPrint('⚠️ TTS not available or no voice config for ${companion.name}');
+        debugPrint('   - TTS Service: ${_ttsService.isAvailable}');
+        debugPrint('   - Voice Config: ${companion.azureVoiceConfig != null}');
+        
+        // Fallback: Since TTS isn't available, restart STT listening immediately
+        // so the user can continue the conversation
+        debugPrint('🔄 TTS unavailable - restarting STT listening for next user input');
+        add(StartListeningEvent(sessionId: _activeSession!.id));
       }
 
     } catch (e) {
@@ -629,14 +666,79 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
   /// Check microphone permission
   Future<bool> _checkMicrophonePermission() async {
     try {
-      // Use the instance field for speech_to_text
-      final available = await _speechToText.initialize(
-        onError: (error) => debugPrint('Speech recognition error: ${error.errorMsg}'),
-        onStatus: (status) => debugPrint('Speech recognition status: $status'),
+      // Use the continuous voice service for permission check
+      final available = await _continuousVoiceService.initialize(
+        azureSpeechKey: AzureSpeechConfig.azureSpeechKey,
+        azureRegion: AzureSpeechConfig.azureRegion,
+        onRealtimeTranscription: (transcription) {
+          // Handle real-time transcription updates for UI
+          if (_activeSessionId != null) {
+            add(UpdateTranscriptionEvent(
+              sessionId: _activeSessionId!,
+              transcription: transcription,
+              isFinal: false,
+            ));
+          }
+        },
+        onPotentialSentence: (sentence) {
+          // Handle potential sentence completion for quick AI response
+          debugPrint('🎯 Potential sentence detected: "$sentence"');
+          if (_activeSessionId != null) {
+            add(SpeechResultEvent(
+              sessionId: _activeSessionId!,
+              transcription: sentence,
+              isFinal: false,
+              confidence: 0.8, // High confidence for potential sentences
+            ));
+          }
+        },
+        onFinalTranscription: (transcription, isConfident) {
+          if (_activeSessionId != null) {
+            add(SpeechResultEvent(
+              sessionId: _activeSessionId!,
+              transcription: transcription,
+              isFinal: true,
+              confidence: isConfident ? 0.9 : 0.6,
+            ));
+          }
+        },
+        onVoiceActivityChange: (isActive) {
+          if (_activeSessionId != null) {
+            add(VoiceActivityEvent(
+              sessionId: _activeSessionId!,
+              soundLevel: isActive ? 0.7 : 0.2, // Approximate sound level
+            ));
+          }
+        },
+        onSilenceStateChange: (isSilent) {
+          // Handle silence state changes for turn management
+          debugPrint('🤫 Silence state: $isSilent');
+        },
+        onTTSStateChange: (isTTSActive) {
+          // Update state to reflect TTS playback
+          if (isTTSActive) {
+            debugPrint('🔊 TTS started playing');
+          } else {
+            debugPrint('🔇 TTS finished playing');
+          }
+        },
+        onStateChange: (voiceState) {
+          // Store state change for later processing in event handlers
+          debugPrint('🔄 ContinuousVoiceV2: State changed to $voiceState');
+        },
+        onError: (error) {
+          if (_activeSessionId != null) {
+            add(STTErrorEvent(
+              sessionId: _activeSessionId!,
+              error: error,
+              isRecoverable: true,
+            ));
+          }
+        },
       );
       
       if (!available) {
-        debugPrint('❌ Speech recognition not available');
+        debugPrint('❌ Continuous voice service not available');
         return false;
       }
       
@@ -652,7 +754,11 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
   Future<bool> _checkTTSAvailability() async {
     try {
       // Use the instance field for TTS service
+      debugPrint('🔍 Checking TTS service availability...');
       final isAvailable = _ttsService.isAvailable;
+      
+      debugPrint('📊 TTS Service isAvailable: $isAvailable');
+      debugPrint('📊 TTS Service type: ${_ttsService.runtimeType}');
       
       if (!isAvailable) {
         debugPrint('❌ TTS service not available');
@@ -663,6 +769,7 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
       return true;
     } catch (e) {
       debugPrint('❌ Error checking TTS availability: $e');
+      debugPrint('📊 Exception type: ${e.runtimeType}');
       return false;
     }
   }
@@ -683,6 +790,46 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
     }
   }
 
+  /// Refresh companion data with voice configuration from database
+  Future<AICompanion> _refreshCompanionWithVoiceConfig(AICompanion originalCompanion) async {
+    try {
+      debugPrint('🔍 Fetching companion voice config from database...');
+      
+      // Fetch voice config directly from database using CompanionVoiceConfigService
+      final voiceConfigService = CompanionVoiceConfigService();
+      final voiceConfig = await voiceConfigService.getCompanionVoiceConfig(originalCompanion.id);
+      
+      if (voiceConfig != null) {
+        debugPrint('✅ Found voice config for ${originalCompanion.name}');
+        debugPrint('🎤 Voice: ${voiceConfig.azureVoiceName}, Style: ${voiceConfig.voiceStyle}');
+        
+        // Create new companion instance with voice config
+        return AICompanion(
+          id: originalCompanion.id,
+          name: originalCompanion.name,
+          gender: originalCompanion.gender,
+          artStyle: originalCompanion.artStyle,
+          avatarUrl: originalCompanion.avatarUrl,
+          description: originalCompanion.description,
+          physical: originalCompanion.physical,
+          personality: originalCompanion.personality,
+          background: originalCompanion.background,
+          skills: originalCompanion.skills,
+          voice: originalCompanion.voice,
+          metadata: originalCompanion.metadata,
+          azureVoiceConfig: voiceConfig, // Add the voice config!
+        );
+      } else {
+        debugPrint('⚠️ No voice config found for ${originalCompanion.name} - using original');
+        return originalCompanion;
+      }
+    } catch (e) {
+      debugPrint('❌ Error refreshing companion voice config: $e');
+      // Return original companion on error
+      return originalCompanion;
+    }
+  }
+
   /// ENHANCED: Clean up session data (from enhanced version)
   void _cleanup() {
     _activeSessionId = null;
@@ -698,6 +845,278 @@ class VoiceBloc extends Bloc<VoiceEvent,VoiceState> {
   void clearCompanionCache() {
     _currentCompanion = null;
     debugPrint('🗑️ Voice companion cache cleared');
+  }
+
+  /// Handle start listening event
+  Future<void> _onStartListening(
+    StartListeningEvent event,
+    Emitter<VoiceState> emit,
+  ) async {
+    if (_activeSessionId != event.sessionId || state is! VoiceSessionActive) {
+      debugPrint('❌ ContinuousVoice: Cannot start listening - no active session');
+      return;
+    }
+
+    try {
+      final currentState = state as VoiceSessionActive;
+      
+      // Start continuous voice session using Azure Speech V2
+      final started = await _continuousVoiceService.startVoiceSession(
+        sessionId: event.sessionId,
+        locale: event.locale,
+      );
+
+      if (started) {
+        debugPrint('🎤 ContinuousVoice: Started continuous listening for session ${event.sessionId}');
+        emit(currentState.copyWith(isListening: true));
+      } else {
+        add(STTErrorEvent(
+          sessionId: event.sessionId,
+          error: 'Failed to start continuous voice recognition',
+          isRecoverable: true,
+        ));
+      }
+    } catch (e) {
+      debugPrint('❌ ContinuousVoice: Start listening error: $e');
+      add(STTErrorEvent(
+        sessionId: event.sessionId,
+        error: 'Unexpected error starting continuous voice: $e',
+        isRecoverable: true,
+      ));
+    }
+  }
+
+  /// Handle stop listening event
+  Future<void> _onStopListening(
+    StopListeningEvent event,
+    Emitter<VoiceState> emit,
+  ) async {
+    if (_activeSessionId != event.sessionId) return;
+
+    try {
+      await _continuousVoiceService.stopVoiceSession();
+      debugPrint('🛑 ContinuousVoice: Stopped listening for session ${event.sessionId}');
+      
+      if (state is VoiceSessionActive) {
+        final currentState = state as VoiceSessionActive;
+        emit(currentState.copyWith(isListening: false));
+      }
+    } catch (e) {
+      debugPrint('❌ ContinuousVoice: Stop listening error: $e');
+    }
+  }
+
+  /// Handle speech result event
+  Future<void> _onSpeechResult(
+    SpeechResultEvent event,
+    Emitter<VoiceState> emit,
+  ) async {
+    if (_activeSessionId != event.sessionId || state is! VoiceSessionActive) {
+      return;
+    }
+
+    final currentState = state as VoiceSessionActive;
+
+    // Update transcription confidence
+    emit(currentState.copyWith(
+      currentTranscription: event.transcription,
+      transcriptionConfidence: event.confidence,
+    ));
+
+    // Process final transcriptions
+    if (event.isFinal && event.transcription.trim().isNotEmpty) {
+      // Add user fragment to conversation
+      final userFragment = 'User: ${event.transcription.trim()}';
+      add(AddVoiceFragmentEvent(
+        sessionId: event.sessionId,
+        fragment: userFragment,
+        isUserFragment: true,
+      ));
+
+      debugPrint('💬 STT: Final transcription - "${event.transcription}" (confidence: ${(event.confidence * 100).toStringAsFixed(1)}%)');
+    }
+  }
+
+  /// Handle voice activity event
+  Future<void> _onVoiceActivity(
+    VoiceActivityEvent event,
+    Emitter<VoiceState> emit,
+  ) async {
+    if (_activeSessionId != event.sessionId || state is! VoiceSessionActive) {
+      return;
+    }
+
+    final currentState = state as VoiceSessionActive;
+    emit(currentState.copyWith(voiceActivityLevel: event.soundLevel));
+  }
+
+  /// Handle STT error event
+  Future<void> _onSTTError(
+    STTErrorEvent event,
+    Emitter<VoiceState> emit,
+  ) async {
+    if (_activeSessionId != event.sessionId) return;
+
+    debugPrint('❌ STT: Error - ${event.error} (recoverable: ${event.isRecoverable})');
+
+    // Don't handle "error_no_match" as it's normal behavior
+    if (event.error.contains('error_no_match')) {
+      debugPrint('ℹ️ STT: Ignoring error_no_match - this is normal when no speech is detected');
+      return;
+    }
+
+    if (!event.isRecoverable) {
+      // Critical error - stop session
+      emit(VoiceSessionError(
+        sessionId: event.sessionId,
+        error: 'Speech recognition failed: ${event.error}',
+        errorType: VoiceErrorType.microphonePermission,
+        canRetry: false,
+        partialSession: _activeSession,
+      ));
+    } else {
+      // Recoverable error - implement exponential backoff retry
+      final retryAttempts = _getRetryAttempts(event.sessionId);
+      if (retryAttempts < 2) { // Reduce from 3 to 2 attempts
+        final delaySeconds = (retryAttempts + 1) * 2; // 2, 4 seconds
+        debugPrint('🔄 STT: Attempting recovery in ${delaySeconds}s (attempt ${retryAttempts + 1}/2)');
+        
+        _incrementRetryAttempts(event.sessionId);
+        
+        Future.delayed(Duration(seconds: delaySeconds), () {
+          if (_activeSessionId == event.sessionId && state is VoiceSessionActive) {
+            add(StartListeningEvent(sessionId: event.sessionId));
+          }
+        });
+      } else {
+        // Max retries reached
+        debugPrint('❌ STT: Max retry attempts reached for session ${event.sessionId}');
+        emit(VoiceSessionError(
+          sessionId: event.sessionId,
+          error: 'Speech recognition failed after multiple attempts: ${event.error}',
+          errorType: VoiceErrorType.speechRecognitionFailed,
+          canRetry: true,
+          partialSession: _activeSession,
+        ));
+      }
+    }
+  }
+
+  // Retry attempt tracking
+  final Map<String, int> _retryAttempts = {};
+  
+  int _getRetryAttempts(String sessionId) {
+    return _retryAttempts[sessionId] ?? 0;
+  }
+  
+  void _incrementRetryAttempts(String sessionId) {
+    _retryAttempts[sessionId] = (_retryAttempts[sessionId] ?? 0) + 1;
+  }
+
+  /// Handle play TTS audio event
+  Future<void> _onPlayTTSAudio(
+    PlayTTSAudioEvent event,
+    Emitter<VoiceState> emit,
+  ) async {
+    if (_activeSessionId != event.sessionId || state is! VoiceSessionActive) {
+      return;
+    }
+
+    try {
+      final companion = _getCompanionFromSession(_activeSession!);
+
+      // Generate TTS audio
+      final ttsResult = await _ttsService.synthesizeSpeech(
+        text: event.text,
+        companion: companion,
+      );
+
+      if (ttsResult.success && ttsResult.audioData.isNotEmpty) {
+        // Use continuous voice service for TTS playback with interruption handling
+        final playbackSuccess = await _continuousVoiceService.playTTSResponse(
+          audioData: ttsResult.audioData,
+          sessionId: event.sessionId,
+          companionName: event.companionName,
+        );
+
+        if (playbackSuccess) {
+          debugPrint('🔊 TTS playback started with continuous voice service');
+          // State updates are handled by the continuous voice service callbacks
+        } else {
+          add(TTSPlaybackStatusEvent(
+            sessionId: event.sessionId,
+            status: TTSPlaybackStatus.error,
+            error: 'Failed to play TTS audio through continuous voice service',
+          ));
+        }
+      } else {
+        add(TTSPlaybackStatusEvent(
+          sessionId: event.sessionId,
+          status: TTSPlaybackStatus.error,
+          error: ttsResult.error ?? 'TTS synthesis failed',
+        ));
+      }
+    } catch (e) {
+      debugPrint('❌ TTS: Play audio error: $e');
+      add(TTSPlaybackStatusEvent(
+        sessionId: event.sessionId,
+        status: TTSPlaybackStatus.error,
+        error: 'Unexpected TTS error: $e',
+      ));
+    }
+  }
+
+  /// Handle TTS playback status event
+  Future<void> _onTTSPlaybackStatus(
+    TTSPlaybackStatusEvent event,
+    Emitter<VoiceState> emit,
+  ) async {
+    if (_activeSessionId != event.sessionId || state is! VoiceSessionActive) {
+      return;
+    }
+
+    final currentState = state as VoiceSessionActive;
+
+    switch (event.status) {
+      case TTSPlaybackStatus.starting:
+        emit(currentState.copyWith(
+          isPlayingTTS: true,
+          isSpeaking: true,
+        ));
+        break;
+
+      case TTSPlaybackStatus.playing:
+        emit(currentState.copyWith(
+          isPlayingTTS: true,
+          isSpeaking: true,
+          isListening: false,
+        ));
+        break;
+
+      case TTSPlaybackStatus.completed:
+        // TTS finished - restart STT listening
+        emit(currentState.copyWith(
+          isPlayingTTS: false,
+          isSpeaking: false,
+        ));
+
+        // Request audio focus back and restart listening
+        _audioPlayerService.requestAudioFocus();
+        add(StartListeningEvent(sessionId: event.sessionId));
+        break;
+
+      case TTSPlaybackStatus.error:
+        debugPrint('❌ TTS: Playback error - ${event.error}');
+        emit(currentState.copyWith(
+          isPlayingTTS: false,
+          isSpeaking: false,
+        ));
+
+        // Restart listening even after error
+        _audioPlayerService.requestAudioFocus();
+        add(StartListeningEvent(sessionId: event.sessionId));
+        break;
+    }
   }
 
   /// Get current active session ID

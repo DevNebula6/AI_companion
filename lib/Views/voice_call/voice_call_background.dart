@@ -247,13 +247,17 @@ class AnimatedVoiceCallBackground extends StatefulWidget {
 
 class _AnimatedVoiceCallBackgroundState extends State<AnimatedVoiceCallBackground>
     with TickerProviderStateMixin {
+  int _buildCounter = 0;
   
   @override
   Widget build(BuildContext context) {
+    // Increment counter to ensure unique keys
+    _buildCounter++;
+    
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 800),
       child: Stack(
-        key: ValueKey('${widget.isActive}_${widget.isUserSpeaking}_${widget.isCompanionSpeaking}'),
+        key: ValueKey('background_${_buildCounter}'),
         children: [
           // Dynamic fluid background
           buildVoiceCallBackground(

@@ -21,18 +21,26 @@ class SupabaseTTSService {
     String? azureApiKey,
     String? azureRegion,
   }) async {
+    debugPrint('🔄 Initializing TTS service...');
+    debugPrint('📊 Azure API Key: ${azureApiKey != null ? '[SET]' : '[MISSING]'}');
+    debugPrint('📊 Azure Region: ${azureRegion ?? '[MISSING]'}');
+    
     _azureApiKey = azureApiKey;
     _azureRegion = azureRegion;
     
     // Test Azure TTS availability
     if (_azureApiKey != null && _azureRegion != null) {
       try {
+        debugPrint('🔍 Testing Azure TTS connection...');
         await _testAzureTTS();
         _isInitialized = true;
         debugPrint('✅ Azure TTS initialized successfully');
       } catch (e) {
         debugPrint('❌ Azure TTS initialization failed: $e');
+        debugPrint('📊 Will try to initialize again on first use');
       }
+    } else {
+      debugPrint('❌ Azure TTS credentials missing - service disabled');
     }
   }
 
@@ -202,7 +210,26 @@ class SupabaseTTSService {
   }
 
   /// Check if service is available
-  bool get isAvailable => _isInitialized;
+  bool get isAvailable {
+    // If not initialized but we have credentials, try to initialize
+    if (!_isInitialized && _azureApiKey != null && _azureRegion != null) {
+      debugPrint('🔄 TTS not initialized, attempting lazy initialization...');
+      // Trigger async initialization (fire and forget)
+      _attemptLazyInitialization();
+    }
+    return _isInitialized;
+  }
+  
+  /// Attempt lazy initialization without blocking
+  void _attemptLazyInitialization() async {
+    try {
+      await _testAzureTTS();
+      _isInitialized = true;
+      debugPrint('✅ Azure TTS lazy initialization successful');
+    } catch (e) {
+      debugPrint('❌ Azure TTS lazy initialization failed: $e');
+    }
+  }
 }
 
 /// Voice synthesis result (updated for direct playback)
