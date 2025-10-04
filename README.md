@@ -13,6 +13,82 @@
 
 ---
 
+## 📱 Application Screenshots
+
+### Onboarding & Authentication
+<div align="center">
+  <img src="assets/screenshots/onboarding1.jpg" alt="Onboarding Screen 1" width="250" />
+  <img src="assets/screenshots/onboarding2.jpg" alt="Onboarding Screen 2" width="250" />
+  <img src="assets/screenshots/onboarding3.jpg" alt="Onboarding Screen 3" width="250" />
+  <img src="assets/screenshots/onboarding4.jpg" alt="Onboarding Screen 4" width="250" />
+  <img src="assets/screenshots/signin.jpg" alt="Sign In Options" width="250" />
+  <img src="assets/screenshots/user profile.jpg" alt="Profile Setup" width="250" />
+</div>
+
+### 🏠 Dynamic Home Screen & Navigation
+Experience a fluid, animated home interface that changes throughout the day with companion-specific visual themes.
+
+<div align="center">
+  <img src="assets/screenshots/dynamic home page.png" alt="Dynamic Home Screen" width="250" />
+</div>
+
+*Features dynamic fluid backgrounds with time-based color themes and smooth bubble animations*
+
+### 🎭 Companion Selection & Profiles
+Discover AI companions with unique personalities, each featuring their own visual identity and characteristics.
+
+<div align="center">
+  <img src="assets/screenshots/companion selection2.jpg" alt="Companion Selection" width="220" />
+  <img src="assets/screenshots/companion selection3.jpg" alt="Companion Gallery" width="220" />
+  <img src="assets/screenshots/companion detail profile.jpg" alt="Companion Details" width="220" />
+</div>
+
+<div align="center">
+  <img src="assets/screenshots/companion detail background story.jpg" alt="Background Story" width="220" />
+  <img src="assets/screenshots/companion detail interests.jpg" alt="Interests" width="220" />
+  <img src="assets/screenshots/companion detail communication.jpg" alt="Communication Style" width="220" />
+</div>
+
+*Each companion has detailed profiles including personality traits, backgrounds, interests, and communication preferences*
+
+### 💬 Dynamic Chat Experience
+Engage in conversations with companion-specific visual themes and fluid backgrounds that reflect each AI's personality.
+
+<div align="center">
+  <img src="assets/screenshots/dynamic chat page 1.png" alt="Dynamic Chat - Companion 1" width="200" />
+  <img src="assets/screenshots/dynamic chat page 2.png" alt="Dynamic Chat - Companion 2" width="200" />
+  <img src="assets/screenshots/dynamic chat page3.png" alt="Dynamic Chat - Companion 3" width="200" />
+  <img src="assets/screenshots/dynamic chat page4.png" alt="Dynamic Chat - Companion 4" width="200" />
+</div>
+
+*Each companion features unique color schemes, gradients, and animated backgrounds that reflect their personality traits*
+
+### 🎤 Voice Call Interface (Experimental)
+Experience real-time voice conversations with immersive visual feedback and companion-specific themes.
+
+<div align="center">
+  <img src="assets/screenshots/voice call initial screen .png" alt="Voice Call Setup" width="200" />
+  <img src="assets/screenshots/voice call initial screen 2.png" alt="Voice Call Interface" width="200" />
+  <img src="assets/screenshots/voice call start screen .png" alt="Active Voice Call" width="200" />
+  <img src="assets/screenshots/voice call start screen 2 .png" alt="Voice Visualization" width="200" />
+</div>
+
+*Features real-time audio visualizations, companion avatars, and immersive backgrounds during voice conversations*
+
+### 👤 User Profile & Personalization
+Customize your experience with detailed preference settings and personality matching.
+
+<div align="center">
+  <img src="assets/screenshots/user profile.jpg" alt="Profile Overview" width="200" />
+  <img src="assets/screenshots/user profile inerests.jpg" alt="User Interests" width="200" />
+  <img src="assets/screenshots/user profile personality.jpg" alt="Personality Settings" width="200" />
+  <img src="assets/screenshots/user profile comms pref.jpg" alt="Communication Preferences" width="200" />
+</div>
+
+*Comprehensive user profiling system with interests, personality traits, and communication preferences*
+
+---
+
 ## Project Overview & Vision
 
 **Purpose & Vision:**  
@@ -63,67 +139,7 @@ AI Companion is a cutting-edge mobile application that provides users with perso
 
 ---
 
-## 🚀 Advanced Technology Stack
 
-### Core AI & Voice Technologies
-- **Google Generative AI (Gemini):** Advanced conversational AI with contextual understanding and voice-optimized responses
-- **Azure Speech Services:** Professional text-to-speech with custom voice characteristics for each companion
-- **Azure Speech Recognition:** Real-time speech-to-text with continuous listening capabilities
-- **Voice-Enhanced Gemini Service:** Specialized AI service optimized for voice interactions and emotional context
-
-### 🎤 Voice & Audio Processing
-- **Azure Speech Recognition Flutter Plugin:** Real-time continuous speech recognition
-- **Audio Players:** High-quality audio playback with memory-based streaming
-- **Flutter TTS:** Text-to-speech capabilities with multiple voice options
-- **Record Plugin:** Audio recording for voice input processing
-- **Permission Handler:** Seamless microphone and audio permission management
-
-### 🏗️ Architecture & State Management
-- **Flutter BLoC Pattern:** Advanced state management with separate VoiceBloc for real-time voice features
-- **Clean Architecture:** Layered architecture with Repository pattern and Service layer separation
-- **Bloc Pattern:** Predictable state management for authentication, chat, voice, and companion selection
-- **GoRouter:** Declarative routing with deep linking support
-- **Provider Pattern:** Dependency injection and service management
-
-### 🗄️ Data & Storage Solutions
-- **Supabase:** Backend-as-a-Service with real-time database, authentication, and storage
-- **Hive:** High-performance local NoSQL database for offline caching
-- **Shared Preferences:** Lightweight key-value storage for user preferences
-- **Flutter Cache Manager:** Intelligent image and file caching system
-- **Azure Voice Config Database:** Companion-specific voice characteristics stored in JSONB format
-
-### 🎨 Advanced UI/UX & Dynamic Animations
-- **Material Design 3:** Modern design system with dynamic theming and companion-specific color schemes
-- **Fluid Background System:** Revolutionary water bubble animations with companion personality-based characteristics
-- **Dynamic Color Engine:** AI companion traits automatically influence UI colors, gradients, and visual themes
-- **Time-Based Themes:** UI that adapts throughout the day (morning, afternoon, evening, night) with unique fluid patterns
-- **Flutter Animate:** Sophisticated animations and micro-interactions throughout the app
-- **Lottie:** Vector animations for engaging loading states and transitions
-- **Shimmer:** Beautiful loading state animations with companion-specific colors
-- **Voice Activity Visualizations:** Real-time audio visualizers that respond to voice interactions
-- **Companion Avatar Animations:** Dynamic avatar responses during conversations and voice calls
-- **Cached Network Image:** Optimized image loading with intelligent caching for smooth UI performance
-- **Interactive Elements:** Responsive visual feedback for all user interactions and gestures
-
-### 🌐 Networking & Integration
-- **HTTP Client:** RESTful API integration with retry logic and error handling
-- **Connectivity Plus:** Network status monitoring with offline/online transitions
-- **Real-time Synchronization:** Seamless data sync across devices
-- **WebSocket Support:** Real-time communication capabilities
-
-### 🔒 Security & Authentication
-- **Google Sign-In:** Secure OAuth authentication
-- **Supabase Auth:** JWT-based authentication with refresh token management
-- **Permission Management:** Granular permission handling for audio features
-- **Secure Storage:** Encrypted local storage for sensitive data
-
-### ⚡ Performance & Optimization
-- **Token Optimization:** AI usage cost reduction through smart context management
-- **Memory Management:** Efficient audio processing with direct memory playback
-- **Background Processing:** Optimized battery usage during voice sessions
-- **Caching Strategies:** Multi-layer caching for optimal performance
-
----
 
 ## System Integration
 
@@ -205,82 +221,6 @@ AI Companion is a cutting-edge mobile application that provides users with perso
   - Integrate new AI/ML APIs via `gemini_service.dart`.
   - Add screens/flows via GoRouter and Bloc.
   - Modular structure for easy feature addition.
-
----
-
-## Application Screenshots
-
-### Onboarding & Authentication
-<div align="center">
-  <img src="assets/screenshots/onboarding1.jpg" alt="Onboarding Screen 1" width="250" />
-  <img src="assets/screenshots/onboarding2.jpg" alt="Onboarding Screen 2" width="250" />
-  <img src="assets/screenshots/onboarding3.jpg" alt="Onboarding Screen 3" width="250" />
-  <img src="assets/screenshots/onboarding4.jpg" alt="Onboarding Screen 4" width="250" />
-  <img src="assets/screenshots/signin.jpg" alt="Sign In Options" width="250" />
-  <img src="assets/screenshots/user profile.jpg" alt="Profile Setup" width="250" />
-</div>
-
-### 🏠 Dynamic Home Screen & Navigation
-Experience a fluid, animated home interface that changes throughout the day with companion-specific visual themes.
-
-<div align="center">
-  <img src="assets/screenshots/dynamic home page.png" alt="Dynamic Home Screen" width="250" />
-</div>
-
-*Features dynamic fluid backgrounds with time-based color themes and smooth bubble animations*
-
-### 🎭 Companion Selection & Profiles
-Discover AI companions with unique personalities, each featuring their own visual identity and characteristics.
-
-<div align="center">
-  <img src="assets/screenshots/companion selection2.jpg" alt="Companion Selection" width="220" />
-  <img src="assets/screenshots/companion selection3.jpg" alt="Companion Gallery" width="220" />
-  <img src="assets/screenshots/companion detail profile.jpg" alt="Companion Details" width="220" />
-</div>
-
-<div align="center">
-  <img src="assets/screenshots/companion detail background story.jpg" alt="Background Story" width="220" />
-  <img src="assets/screenshots/companion detail interests.jpg" alt="Interests" width="220" />
-  <img src="assets/screenshots/companion detail communication.jpg" alt="Communication Style" width="220" />
-</div>
-
-*Each companion has detailed profiles including personality traits, backgrounds, interests, and communication preferences*
-
-### 💬 Dynamic Chat Experience
-Engage in conversations with companion-specific visual themes and fluid backgrounds that reflect each AI's personality.
-
-<div align="center">
-  <img src="assets/screenshots/dynamic chat page 1.png" alt="Dynamic Chat - Companion 1" width="200" />
-  <img src="assets/screenshots/dynamic chat page 2.png" alt="Dynamic Chat - Companion 2" width="200" />
-  <img src="assets/screenshots/dynamic chat page3.png" alt="Dynamic Chat - Companion 3" width="200" />
-  <img src="assets/screenshots/dynamic chat page4.png" alt="Dynamic Chat - Companion 4" width="200" />
-</div>
-
-*Each companion features unique color schemes, gradients, and animated backgrounds that reflect their personality traits*
-
-### 🎤 Voice Call Interface (Experimental)
-Experience real-time voice conversations with immersive visual feedback and companion-specific themes.
-
-<div align="center">
-  <img src="assets/screenshots/voice call initial screen .png" alt="Voice Call Setup" width="200" />
-  <img src="assets/screenshots/voice call initial screen 2.png" alt="Voice Call Interface" width="200" />
-  <img src="assets/screenshots/voice call start screen .png" alt="Active Voice Call" width="200" />
-  <img src="assets/screenshots/voice call start screen 2 .png" alt="Voice Visualization" width="200" />
-</div>
-
-*Features real-time audio visualizations, companion avatars, and immersive backgrounds during voice conversations*
-
-### 👤 User Profile & Personalization
-Customize your experience with detailed preference settings and personality matching.
-
-<div align="center">
-  <img src="assets/screenshots/user profile.jpg" alt="Profile Overview" width="200" />
-  <img src="assets/screenshots/user profile inerests.jpg" alt="User Interests" width="200" />
-  <img src="assets/screenshots/user profile personality.jpg" alt="Personality Settings" width="200" />
-  <img src="assets/screenshots/user profile comms pref.jpg" alt="Communication Preferences" width="200" />
-</div>
-
-*Comprehensive user profiling system with interests, personality traits, and communication preferences*
 
 ## 🎯 Latest Technological Implementations
 
@@ -396,24 +336,7 @@ The voice chat feature represents cutting-edge real-time AI voice interaction te
 - Improved interruption handling and conversation dynamics
 - Better integration with companion personality systems
 
-## 📱 Advanced Project Architecture
 
-### 🏗️ **System Design Principles**
-- **Voice-First Architecture**: Designed from ground up for real-time voice interactions
-- **Modular Service Design**: Independent services for AI, voice, auth, and data management
-- **Event-Driven Communication**: BLoC pattern with reactive programming principles
-- **Offline-First Approach**: Full functionality regardless of network connectivity
-- **Performance Optimization**: Memory-efficient processing and intelligent resource management
-
-### 🔧 **Key Technical Components**
-- **Voice Processing Pipeline**: Azure Speech → Voice BLoC → AI Processing → TTS → Audio Output
-- **Dynamic UI Engine**: Companion traits → Color algorithms → Fluid background themes → Real-time visual updates
-- **Dual State Management**: Separate MessageBloc for conversations and VoiceBloc for real-time voice
-- **Companion Visual System**: Each AI companion has unique color schemes, gradients, and animation characteristics
-- **Fluid Background Engine**: Time-based and personality-based dynamic water bubble animations
-- **Intelligent Caching**: Multi-layer caching system with voice session and visual theme optimization
-- **Companion Personality Engine**: AI companions with unique voice characteristics and visual identities
-- **Real-Time Synchronization**: Seamless data sync with conflict resolution and offline queuing
 
 
 ## 🚀 Future Roadmap
